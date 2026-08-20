@@ -9,6 +9,9 @@ import com.gtog.event.domain.model.Event;
 import com.gtog.event.domain.model.EventStatus;
 import com.gtog.event.domain.model.Modality;
 
+// DTO para el ANFITRION: expone el onlineAccess completo, sin filtrar por LinkVisibility. El endpoint publico
+// del invitado (/api/invitations/{token}, todavia sin implementar) necesitara su propio DTO que llame a
+// Event.visibleOnlineAccess(...) y omita el campo por completo cuando la regla de visibilidad no lo permita.
 public record EventResponse(
 
 		@Schema(description = "Identificador del evento", example = "68a1f2c9e4b0a1234567890a")
@@ -49,7 +52,14 @@ public record EventResponse(
 		boolean allowResponseChange,
 
 		@Schema(description = "Fecha limite para responder, en la zona horaria del evento", example = "2026-08-30T23:59:59")
-		LocalDateTime responseDeadline) {
+		LocalDateTime responseDeadline,
+
+		@Schema(description = "Ubicacion del evento, solo si modality es IN_PERSON")
+		VenueResponse venue,
+
+		@Schema(description = "Acceso en linea del evento, solo si modality es ONLINE. Sin filtrar por "
+				+ "LinkVisibility: esta es la vista del anfitrion, no la del invitado.")
+		OnlineAccessResponse onlineAccess) {
 
 	public static EventResponse from(Event event) {
 		return new EventResponse(
@@ -65,6 +75,8 @@ public record EventResponse(
 				event.getResponseOptions().stream().map(ResponseOptionResponse::from).toList(),
 				event.isAllowComment(),
 				event.isAllowResponseChange(),
-				event.getResponseDeadline());
+				event.getResponseDeadline(),
+				event.getVenue() == null ? null : VenueResponse.from(event.getVenue()),
+				event.getOnlineAccess() == null ? null : OnlineAccessResponse.from(event.getOnlineAccess()));
 	}
 }

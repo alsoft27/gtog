@@ -24,13 +24,15 @@ public class EventDocument {
 	private final boolean allowComment;
 	private final boolean allowResponseChange;
 	private final LocalDateTime responseDeadline;
+	private final VenueDocument venue;
+	private final OnlineAccessDocument onlineAccess;
 	@Version
 	private final Long version;
 
 	public EventDocument(String id, String hostId, String title, String description, LocalDateTime startsAt,
 			LocalDateTime endsAt, String timeZone, String modality, String status,
 			List<ResponseOptionDocument> responseOptions, boolean allowComment, boolean allowResponseChange,
-			LocalDateTime responseDeadline, Long version) {
+			LocalDateTime responseDeadline, VenueDocument venue, OnlineAccessDocument onlineAccess, Long version) {
 		this.id = id;
 		this.hostId = hostId;
 		this.title = title;
@@ -44,6 +46,8 @@ public class EventDocument {
 		this.allowComment = allowComment;
 		this.allowResponseChange = allowResponseChange;
 		this.responseDeadline = responseDeadline;
+		this.venue = venue;
+		this.onlineAccess = onlineAccess;
 		this.version = version;
 	}
 
@@ -97,6 +101,14 @@ public class EventDocument {
 
 	public LocalDateTime getResponseDeadline() {
 		return responseDeadline;
+	}
+
+	public VenueDocument getVenue() {
+		return venue;
+	}
+
+	public OnlineAccessDocument getOnlineAccess() {
+		return onlineAccess;
 	}
 
 	public Long getVersion() {

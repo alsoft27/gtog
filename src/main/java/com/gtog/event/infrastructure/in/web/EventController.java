@@ -27,14 +27,20 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.gtog.event.domain.model.Event;
+import com.gtog.event.domain.model.OnlineAccess;
 import com.gtog.event.domain.model.ResponseOptionDraft;
 import com.gtog.event.domain.model.ResponseOptionEdit;
+import com.gtog.event.domain.model.Venue;
 import com.gtog.event.domain.port.in.CreateEventCommand;
 import com.gtog.event.domain.port.in.CreateEventUseCase;
 import com.gtog.event.domain.port.in.GetEventByIdUseCase;
 import com.gtog.event.domain.port.in.ListEventsByHostUseCase;
+import com.gtog.event.domain.port.in.ReplaceOnlineAccessCommand;
+import com.gtog.event.domain.port.in.ReplaceOnlineAccessUseCase;
 import com.gtog.event.domain.port.in.ReplaceResponseOptionsCommand;
 import com.gtog.event.domain.port.in.ReplaceResponseOptionsUseCase;
+import com.gtog.event.domain.port.in.ReplaceVenueCommand;
+import com.gtog.event.domain.port.in.ReplaceVenueUseCase;
 
 @RestController
 @RequestMapping("/api/events")
@@ -45,14 +51,19 @@ public class EventController {
 	private final GetEventByIdUseCase getEventByIdUseCase;
 	private final ListEventsByHostUseCase listEventsByHostUseCase;
 	private final ReplaceResponseOptionsUseCase replaceResponseOptionsUseCase;
+	private final ReplaceVenueUseCase replaceVenueUseCase;
+	private final ReplaceOnlineAccessUseCase replaceOnlineAccessUseCase;
 
 	public EventController(CreateEventUseCase createEventUseCase, GetEventByIdUseCase getEventByIdUseCase,
 			ListEventsByHostUseCase listEventsByHostUseCase,
-			ReplaceResponseOptionsUseCase replaceResponseOptionsUseCase) {
+			ReplaceResponseOptionsUseCase replaceResponseOptionsUseCase, ReplaceVenueUseCase replaceVenueUseCase,
+			ReplaceOnlineAccessUseCase replaceOnlineAccessUseCase) {
 		this.createEventUseCase = createEventUseCase;
 		this.getEventByIdUseCase = getEventByIdUseCase;
 		this.listEventsByHostUseCase = listEventsByHostUseCase;
 		this.replaceResponseOptionsUseCase = replaceResponseOptionsUseCase;
+		this.replaceVenueUseCase = replaceVenueUseCase;
+		this.replaceOnlineAccessUseCase = replaceOnlineAccessUseCase;
 	}
 
 	@Operation(summary = "Crea un evento", description = "El anfitrion crea un evento nuevo. El evento se crea en "
@@ -76,6 +87,14 @@ public class EventController {
 				: request.responseOptions().stream()
 						.map(option -> new ResponseOptionDraft(option.label(), option.countsAsAttendance()))
 						.toList();
+		Venue venue = request.venue() == null ? null
+				: new Venue(request.venue().placeName(), request.venue().address(), request.venue().latitude(),
+						request.venue().longitude(), request.venue().placeId(), request.venue().directions());
+		OnlineAccess onlineAccess = request.onlineAccess() == null ? null
+				: new OnlineAccess(request.onlineAccess().platform(), request.onlineAccess().url(),
+						request.onlineAccess().roomId(), request.onlineAccess().password(),
+						request.onlineAccess().instructions(), request.onlineAccess().linkVisibility(),
+						request.onlineAccess().hoursBefore());
 		CreateEventCommand command = new CreateEventCommand(
 				request.hostId(),
 				request.title(),
@@ -87,7 +106,9 @@ public class EventController {
 				responseOptionDrafts,
 				request.allowComment(),
 				request.allowResponseChange(),
-				request.responseDeadline());
+				request.responseDeadline(),
+				venue,
+				onlineAccess);
 		Event event = createEventUseCase.createEvent(command);
 		return ResponseEntity.created(URI.create("/api/events/" + event.getId())).body(EventResponse.from(event));
 	}
@@ -154,5 +175,56 @@ public class EventController {
 		ReplaceResponseOptionsCommand command = new ReplaceResponseOptionsCommand(id, edits, request.allowComment(),
 				request.allowResponseChange(), request.responseDeadline());
 		return EventResponse.from(replaceResponseOptionsUseCase.replaceResponseOptions(command));
+	}
+
+	@Operation(summary = "Reemplaza la ubicacion de un evento presencial",
+			description = "Solo permitido mientras el evento esta en DRAFT y su modalidad es IN_PERSON.")
+	@ApiResponses({
+			@ApiResponse(responseCode = "200", description = "Ubicacion reemplazada. Devuelve el evento completo.",
+					content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
+							schema = @Schema(implementation = EventResponse.class))),
+			@ApiResponse(responseCode = "404", description = "No existe ningun evento con ese id.",
+					content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
+							schema = @Schema(implementation = ProblemDetail.class))),
+			@ApiResponse(responseCode = "409", description = "El evento no esta en DRAFT.",
+					content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
+							schema = @Schema(implementation = ProblemDetail.class))),
+			@ApiResponse(responseCode = "422", description = "Falta un campo obligatorio de la ubicacion, o el "
+					+ "evento es ONLINE y no admite ubicacion.",
+					content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
+							schema = @Schema(implementation = ProblemDetail.class))) })
+	@PutMapping("/{id}/venue")
+	public EventResponse replaceVenue(@PathVariable String id, @Valid @RequestBody VenueRequest request) {
+		Venue venue = new Venue(request.placeName(), request.address(), request.latitude(), request.longitude(),
+				request.placeId(), request.directions());
+		ReplaceVenueCommand command = new ReplaceVenueCommand(id, venue);
+		return EventResponse.from(replaceVenueUseCase.replaceVenue(command));
+	}
+
+	@Operation(summary = "Reemplaza el acceso en linea de un evento online",
+			description = "Solo permitido mientras el evento esta en DRAFT y su modalidad es ONLINE.")
+	@ApiResponses({
+			@ApiResponse(responseCode = "200", description = "Acceso en linea reemplazado. Devuelve el evento "
+					+ "completo, sin filtrar por LinkVisibility: es la vista del anfitrion.",
+					content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
+							schema = @Schema(implementation = EventResponse.class))),
+			@ApiResponse(responseCode = "404", description = "No existe ningun evento con ese id.",
+					content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
+							schema = @Schema(implementation = ProblemDetail.class))),
+			@ApiResponse(responseCode = "409", description = "El evento no esta en DRAFT.",
+					content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
+							schema = @Schema(implementation = ProblemDetail.class))),
+			@ApiResponse(responseCode = "422", description = "Falta un campo obligatorio, la url no es http o "
+					+ "https, hoursBefore no corresponde a linkVisibility, o el evento es IN_PERSON y no admite "
+					+ "acceso en linea.",
+					content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
+							schema = @Schema(implementation = ProblemDetail.class))) })
+	@PutMapping("/{id}/online-access")
+	public EventResponse replaceOnlineAccess(@PathVariable String id,
+			@Valid @RequestBody OnlineAccessRequest request) {
+		OnlineAccess onlineAccess = new OnlineAccess(request.platform(), request.url(), request.roomId(),
+				request.password(), request.instructions(), request.linkVisibility(), request.hoursBefore());
+		ReplaceOnlineAccessCommand command = new ReplaceOnlineAccessCommand(id, onlineAccess);
+		return EventResponse.from(replaceOnlineAccessUseCase.replaceOnlineAccess(command));
 	}
 }

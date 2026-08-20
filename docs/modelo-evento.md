@@ -1,17 +1,19 @@
 # Modelo de datos: Evento
 
-Estado del modelo tras las rebanadas implementadas hasta ahora: creación de eventos, consulta/listado (R1) y
-opciones de respuesta (R2). Todavía no existen invitados, respuestas ni muro social — ese es el motivo de que
-`Event` no tenga aún una lista de invitados embebida, aunque la especificación (`docs/mvp-alcance-iteracion-1.md`)
-la contemple para más adelante.
+Estado del modelo tras las rebanadas implementadas hasta ahora: creación de eventos, consulta/listado (R1),
+opciones de respuesta (R2) y ubicación/acceso en línea (R3). Todavía no existen invitados, respuestas ni muro
+social — ese es el motivo de que `Event` no tenga aún una lista de invitados embebida, aunque la especificación
+(`docs/mvp-alcance-iteracion-1.md`) la contemple para más adelante.
 
 ---
 
 ## `Event` (agregado raíz)
 
-Vive en `com.gtog.event.domain.model.Event`. Es una clase plana, sin anotaciones de framework, con dos formas de
-construcción: `Event.create(...)` (valida todas las reglas de negocio, para eventos nuevos) y
-`Event.reconstitute(...)` (rehidrata un evento ya persistido sin repetir la validación).
+Vive en `com.gtog.event.domain.model.Event`. Es una clase plana, sin anotaciones de framework, con dos builders
+internos en vez de factory methods con parámetros posicionales (la lista de campos ya ha cambiado de forma en
+tres rebanadas seguidas): `Event.builder()...build()` valida todas las reglas de negocio, genera el id y aplica
+los valores por defecto, para eventos nuevos; `Event.reconstituteBuilder()...build()` rehidrata un evento ya
+persistido sin repetir ninguna validación.
 
 | Campo | Tipo | Descripción |
 |---|---|---|
@@ -27,6 +29,8 @@ construcción: `Event.create(...)` (valida todas las reglas de negocio, para eve
 | `allowComment` | `boolean` | Si el invitado puede añadir un comentario a su respuesta. Default `false`: es un dato personal que el anfitrión debe activar de forma consciente. |
 | `allowResponseChange` | `boolean` | Si el invitado puede cambiar su respuesta tras enviarla. Default `true`. |
 | `responseDeadline` | `LocalDateTime` (nullable) | Fecha límite para responder, en la hora local del evento. Si viene, no puede ser posterior a `startsAt` (`InvalidResponseDeadlineException`). Sin valor por defecto. |
+| `venue` | `Venue` (nullable) | Ver más abajo. Obligatorio si `modality` es `IN_PERSON`, prohibido si es `ONLINE`. |
+| `onlineAccess` | `OnlineAccess` (nullable) | Ver más abajo. Obligatorio si `modality` es `ONLINE`, prohibido si es `IN_PERSON`. |
 | `version` | `Long` (nullable) | Bloqueo optimista de Mongo (`@Version`). `null` hasta el primer `save()`. |
 
 Métodos derivados: `startsAtInstant()` / `endsAtInstant()` calculan el instante UTC a partir de la hora local y
@@ -46,8 +50,23 @@ la zona.
 | Etiquetas de opción no vacías | `BlankResponseOptionLabelException` | 422 |
 | Etiquetas de opción sin duplicados en el mismo evento | `DuplicateResponseOptionLabelException` | 422 |
 | Al editar, un id de opción que no pertenece al evento se rechaza (no se crea como nueva) | `UnknownResponseOptionIdException` | 422 |
+| `IN_PERSON` requiere `venue` | `MissingVenueException` | 422 |
+| `IN_PERSON` prohíbe `onlineAccess` | `UnexpectedOnlineAccessException` | 422 |
+| `ONLINE` requiere `onlineAccess` | `MissingOnlineAccessException` | 422 |
+| `ONLINE` prohíbe `venue` | `UnexpectedVenueException` | 422 |
+| Campos obligatorios de `Venue` (`placeName`, `address`, `latitude`, `longitude`, `placeId`) | `MissingVenueFieldException` | 422 |
+| Campos obligatorios de `OnlineAccess` (`platform`, `url`, `linkVisibility`) | `MissingOnlineAccessFieldException` | 422 |
+| `url` de `OnlineAccess` debe ser `http`/`https` válida | `InvalidOnlineAccessUrlException` | 422 |
+| `hoursBefore` obligatorio si `linkVisibility` es `HOURS_BEFORE` | `MissingHoursBeforeException` | 422 |
+| `hoursBefore` debe ser `> 0` si aplica, y no debe enviarse si `linkVisibility` no es `HOURS_BEFORE` | `InvalidHoursBeforeException` | 422 |
 | Las opciones solo se pueden reemplazar mientras el evento está en `DRAFT` | `EventNotEditableException` | 409 |
 | El evento debe existir | `EventNotFoundException` | 404 |
+
+Las 4 reglas de modalidad (`Missing`/`Unexpected` × `Venue`/`OnlineAccess`) se reutilizan tal cual entre la
+creación del evento y los `PUT /api/events/{id}/venue` y `PUT /api/events/{id}/online-access`: "modalidad `ONLINE`
+con `venue` presente" es el mismo error semántico se dé en el `POST` inicial o al intentar fijar una ubicación
+después — por eso es 422 en ambos casos, no 409. El 409 se reserva estrictamente para el conflicto de estado que
+cubre `EventNotEditableException` (evento fuera de `DRAFT`).
 
 **Todas** heredan de `EventDomainException`, sin excepción: el dominio no sabe de códigos HTTP, solo expresa que
 algo viola una regla suya. Es el `@RestControllerAdvice` (`GlobalExceptionHandler`, en `shared`) quien decide el
@@ -101,20 +120,64 @@ a ese conjunto.
 
 ---
 
+## `Venue` (ubicación)
+
+`record` en `domain.model`. Todos los campos obligatorios salvo `directions`: `placeName`, `address`, `latitude`
+(`Double`, no `double` — para poder distinguir "no vino" de la coordenada real `0.0`), `longitude` (`Double`),
+`placeId`.
+
+**El backend no llama a la API de Google Maps ni a ninguna otra.** Confía en que el cliente ya ha resuelto el
+lugar (buscándolo, geocodificándolo) y manda los datos finales. No se valida que `placeId` exista de verdad ni
+que `latitude`/`longitude` sean coherentes con `address` — esa resolución es responsabilidad del cliente.
+
+## `OnlineAccess` (acceso en línea)
+
+`record` en `domain.model`. Obligatorios: `platform`, `url`, `linkVisibility`. Opcionales: `roomId`, `password`,
+`instructions`. `url` se valida como URL con esquema `http` o `https` (regla de dominio con `java.net.URI`, no
+una anotación Jakarta). `hoursBefore` (`Integer`) solo tiene sentido si `linkVisibility` es `HOURS_BEFORE`: en
+ese caso es obligatorio y debe ser mayor que cero; en cualquier otro modo, si se envía, se rechaza — mandar un
+dato que no se va a usar indica que el cliente entendió mal la API.
+
+### `LinkVisibility`
+
+```java
+LinkVisibility { ON_CONFIRMATION, HOURS_BEFORE, ALWAYS }
+```
+
+### Visibilidad del enlace: `Event.visibleOnlineAccess(...)`
+
+```java
+public Optional<OnlineAccess> visibleOnlineAccess(boolean guestHasConfirmed, Instant now)
+```
+
+Devuelve el `OnlineAccess` si procede mostrarlo, o `Optional.empty()` en caso contrario (evento presencial, o la
+regla de `LinkVisibility` todavía no lo permite) — así quien llama no puede olvidarse de comprobar un booleano
+antes de leer el enlace. Recibe `now` **como parámetro**, nunca `Instant.now()` internamente, para que el
+resultado sea determinista y comprobable en tests.
+
+Esta rebanada solo prueba el método a nivel de dominio: no hay invitados todavía, así que no hay quien llame con
+un `guestHasConfirmed` real. Cuando exista el endpoint público del invitado, su DTO de respuesta deberá usar este
+método (ver el comentario en `EventResponse`, que expone el `onlineAccess` completo sin filtrar por ser la vista
+del anfitrión).
+
+---
+
 ## Enums
 
 ```java
-EventStatus { DRAFT, PUBLISHED, FINISHED, CANCELLED }   // hoy solo se usa DRAFT; no hay transición implementada
-Modality    { IN_PERSON, ONLINE }
+EventStatus    { DRAFT, PUBLISHED, FINISHED, CANCELLED }   // hoy solo se usa DRAFT; no hay transición implementada
+Modality       { IN_PERSON, ONLINE }
+LinkVisibility { ON_CONFIRMATION, HOURS_BEFORE, ALWAYS }
 ```
 
 ---
 
 ## Persistencia (`events`)
 
-`EventDocument` (en `infrastructure/out/persistence`) espeja `Event` campo a campo, con `ResponseOptionDocument`
-como clase embebida (sin `@Document` propio, sin colección aparte). `EventMapper` traduce en ambos sentidos;
-`modality` y `status` se guardan como `String` (nombre del enum), nunca como ordinal.
+`EventDocument` (en `infrastructure/out/persistence`) espeja `Event` campo a campo, con `ResponseOptionDocument`,
+`VenueDocument` y `OnlineAccessDocument` como clases embebidas (sin `@Document` propio, sin colección aparte).
+`EventMapper` traduce en ambos sentidos; `modality`, `status` y `linkVisibility` se guardan como `String` (nombre
+del enum), nunca como ordinal.
 
 Índice creado en el arranque (`MongoIndexInitializer`, en `shared/config`, idempotente vía
 `MongoTemplate.indexOps(...).createIndex(...)`):
@@ -134,6 +197,8 @@ Pendiente para cuando exista la colección `guests` embebida en `events`: el ín
 | `GetEventByIdUseCase` | `EventQueryService` | Devuelve el evento completo o lanza `EventNotFoundException`. |
 | `ListEventsByHostUseCase` | `EventQueryService` | Lista los eventos de un `hostId`, sin paginación. |
 | `ReplaceResponseOptionsUseCase` | `ReplaceResponseOptionsService` | Busca el evento, delega la sustitución de opciones en el propio `Event` y lo guarda. |
+| `ReplaceVenueUseCase` | `EventLocationService` | Busca el evento, delega en `event.replaceVenue(...)` y lo guarda. |
+| `ReplaceOnlineAccessUseCase` | `EventLocationService` | Busca el evento, delega en `event.replaceOnlineAccess(...)` y lo guarda. |
 
 `EventRepositoryPort` (`port/out`): `save`, `findById`, `findByHostId`. Implementado por `EventRepositoryAdapter`
 sobre `EventMongoRepository` (Spring Data).
@@ -148,6 +213,8 @@ sobre `EventMongoRepository` (Spring Data).
 | `GET` | `/api/events/{id}` | — | `200` (`EventResponse` completo), `404` |
 | `GET` | `/api/events?hostId=` | `hostId` obligatorio (temporal, hasta que exista el usuario autenticado) | `200` (lista de `EventSummaryResponse`: `id`, `title`, `startsAt`, `modality`, `status`), `400` si falta `hostId` |
 | `PUT` | `/api/events/{id}/response-options` | `ReplaceResponseOptionsRequest` (lista completa + `allowComment` + `allowResponseChange` + `responseDeadline`) | `200` (`EventResponse` completo), `404`, `409`, `422` |
+| `PUT` | `/api/events/{id}/venue` | `VenueRequest` | `200` (`EventResponse` completo), `404`, `409` (no `DRAFT`), `422` (falta campo obligatorio o el evento es `ONLINE`) |
+| `PUT` | `/api/events/{id}/online-access` | `OnlineAccessRequest` | `200` (`EventResponse` completo), `404`, `409` (no `DRAFT`), `422` (falta campo obligatorio, url inválida, `hoursBefore` incoherente, o el evento es `IN_PERSON`) |
 
 Documentado también en OpenAPI (`/v3/api-docs`, `/swagger-ui.html`), ver sección "Documentación de API" en
 `CLAUDE.md`.
@@ -160,4 +227,6 @@ Documentado también en OpenAPI (`/v3/api-docs`, `/swagger-ui.html`), ver secci�
 - Respuestas de invitado (`GuestResponse`, colección `responses`).
 - Transición de `Event` fuera de `DRAFT` (publicar, finalizar, cancelar) — no hay caso de uso todavía, por eso el
   409 de "opciones no editables" solo se prueba a nivel de dominio y no de extremo a extremo.
-- Muro social, ubicación/acceso en línea, acompañantes, check-in: iteración 2 o posteriores.
+- Cambiar la `modality` de un evento ya creado: llega con R4 (editar evento), y ahí habrá que decidir
+  explícitamente que cambiar de modalidad descarta los datos de la otra (`venue` u `onlineAccess`).
+- Muro social, acompañantes, check-in: iteración 2 o posteriores.

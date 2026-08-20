@@ -18,9 +18,21 @@ public class CreateEventService implements CreateEventUseCase {
 
 	@Override
 	public Event createEvent(CreateEventCommand command) {
-		Event event = Event.create(command.hostId(), command.title(), command.description(), command.startsAt(),
-				command.endsAt(), command.timeZone(), command.modality(), command.responseOptions(),
-				command.allowComment(), command.allowResponseChange(), command.responseDeadline());
+		Event event = Event.builder()
+				.hostId(command.hostId())
+				.title(command.title())
+				.description(command.description())
+				.startsAt(command.startsAt())
+				.endsAt(command.endsAt())
+				.timeZone(command.timeZone())
+				.modality(command.modality())
+				.responseOptions(command.responseOptions())
+				.allowComment(command.allowComment())
+				.allowResponseChange(command.allowResponseChange())
+				.responseDeadline(command.responseDeadline())
+				.venue(command.venue())
+				.onlineAccess(command.onlineAccess())
+				.build();
 		return eventRepositoryPort.save(event);
 	}
 }

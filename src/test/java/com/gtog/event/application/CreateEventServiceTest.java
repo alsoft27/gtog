@@ -13,6 +13,7 @@ import com.gtog.event.domain.model.Event;
 import com.gtog.event.domain.model.EventStatus;
 import com.gtog.event.domain.model.Modality;
 import com.gtog.event.domain.model.ResponseOption;
+import com.gtog.event.domain.model.Venue;
 import com.gtog.event.domain.port.in.CreateEventCommand;
 import com.gtog.event.domain.port.out.EventRepositoryPort;
 
@@ -27,6 +28,8 @@ class CreateEventServiceTest {
 
 	@Test
 	void createsADraftEventAndDelegatesPersistenceToTheRepositoryPort() {
+		Venue venue = new Venue("Sala Apolo", "Carrer Nou de la Rambla, 113, Barcelona", 41.3767, 2.1662,
+				"ChIJT7Xj1uOipBIRdKY0X_0V7Xk", null);
 		CreateEventCommand command = new CreateEventCommand(
 				"host-1",
 				"Cumpleaños",
@@ -38,12 +41,26 @@ class CreateEventServiceTest {
 				null,
 				null,
 				null,
+				null,
+				venue,
 				null);
 		List<ResponseOption> responseOptions = List.of(ResponseOption.create("Asisto", true),
 				ResponseOption.create("No asisto", false));
-		Event savedEvent = Event.reconstitute("event-1", command.hostId(), command.title(), command.description(),
-				command.startsAt(), command.endsAt(), command.timeZone(), command.modality(), EventStatus.DRAFT,
-				responseOptions, false, true, null, 0L);
+		Event savedEvent = Event.reconstituteBuilder()
+				.id("event-1")
+				.hostId(command.hostId())
+				.title(command.title())
+				.description(command.description())
+				.startsAt(command.startsAt())
+				.endsAt(command.endsAt())
+				.timeZone(command.timeZone())
+				.modality(command.modality())
+				.status(EventStatus.DRAFT)
+				.responseOptions(responseOptions)
+				.allowComment(false)
+				.allowResponseChange(true)
+				.version(0L)
+				.build();
 		ArgumentCaptor<Event> eventCaptor = ArgumentCaptor.forClass(Event.class);
 		when(eventRepositoryPort.save(eventCaptor.capture())).thenReturn(savedEvent);
 

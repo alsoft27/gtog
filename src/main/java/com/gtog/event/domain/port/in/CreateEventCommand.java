@@ -4,7 +4,9 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import com.gtog.event.domain.model.Modality;
+import com.gtog.event.domain.model.OnlineAccess;
 import com.gtog.event.domain.model.ResponseOptionDraft;
+import com.gtog.event.domain.model.Venue;
 
 public record CreateEventCommand(
 		String hostId,
@@ -17,5 +19,7 @@ public record CreateEventCommand(
 		List<ResponseOptionDraft> responseOptions,
 		Boolean allowComment,
 		Boolean allowResponseChange,
-		LocalDateTime responseDeadline) {
+		LocalDateTime responseDeadline,
+		Venue venue,
+		OnlineAccess onlineAccess) {
 }

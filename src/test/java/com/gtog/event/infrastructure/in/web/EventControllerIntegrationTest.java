@@ -30,6 +30,22 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @ActiveProfiles("test")
 class EventControllerIntegrationTest {
 
+	private static final String VENUE_JSON = """
+			{
+			  "placeName": "Sala Apolo",
+			  "address": "Carrer Nou de la Rambla, 113, Barcelona",
+			  "latitude": 41.3767,
+			  "longitude": 2.1662,
+			  "placeId": "ChIJT7Xj1uOipBIRdKY0X_0V7Xk"
+			}""";
+
+	private static final String ONLINE_ACCESS_JSON = """
+			{
+			  "platform": "Zoom",
+			  "url": "https://zoom.us/j/123456789",
+			  "linkVisibility": "ALWAYS"
+			}""";
+
 	@Autowired
 	private MockMvc mockMvc;
 
@@ -51,9 +67,10 @@ class EventControllerIntegrationTest {
 				  "startsAt": "2026-09-01T20:00:00",
 				  "endsAt": "2026-09-01T23:00:00",
 				  "timeZone": "Europe/Madrid",
-				  "modality": "IN_PERSON"
+				  "modality": "IN_PERSON",
+				  "venue": %s
 				}
-				""";
+				""".formatted(VENUE_JSON);
 
 		mockMvc.perform(post("/api/events").contentType(MediaType.APPLICATION_JSON).content(requestBody))
 				.andExpect(status().isCreated())
@@ -230,9 +247,10 @@ class EventControllerIntegrationTest {
 				    { "label": "No voy", "countsAsAttendance": false },
 				    { "label": "Quizas", "countsAsAttendance": false }
 				  ],
-				  "allowComment": true
+				  "allowComment": true,
+				  "venue": %s
 				}
-				""";
+				""".formatted(VENUE_JSON);
 
 		String location = mockMvc
 				.perform(post("/api/events").contentType(MediaType.APPLICATION_JSON).content(requestBody))
@@ -358,6 +376,148 @@ class EventControllerIntegrationTest {
 				.andExpect(status().isNotFound());
 	}
 
+	@Test
+	void returns422WhenInPersonEventHasNoVenue() throws Exception {
+		String requestBody = """
+				{
+				  "hostId": "host-1",
+				  "title": "Cumpleaños",
+				  "startsAt": "2026-09-01T20:00:00",
+				  "endsAt": "2026-09-01T23:00:00",
+				  "timeZone": "Europe/Madrid",
+				  "modality": "IN_PERSON"
+				}
+				""";
+
+		mockMvc.perform(post("/api/events").contentType(MediaType.APPLICATION_JSON).content(requestBody))
+				.andExpect(status().isUnprocessableEntity());
+
+		assertThat(eventMongoRepository.findAll()).isEmpty();
+	}
+
+	@Test
+	void createsAnOnlineEventWithOnlineAccessAndReturns201() throws Exception {
+		String location = createOnlineEvent("host-1", "Charla online");
+
+		mockMvc.perform(get(location))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.modality").value("ONLINE"))
+				.andExpect(jsonPath("$.onlineAccess.platform").value("Zoom"))
+				.andExpect(jsonPath("$.onlineAccess.url").value("https://zoom.us/j/123456789"))
+				.andExpect(jsonPath("$.venue").doesNotExist());
+	}
+
+	@Test
+	void returns422WhenOnlineEventHasNoOnlineAccess() throws Exception {
+		String requestBody = """
+				{
+				  "hostId": "host-1",
+				  "title": "Charla online",
+				  "startsAt": "2026-09-01T20:00:00",
+				  "endsAt": "2026-09-01T23:00:00",
+				  "timeZone": "Europe/Madrid",
+				  "modality": "ONLINE"
+				}
+				""";
+
+		mockMvc.perform(post("/api/events").contentType(MediaType.APPLICATION_JSON).content(requestBody))
+				.andExpect(status().isUnprocessableEntity());
+
+		assertThat(eventMongoRepository.findAll()).isEmpty();
+	}
+
+	@Test
+	void replaceVenueUpdatesTheVenueAndReturns200() throws Exception {
+		String location = createEvent("host-1", "Cumpleaños");
+		String eventId = location.substring(location.lastIndexOf('/') + 1);
+
+		String requestBody = """
+				{
+				  "placeName": "Otra sala",
+				  "address": "Otra direccion",
+				  "latitude": 0.0,
+				  "longitude": 0.0,
+				  "placeId": "other-place-id"
+				}
+				""";
+
+		mockMvc.perform(put("/api/events/" + eventId + "/venue")
+				.contentType(MediaType.APPLICATION_JSON).content(requestBody))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.venue.placeName").value("Otra sala"));
+	}
+
+	@Test
+	void replaceVenueReturns404WhenTheEventDoesNotExist() throws Exception {
+		mockMvc.perform(put("/api/events/does-not-exist/venue")
+				.contentType(MediaType.APPLICATION_JSON).content(VENUE_JSON))
+				.andExpect(status().isNotFound());
+	}
+
+	@Test
+	void replaceVenueReturns422WhenTheEventIsOnline() throws Exception {
+		String location = createOnlineEvent("host-1", "Charla online");
+		String eventId = location.substring(location.lastIndexOf('/') + 1);
+
+		mockMvc.perform(put("/api/events/" + eventId + "/venue")
+				.contentType(MediaType.APPLICATION_JSON).content(VENUE_JSON))
+				.andExpect(status().isUnprocessableEntity());
+	}
+
+	@Test
+	void replaceOnlineAccessUpdatesItAndReturns200() throws Exception {
+		String location = createOnlineEvent("host-1", "Charla online");
+		String eventId = location.substring(location.lastIndexOf('/') + 1);
+
+		String requestBody = """
+				{
+				  "platform": "Teams",
+				  "url": "https://teams.microsoft.com/x",
+				  "linkVisibility": "ALWAYS"
+				}
+				""";
+
+		mockMvc.perform(put("/api/events/" + eventId + "/online-access")
+				.contentType(MediaType.APPLICATION_JSON).content(requestBody))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.onlineAccess.platform").value("Teams"));
+	}
+
+	@Test
+	void replaceOnlineAccessReturns404WhenTheEventDoesNotExist() throws Exception {
+		mockMvc.perform(put("/api/events/does-not-exist/online-access")
+				.contentType(MediaType.APPLICATION_JSON).content(ONLINE_ACCESS_JSON))
+				.andExpect(status().isNotFound());
+	}
+
+	@Test
+	void replaceOnlineAccessReturns422WhenTheEventIsInPerson() throws Exception {
+		String location = createEvent("host-1", "Cumpleaños");
+		String eventId = location.substring(location.lastIndexOf('/') + 1);
+
+		mockMvc.perform(put("/api/events/" + eventId + "/online-access")
+				.contentType(MediaType.APPLICATION_JSON).content(ONLINE_ACCESS_JSON))
+				.andExpect(status().isUnprocessableEntity());
+	}
+
+	private String createOnlineEvent(String hostId, String title) throws Exception {
+		String requestBody = """
+				{
+				  "hostId": "%s",
+				  "title": "%s",
+				  "startsAt": "2026-09-01T20:00:00",
+				  "endsAt": "2026-09-01T23:00:00",
+				  "timeZone": "Europe/Madrid",
+				  "modality": "ONLINE",
+				  "onlineAccess": %s
+				}
+				""".formatted(hostId, title, ONLINE_ACCESS_JSON);
+
+		return mockMvc.perform(post("/api/events").contentType(MediaType.APPLICATION_JSON).content(requestBody))
+				.andExpect(status().isCreated())
+				.andReturn().getResponse().getHeader("Location");
+	}
+
 	private String createEvent(String hostId, String title) throws Exception {
 		String requestBody = """
 				{
@@ -366,9 +526,10 @@ class EventControllerIntegrationTest {
 				  "startsAt": "2026-09-01T20:00:00",
 				  "endsAt": "2026-09-01T23:00:00",
 				  "timeZone": "Europe/Madrid",
-				  "modality": "IN_PERSON"
+				  "modality": "IN_PERSON",
+				  "venue": %s
 				}
-				""".formatted(hostId, title);
+				""".formatted(hostId, title, VENUE_JSON);
 
 		return mockMvc.perform(post("/api/events").contentType(MediaType.APPLICATION_JSON).content(requestBody))
 				.andReturn().getResponse().getHeader("Location");

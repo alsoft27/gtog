@@ -51,5 +51,12 @@ public record CreateEventRequest(
 
 		@Schema(description = "Fecha limite para responder, en la zona horaria del evento; no puede ser posterior "
 				+ "a startsAt. Sin valor por defecto.", example = "2026-08-30T23:59:59")
-		LocalDateTime responseDeadline) {
+		LocalDateTime responseDeadline,
+
+		@Schema(description = "Ubicacion del evento. Obligatoria si modality es IN_PERSON, prohibida si es ONLINE.")
+		VenueRequest venue,
+
+		@Schema(description = "Acceso en linea del evento. Obligatorio si modality es ONLINE, prohibido si es "
+				+ "IN_PERSON.")
+		OnlineAccessRequest onlineAccess) {
 }

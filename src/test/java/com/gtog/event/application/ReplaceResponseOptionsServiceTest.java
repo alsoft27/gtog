@@ -65,8 +65,20 @@ class ReplaceResponseOptionsServiceTest {
 	private Event anEvent(String id) {
 		List<ResponseOption> responseOptions = List.of(ResponseOption.create("Asisto", true),
 				ResponseOption.create("No asisto", false));
-		return Event.reconstitute(id, "host-1", "Cumpleaños", "Descripción", LocalDateTime.of(2026, 9, 1, 20, 0),
-				LocalDateTime.of(2026, 9, 1, 23, 0), "Europe/Madrid", Modality.IN_PERSON, EventStatus.DRAFT,
-				responseOptions, false, true, null, 0L);
+		return Event.reconstituteBuilder()
+				.id(id)
+				.hostId("host-1")
+				.title("Cumpleaños")
+				.description("Descripción")
+				.startsAt(LocalDateTime.of(2026, 9, 1, 20, 0))
+				.endsAt(LocalDateTime.of(2026, 9, 1, 23, 0))
+				.timeZone("Europe/Madrid")
+				.modality(Modality.IN_PERSON)
+				.status(EventStatus.DRAFT)
+				.responseOptions(responseOptions)
+				.allowComment(false)
+				.allowResponseChange(true)
+				.version(0L)
+				.build();
 	}
 }

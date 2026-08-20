@@ -1,7 +1,9 @@
 package com.gtog.event.domain.model;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 
 import org.junit.jupiter.api.Test;
@@ -50,42 +52,50 @@ class EventTest {
 	void doesNotAllowEndsAtBeforeStartsAt() {
 		LocalDateTime endsAt = STARTS_AT.minusHours(1);
 
-		assertThatThrownBy(() -> Event.create("host-1", "Cumpleaños", "Descripción", STARTS_AT, endsAt, TIME_ZONE,
-				Modality.IN_PERSON, null, null, null, null)).isInstanceOf(InvalidEventPeriodException.class);
+		assertThatThrownBy(() -> baseBuilder().endsAt(endsAt).build())
+				.isInstanceOf(InvalidEventPeriodException.class);
 	}
 
 	@Test
 	void doesNotAllowEndsAtEqualToStartsAt() {
-		assertThatThrownBy(() -> Event.create("host-1", "Cumpleaños", "Descripción", STARTS_AT, STARTS_AT, TIME_ZONE,
-				Modality.IN_PERSON, null, null, null, null)).isInstanceOf(InvalidEventPeriodException.class);
+		assertThatThrownBy(() -> baseBuilder().endsAt(STARTS_AT).build())
+				.isInstanceOf(InvalidEventPeriodException.class);
 	}
 
 	@Test
 	void rejectsInvalidTimeZone() {
-		assertThatThrownBy(() -> Event.create("host-1", "Cumpleaños", "Descripción", STARTS_AT, ENDS_AT,
-				"Not/AZone", Modality.IN_PERSON, null, null, null, null))
+		assertThatThrownBy(() -> baseBuilder().timeZone("Not/AZone").build())
 				.isInstanceOf(InvalidTimeZoneException.class);
 	}
 
 	@Test
 	void rejectsNullTitle() {
-		assertThatThrownBy(() -> Event.create("host-1", null, "Descripción", STARTS_AT, ENDS_AT, TIME_ZONE,
-				Modality.IN_PERSON, null, null, null, null))
-				.isInstanceOf(BlankEventTitleException.class);
+		assertThatThrownBy(() -> baseBuilder().title(null).build()).isInstanceOf(BlankEventTitleException.class);
 	}
 
 	@Test
 	void rejectsBlankTitle() {
-		assertThatThrownBy(() -> Event.create("host-1", "   ", "Descripción", STARTS_AT, ENDS_AT, TIME_ZONE,
-				Modality.IN_PERSON, null, null, null, null))
-				.isInstanceOf(BlankEventTitleException.class);
+		assertThatThrownBy(() -> baseBuilder().title("   ").build()).isInstanceOf(BlankEventTitleException.class);
 	}
 
 	@Test
 	void reconstitutesAnExistingEventWithoutRevalidating() {
 		List<ResponseOption> responseOptions = List.of(ResponseOption.create("Asisto", true));
-		Event event = Event.reconstitute("event-1", "host-1", "Cumpleaños", "Descripción", STARTS_AT, ENDS_AT,
-				TIME_ZONE, Modality.IN_PERSON, EventStatus.PUBLISHED, responseOptions, true, false, null, 3L);
+		Event event = Event.reconstituteBuilder()
+				.id("event-1")
+				.hostId("host-1")
+				.title("Cumpleaños")
+				.description("Descripción")
+				.startsAt(STARTS_AT)
+				.endsAt(ENDS_AT)
+				.timeZone(TIME_ZONE)
+				.modality(Modality.IN_PERSON)
+				.status(EventStatus.PUBLISHED)
+				.responseOptions(responseOptions)
+				.allowComment(true)
+				.allowResponseChange(false)
+				.version(3L)
+				.build();
 
 		assertThat(event.getId()).isEqualTo("event-1");
 		assertThat(event.getStatus()).isEqualTo(EventStatus.PUBLISHED);
@@ -175,8 +185,7 @@ class EventTest {
 
 	@Test
 	void createHonoursExplicitAllowCommentAndAllowResponseChange() {
-		Event event = Event.create("host-1", "Cumpleaños", "Descripción", STARTS_AT, ENDS_AT, TIME_ZONE,
-				Modality.IN_PERSON, null, true, false, null);
+		Event event = baseBuilder().allowComment(true).allowResponseChange(false).build();
 
 		assertThat(event.isAllowComment()).isTrue();
 		assertThat(event.isAllowResponseChange()).isFalse();
@@ -186,15 +195,13 @@ class EventTest {
 	void createRejectsResponseDeadlineAfterStartsAt() {
 		LocalDateTime deadline = STARTS_AT.plusMinutes(1);
 
-		assertThatThrownBy(() -> Event.create("host-1", "Cumpleaños", "Descripción", STARTS_AT, ENDS_AT, TIME_ZONE,
-				Modality.IN_PERSON, null, null, null, deadline))
+		assertThatThrownBy(() -> baseBuilder().responseDeadline(deadline).build())
 				.isInstanceOf(InvalidResponseDeadlineException.class);
 	}
 
 	@Test
 	void createAcceptsResponseDeadlineEqualToStartsAt() {
-		Event event = Event.create("host-1", "Cumpleaños", "Descripción", STARTS_AT, ENDS_AT, TIME_ZONE,
-				Modality.IN_PERSON, null, null, null, STARTS_AT);
+		Event event = baseBuilder().responseDeadline(STARTS_AT).build();
 
 		assertThat(event.getResponseDeadline()).isEqualTo(STARTS_AT);
 	}
@@ -270,8 +277,21 @@ class EventTest {
 	void doesNotAllowReplacingResponseOptionsWhenEventIsNotDraft() {
 		List<ResponseOption> responseOptions = List.of(ResponseOption.create("Asisto", true),
 				ResponseOption.create("No asisto", false));
-		Event event = Event.reconstitute("event-1", "host-1", "Cumpleaños", "Descripción", STARTS_AT, ENDS_AT,
-				TIME_ZONE, Modality.IN_PERSON, EventStatus.PUBLISHED, responseOptions, false, true, null, 0L);
+		Event event = Event.reconstituteBuilder()
+				.id("event-1")
+				.hostId("host-1")
+				.title("Cumpleaños")
+				.description("Descripción")
+				.startsAt(STARTS_AT)
+				.endsAt(ENDS_AT)
+				.timeZone(TIME_ZONE)
+				.modality(Modality.IN_PERSON)
+				.status(EventStatus.PUBLISHED)
+				.responseOptions(responseOptions)
+				.allowComment(false)
+				.allowResponseChange(true)
+				.version(0L)
+				.build();
 
 		assertThatThrownBy(() -> event.replaceResponseOptions(List.of(
 				new ResponseOptionEdit(null, "Asisto", true),
@@ -279,12 +299,169 @@ class EventTest {
 				.isInstanceOf(EventNotEditableException.class);
 	}
 
+	@Test
+	void createRejectsInPersonEventWithoutVenue() {
+		assertThatThrownBy(() -> baseBuilder().venue(null).build()).isInstanceOf(MissingVenueException.class);
+	}
+
+	@Test
+	void createRejectsInPersonEventWithOnlineAccess() {
+		assertThatThrownBy(() -> baseBuilder().onlineAccess(anOnlineAccess()).build())
+				.isInstanceOf(UnexpectedOnlineAccessException.class);
+	}
+
+	@Test
+	void createRejectsOnlineEventWithoutOnlineAccess() {
+		assertThatThrownBy(() -> baseBuilder().modality(Modality.ONLINE).venue(null).build())
+				.isInstanceOf(MissingOnlineAccessException.class);
+	}
+
+	@Test
+	void createRejectsOnlineEventWithVenue() {
+		assertThatThrownBy(() -> baseBuilder().modality(Modality.ONLINE).onlineAccess(anOnlineAccess()).build())
+				.isInstanceOf(UnexpectedVenueException.class);
+	}
+
+	@Test
+	void createAcceptsOnlineEventWithOnlineAccessAndNoVenue() {
+		Event event = baseBuilder().modality(Modality.ONLINE).venue(null).onlineAccess(anOnlineAccess()).build();
+
+		assertThat(event.getOnlineAccess()).isEqualTo(anOnlineAccess());
+		assertThat(event.getVenue()).isNull();
+	}
+
+	@Test
+	void replaceVenueUpdatesTheVenueWhileInPersonAndDraft() {
+		Event event = createEvent();
+		Venue newVenue = new Venue("Otra sala", "Otra direccion", 0.0, 0.0, "other-place-id", null);
+
+		event.replaceVenue(newVenue);
+
+		assertThat(event.getVenue()).isEqualTo(newVenue);
+	}
+
+	@Test
+	void replaceVenueRejectsWhenEventIsNotDraft() {
+		Event event = Event.reconstituteBuilder()
+				.id("event-1")
+				.hostId("host-1")
+				.title("Cumpleaños")
+				.description("Descripción")
+				.startsAt(STARTS_AT)
+				.endsAt(ENDS_AT)
+				.timeZone(TIME_ZONE)
+				.modality(Modality.IN_PERSON)
+				.status(EventStatus.PUBLISHED)
+				.responseOptions(List.of(ResponseOption.create("Asisto", true)))
+				.allowComment(false)
+				.allowResponseChange(true)
+				.venue(aVenue())
+				.version(0L)
+				.build();
+
+		assertThatThrownBy(() -> event.replaceVenue(aVenue())).isInstanceOf(EventNotEditableException.class);
+	}
+
+	@Test
+	void replaceVenueRejectsWhenEventIsOnline() {
+		Event event = baseBuilder().modality(Modality.ONLINE).venue(null).onlineAccess(anOnlineAccess()).build();
+
+		assertThatThrownBy(() -> event.replaceVenue(aVenue())).isInstanceOf(UnexpectedVenueException.class);
+	}
+
+	@Test
+	void replaceOnlineAccessUpdatesItWhileOnlineAndDraft() {
+		Event event = baseBuilder().modality(Modality.ONLINE).venue(null).onlineAccess(anOnlineAccess()).build();
+		OnlineAccess newOnlineAccess = new OnlineAccess("Teams", "https://teams.microsoft.com/x", null, null, null,
+				LinkVisibility.ALWAYS, null);
+
+		event.replaceOnlineAccess(newOnlineAccess);
+
+		assertThat(event.getOnlineAccess()).isEqualTo(newOnlineAccess);
+	}
+
+	@Test
+	void replaceOnlineAccessRejectsWhenEventIsInPerson() {
+		Event event = createEvent();
+
+		assertThatThrownBy(() -> event.replaceOnlineAccess(anOnlineAccess()))
+				.isInstanceOf(UnexpectedOnlineAccessException.class);
+	}
+
+	@Test
+	void visibleOnlineAccessIsEmptyWhenEventHasNoOnlineAccess() {
+		Event event = createEvent();
+
+		assertThat(event.visibleOnlineAccess(true, Instant.now())).isEmpty();
+	}
+
+	@Test
+	void visibleOnlineAccessIsAlwaysVisible() {
+		OnlineAccess onlineAccess = new OnlineAccess("Zoom", "https://zoom.us/j/123", null, null, null,
+				LinkVisibility.ALWAYS, null);
+		Event event = baseBuilder().modality(Modality.ONLINE).venue(null).onlineAccess(onlineAccess).build();
+
+		assertThat(event.visibleOnlineAccess(false, STARTS_AT.minusYears(1).atZone(ZoneOffset.of("+02:00")).toInstant()))
+				.contains(onlineAccess);
+	}
+
+	@Test
+	void visibleOnlineAccessOnConfirmationRequiresGuestToHaveConfirmed() {
+		OnlineAccess onlineAccess = new OnlineAccess("Zoom", "https://zoom.us/j/123", null, null, null,
+				LinkVisibility.ON_CONFIRMATION, null);
+		Event event = baseBuilder().modality(Modality.ONLINE).venue(null).onlineAccess(onlineAccess).build();
+		Instant now = STARTS_AT.atZone(ZoneOffset.of("+02:00")).toInstant();
+
+		assertThat(event.visibleOnlineAccess(false, now)).isEmpty();
+		assertThat(event.visibleOnlineAccess(true, now)).contains(onlineAccess);
+	}
+
+	@Test
+	void visibleOnlineAccessHoursBeforeIsHiddenBeforeTheWindow() {
+		OnlineAccess onlineAccess = new OnlineAccess("Zoom", "https://zoom.us/j/123", null, null, null,
+				LinkVisibility.HOURS_BEFORE, 2);
+		Event event = baseBuilder().modality(Modality.ONLINE).venue(null).onlineAccess(onlineAccess).build();
+		Instant threeHoursBeforeStart = event.startsAtInstant().minus(3, ChronoUnit.HOURS);
+
+		assertThat(event.visibleOnlineAccess(true, threeHoursBeforeStart)).isEmpty();
+	}
+
+	@Test
+	void visibleOnlineAccessHoursBeforeIsVisibleInsideTheWindow() {
+		OnlineAccess onlineAccess = new OnlineAccess("Zoom", "https://zoom.us/j/123", null, null, null,
+				LinkVisibility.HOURS_BEFORE, 2);
+		Event event = baseBuilder().modality(Modality.ONLINE).venue(null).onlineAccess(onlineAccess).build();
+		Instant oneHourBeforeStart = event.startsAtInstant().minus(1, ChronoUnit.HOURS);
+
+		assertThat(event.visibleOnlineAccess(false, oneHourBeforeStart)).contains(onlineAccess);
+	}
+
 	private Event createEvent() {
-		return createEvent(null);
+		return baseBuilder().build();
 	}
 
 	private Event createEvent(List<ResponseOptionDraft> responseOptionDrafts) {
-		return Event.create("host-1", "Cumpleaños", "Descripción", STARTS_AT, ENDS_AT, TIME_ZONE, Modality.IN_PERSON,
-				responseOptionDrafts, null, null, null);
+		return baseBuilder().responseOptions(responseOptionDrafts).build();
+	}
+
+	private Event.Builder baseBuilder() {
+		return Event.builder()
+				.hostId("host-1")
+				.title("Cumpleaños")
+				.description("Descripción")
+				.startsAt(STARTS_AT)
+				.endsAt(ENDS_AT)
+				.timeZone(TIME_ZONE)
+				.modality(Modality.IN_PERSON)
+				.venue(aVenue());
+	}
+
+	private Venue aVenue() {
+		return new Venue("Sala Apolo", "Carrer Nou de la Rambla, 113, Barcelona", 41.3767, 2.1662,
+				"ChIJT7Xj1uOipBIRdKY0X_0V7Xk", null);
+	}
+
+	private OnlineAccess anOnlineAccess() {
+		return new OnlineAccess("Zoom", "https://zoom.us/j/123", null, null, null, LinkVisibility.ALWAYS, null);
 	}
 }
