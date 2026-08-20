@@ -31,3 +31,7 @@ build/
 
 ### VS Code ###
 .vscode/
+
+### gtog ###
+.env
+application-local.properties
