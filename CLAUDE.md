@@ -193,7 +193,8 @@ Las ediciones del anfitrión sobre el cuerpo del evento sí pueden usar `save()`
 
 ```java
 public record CreateEventRequest(
-    @NotBlank String title,
+    @NotBlank String hostId,
+    String title,
     @NotNull Instant startsAt,
     @NotNull Modality modality
 ) {}
@@ -205,7 +206,9 @@ public record CreateEventRequest(
 
 **Sin lógica de negocio en los controladores.** El controlador valida la entrada, llama al caso de uso y mapea el resultado.
 
-**La validación se reparte en dos sitios:** las anotaciones de Jakarta sobre el record de entrada cubren el formato; las reglas de negocio (mínimo dos opciones de respuesta, al menos una que cuente como asistencia, el evento debe estar en `DRAFT` para cambiar las opciones) viven en el dominio.
+**La validación se reparte en dos sitios:** las anotaciones de Jakarta sobre el record de entrada cubren el formato (tipos, rangos, patrones); las reglas de negocio (mínimo dos opciones de respuesta, al menos una que cuente como asistencia, el evento debe estar en `DRAFT` para cambiar las opciones) viven en el dominio.
+
+**Si la obligatoriedad de un campo es en sí una regla de negocio, no la captures con Jakarta.** Nada de `@NotBlank`/`@NotNull` en el DTO para ese campo: se valida en el dominio, con su propia excepción, y sale como 422. Si Jakarta la bloqueara antes, respondería 400 y la regla de negocio no llegaría nunca a ejecutarse — ni a poder probarse a través del controlador. Ejemplos ya en el código: `title` de `CreateEventRequest` (`BlankEventTitleException`), `label` de las opciones de respuesta (`BlankResponseOptionLabelException`), y los campos obligatorios de `Venue` y `OnlineAccess` (`MissingVenueFieldException`, `MissingOnlineAccessFieldException`). Por contraste, `hostId` sigue llevando `@NotBlank`: hoy es un campo suelto sin más significado de negocio que "tiene que venir algo".
 
 ---
 
@@ -243,13 +246,15 @@ El `@Bean OpenAPI` con el título, versión y descripción de la API vive en `sh
 
 ## Reglas de negocio que no se pueden romper
 
-1. **El enlace de la reunión en línea se filtra en el backend.** Si el invitado no cumple la regla de `LinkVisibility`, el campo se omite de la respuesta. Nunca lo envíes al cliente confiando en que Angular no lo pinte: viajaría en el JSON y sería legible desde las herramientas del navegador.
+Estas reglas son el contrato final del producto, no necesariamente lo que el código ya impone hoy: algunas dependen de rebanadas que todavía no existen. Cuando una regla tiene una parte pendiente, lo dice explícitamente — si esta sección afirmara algo que el código no cumple sin avisarlo, dejaría de servir para nada.
+
+1. **El enlace de la reunión en línea se filtra en el backend.** Si el invitado no cumple la regla de `LinkVisibility`, el campo se omite de la respuesta. Nunca lo envíes al cliente confiando en que Angular no lo pinte: viajaría en el JSON y sería legible desde las herramientas del navegador. La regla de dominio ya existe (`Event.visibleOnlineAccess(...)`, R3), pero todavía no la aplica ningún endpoint: el endpoint público del invitado es R7.
 
 2. **El token es la única credencial del invitado.** Criptográficamente aleatorio, largo, con índice único y revocable. Nunca derivado del identificador ni de datos del invitado.
 
 3. **El envío por WhatsApp y Telegram no es automático.** El backend construye el enlace profundo y lo devuelve; el envío real lo hace el anfitrión desde su cliente y lo confirma a mano. No implementes ni propongas integración con la API de WhatsApp Business.
 
-4. **Las opciones de respuesta las define el anfitrión.** No hay enum fijo de respuestas. Entre dos y cinco opciones, ordenadas, cada una marcando si cuenta como asistencia. Una vez publicado el evento, una opción con respuestas asociadas se puede renombrar pero no eliminar.
+4. **Las opciones de respuesta las define el anfitrión.** No hay enum fijo de respuestas. Entre dos y cinco opciones, ordenadas, cada una marcando si cuenta como asistencia — esta parte ya está implementada e impuesta por el dominio (R2). **Pendiente:** una vez publicado el evento, una opción con respuestas asociadas debería poder renombrarse pero no eliminarse; hoy `replaceResponseOptions(...)` no distingue eso y permite quitar cualquier opción, porque el dominio de `Event` todavía no conoce la colección `responses`. Es la deuda D-7 (`docs/plan-iteracion-1.md`), saldada en R8.
 
 5. **Un evento es presencial o en línea, nunca ambos.** La modalidad híbrida está fuera de alcance a propósito en esta iteración.
 
