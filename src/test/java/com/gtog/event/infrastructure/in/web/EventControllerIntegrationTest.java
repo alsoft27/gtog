@@ -294,9 +294,7 @@ class EventControllerIntegrationTest {
 				  "responseOptions": [
 				    { "label": "Voy", "countsAsAttendance": true },
 				    { "label": "No voy", "countsAsAttendance": false }
-				  ],
-				  "allowComment": true,
-				  "allowResponseChange": false
+				  ]
 				}
 				""";
 
@@ -304,9 +302,7 @@ class EventControllerIntegrationTest {
 				.contentType(MediaType.APPLICATION_JSON).content(requestBody))
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.responseOptions.length()").value(2))
-				.andExpect(jsonPath("$.responseOptions[0].label").value("Voy"))
-				.andExpect(jsonPath("$.allowComment").value(true))
-				.andExpect(jsonPath("$.allowResponseChange").value(false));
+				.andExpect(jsonPath("$.responseOptions[0].label").value("Voy"));
 	}
 
 	@Test
@@ -323,9 +319,7 @@ class EventControllerIntegrationTest {
 				  "responseOptions": [
 				    { "id": "%s", "label": "Asisto seguro", "countsAsAttendance": true },
 				    { "label": "No asisto", "countsAsAttendance": false }
-				  ],
-				  "allowComment": false,
-				  "allowResponseChange": true
+				  ]
 				}
 				""".formatted(firstOptionId);
 
@@ -346,9 +340,7 @@ class EventControllerIntegrationTest {
 				  "responseOptions": [
 				    { "id": "does-not-exist", "label": "Asisto", "countsAsAttendance": true },
 				    { "label": "No asisto", "countsAsAttendance": false }
-				  ],
-				  "allowComment": false,
-				  "allowResponseChange": true
+				  ]
 				}
 				""";
 
@@ -365,9 +357,7 @@ class EventControllerIntegrationTest {
 				  "responseOptions": [
 				    { "label": "Asisto", "countsAsAttendance": true },
 				    { "label": "No asisto", "countsAsAttendance": false }
-				  ],
-				  "allowComment": false,
-				  "allowResponseChange": true
+				  ]
 				}
 				""";
 
@@ -498,6 +488,191 @@ class EventControllerIntegrationTest {
 		mockMvc.perform(put("/api/events/" + eventId + "/online-access")
 				.contentType(MediaType.APPLICATION_JSON).content(ONLINE_ACCESS_JSON))
 				.andExpect(status().isUnprocessableEntity());
+	}
+
+	@Test
+	void replaceResponseOptionsReturns409WhenEventIsPublished() throws Exception {
+		String location = createEvent("host-1", "Cumpleaños");
+		String eventId = location.substring(location.lastIndexOf('/') + 1);
+		publishEvent(eventId);
+
+		String requestBody = """
+				{
+				  "responseOptions": [
+				    { "label": "Asisto", "countsAsAttendance": true },
+				    { "label": "No asisto", "countsAsAttendance": false }
+				  ]
+				}
+				""";
+
+		mockMvc.perform(put("/api/events/" + eventId + "/response-options")
+				.contentType(MediaType.APPLICATION_JSON).content(requestBody))
+				.andExpect(status().isConflict())
+				.andExpect(jsonPath("$.status").value(409));
+	}
+
+	@Test
+	void updateEventReturns200WithUpdatedFields() throws Exception {
+		String location = createEvent("host-1", "Cumpleaños");
+		String eventId = location.substring(location.lastIndexOf('/') + 1);
+
+		String requestBody = """
+				{
+				  "title": "Boda",
+				  "description": "Celebracion",
+				  "startsAt": "2026-10-01T18:00:00",
+				  "endsAt": "2026-10-01T23:00:00",
+				  "timeZone": "Europe/Madrid",
+				  "modality": "IN_PERSON",
+				  "venue": %s,
+				  "allowComment": true,
+				  "allowResponseChange": false
+				}
+				""".formatted(VENUE_JSON);
+
+		mockMvc.perform(put("/api/events/" + eventId)
+				.contentType(MediaType.APPLICATION_JSON).content(requestBody))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.title").value("Boda"))
+				.andExpect(jsonPath("$.allowComment").value(true))
+				.andExpect(jsonPath("$.allowResponseChange").value(false))
+				.andExpect(jsonPath("$.status").value("DRAFT"));
+	}
+
+	@Test
+	void updateEventReturns409WhenEventIsPublished() throws Exception {
+		String location = createEvent("host-1", "Cumpleaños");
+		String eventId = location.substring(location.lastIndexOf('/') + 1);
+		publishEvent(eventId);
+
+		String requestBody = """
+				{
+				  "title": "Boda",
+				  "startsAt": "2026-10-01T18:00:00",
+				  "endsAt": "2026-10-01T23:00:00",
+				  "timeZone": "Europe/Madrid",
+				  "modality": "IN_PERSON",
+				  "venue": %s
+				}
+				""".formatted(VENUE_JSON);
+
+		mockMvc.perform(put("/api/events/" + eventId)
+				.contentType(MediaType.APPLICATION_JSON).content(requestBody))
+				.andExpect(status().isConflict())
+				.andExpect(jsonPath("$.status").value(409));
+	}
+
+	@Test
+	void updateEventReturns422WhenModalityChangesWithoutLocationBlock() throws Exception {
+		String location = createEvent("host-1", "Cumpleaños");
+		String eventId = location.substring(location.lastIndexOf('/') + 1);
+
+		String requestBody = """
+				{
+				  "title": "Charla",
+				  "startsAt": "2026-09-01T20:00:00",
+				  "endsAt": "2026-09-01T23:00:00",
+				  "timeZone": "Europe/Madrid",
+				  "modality": "ONLINE"
+				}
+				""";
+
+		mockMvc.perform(put("/api/events/" + eventId)
+				.contentType(MediaType.APPLICATION_JSON).content(requestBody))
+				.andExpect(status().isUnprocessableEntity())
+				.andExpect(jsonPath("$.status").value(422));
+	}
+
+	@Test
+	void publishEventReturns200WithPublishedStatus() throws Exception {
+		String location = createEvent("host-1", "Cumpleaños");
+		String eventId = location.substring(location.lastIndexOf('/') + 1);
+
+		mockMvc.perform(post("/api/events/" + eventId + "/publish"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.status").value("PUBLISHED"));
+	}
+
+	@Test
+	void publishEventReturns409WhenAlreadyPublished() throws Exception {
+		String location = createEvent("host-1", "Cumpleaños");
+		String eventId = location.substring(location.lastIndexOf('/') + 1);
+		publishEvent(eventId);
+
+		mockMvc.perform(post("/api/events/" + eventId + "/publish"))
+				.andExpect(status().isConflict())
+				.andExpect(jsonPath("$.status").value(409));
+	}
+
+	@Test
+	void publishEventReturns422WhenEventHasFewerThanTwoResponseOptions() throws Exception {
+		// Insertamos directamente un documento con una sola opcion para forzar la precondicion
+		EventDocument doc = new EventDocument("test-publish-422", "host-1", "T", null,
+				java.time.LocalDateTime.of(2026, 9, 1, 20, 0), java.time.LocalDateTime.of(2026, 9, 1, 23, 0),
+				"Europe/Madrid", "IN_PERSON", "DRAFT",
+				List.of(new com.gtog.event.infrastructure.out.persistence.ResponseOptionDocument("opt-1", "Asisto", true)),
+				false, true, null,
+				new com.gtog.event.infrastructure.out.persistence.VenueDocument("Sala", "Calle", 41.0, 2.0, "p-1", null),
+				null, null, null, null);
+		eventMongoRepository.save(doc);
+
+		mockMvc.perform(post("/api/events/test-publish-422/publish"))
+				.andExpect(status().isUnprocessableEntity())
+				.andExpect(jsonPath("$.status").value(422));
+	}
+
+	@Test
+	void cancelEventReturns200WithCancelledStatus() throws Exception {
+		String location = createEvent("host-1", "Cumpleaños");
+		String eventId = location.substring(location.lastIndexOf('/') + 1);
+		publishEvent(eventId);
+
+		mockMvc.perform(post("/api/events/" + eventId + "/cancel")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"reason\": \"Imprevisto\"}"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.status").value("CANCELLED"))
+				.andExpect(jsonPath("$.cancelledAt").exists())
+				.andExpect(jsonPath("$.cancellationReason").value("Imprevisto"));
+	}
+
+	@Test
+	void cancelEventReturns200WithNullReasonWhenBodyIsEmpty() throws Exception {
+		String location = createEvent("host-1", "Cumpleaños");
+		String eventId = location.substring(location.lastIndexOf('/') + 1);
+		publishEvent(eventId);
+
+		mockMvc.perform(post("/api/events/" + eventId + "/cancel"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.status").value("CANCELLED"))
+				.andExpect(jsonPath("$.cancellationReason").doesNotExist());
+	}
+
+	@Test
+	void cancelEventReturns409WhenEventIsInDraft() throws Exception {
+		String location = createEvent("host-1", "Cumpleaños");
+		String eventId = location.substring(location.lastIndexOf('/') + 1);
+
+		mockMvc.perform(post("/api/events/" + eventId + "/cancel"))
+				.andExpect(status().isConflict())
+				.andExpect(jsonPath("$.status").value(409));
+	}
+
+	@Test
+	void cancelEventReturns409WhenAlreadyCancelled() throws Exception {
+		String location = createEvent("host-1", "Cumpleaños");
+		String eventId = location.substring(location.lastIndexOf('/') + 1);
+		publishEvent(eventId);
+		mockMvc.perform(post("/api/events/" + eventId + "/cancel"));
+
+		mockMvc.perform(post("/api/events/" + eventId + "/cancel"))
+				.andExpect(status().isConflict())
+				.andExpect(jsonPath("$.status").value(409));
+	}
+
+	private void publishEvent(String eventId) throws Exception {
+		mockMvc.perform(post("/api/events/" + eventId + "/publish"))
+				.andExpect(status().isOk());
 	}
 
 	private String createOnlineEvent(String hostId, String title) throws Exception {

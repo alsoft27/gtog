@@ -1,9 +1,8 @@
 # Modelo de datos: Evento
 
-Estado del modelo tras las rebanadas implementadas hasta ahora: creación de eventos, consulta/listado (R1),
-opciones de respuesta (R2) y ubicación/acceso en línea (R3). Todavía no existen invitados, respuestas ni muro
-social — ese es el motivo de que `Event` no tenga aún una lista de invitados embebida, aunque la especificación
-(`docs/mvp-alcance-iteracion-1.md`) la contemple para más adelante.
+Estado del modelo tras R1–R4: creación de eventos, consulta/listado (R1), opciones de respuesta (R2),
+ubicación/acceso en línea (R3), y editar/publicar/cancelar (R4). Todavía no existen invitados, respuestas ni muro
+social.
 
 ---
 
@@ -24,7 +23,9 @@ persistido sin repetir ninguna validación.
 | `startsAt` / `endsAt` | `LocalDateTime` | Hora local del evento. `endsAt` debe ser estrictamente posterior a `startsAt` una vez interpretados con `timeZone` (`InvalidEventPeriodException` si no). |
 | `timeZone` | `String` | Zona horaria IANA (`region/ciudad`, p. ej. `Europe/Madrid`). Se valida con `ZoneId.of(...)`; si no existe, `InvalidTimeZoneException`. |
 | `modality` | `Modality` | `IN_PERSON` o `ONLINE`. Un evento nunca es las dos cosas (modalidad híbrida fuera de alcance). |
-| `status` | `EventStatus` | `DRAFT`, `PUBLISHED`, `FINISHED`, `CANCELLED`. Hoy todo evento se crea en `DRAFT` y no existe todavía ningún caso de uso que lo transicione a los demás estados. |
+| `status` | `EventStatus` | `DRAFT`, `PUBLISHED`, `CANCELLED`. Ver máquina de estados más abajo. `FINISHED` no está implementado (D-FINISHED). |
+| `cancelledAt` | `Instant` (nullable) | Instante de cancelación. `null` si el evento no está cancelado. |
+| `cancellationReason` | `String` (nullable) | Motivo de cancelación, opcional. |
 | `responseOptions` | `List<ResponseOption>` | Ver sección siguiente. Entre 2 y 5, embebidas en el propio evento. |
 | `allowComment` | `boolean` | Si el invitado puede añadir un comentario a su respuesta. Default `false`: es un dato personal que el anfitrión debe activar de forma consciente. |
 | `allowResponseChange` | `boolean` | Si el invitado puede cambiar su respuesta tras enviarla. Default `true`. |
@@ -65,8 +66,28 @@ la zona.
 Las 4 reglas de modalidad (`Missing`/`Unexpected` × `Venue`/`OnlineAccess`) se reutilizan tal cual entre la
 creación del evento y los `PUT /api/events/{id}/venue` y `PUT /api/events/{id}/online-access`: "modalidad `ONLINE`
 con `venue` presente" es el mismo error semántico se dé en el `POST` inicial o al intentar fijar una ubicación
-después — por eso es 422 en ambos casos, no 409. El 409 se reserva estrictamente para el conflicto de estado que
-cubre `EventNotEditableException` (evento fuera de `DRAFT`).
+después — por eso es 422 en ambos casos, no 409. El 409 se reserva estrictamente para los conflictos de estado:
+`EventNotEditableException`, `EventNotPublishableException`, `EventNotCancellableException`.
+
+### Máquina de estados
+
+```
+DRAFT ──publish()──► PUBLISHED ──cancel(reason, now)──► CANCELLED
+  │                                                          │
+  └──────── cancel() lanza EventNotCancellableException ─────┘
+            (DRAFT no tiene invitados, no hay a quién notificar)
+```
+
+| Transición | Método | Condición de entrada | Excepción si falla |
+|---|---|---|---|
+| `DRAFT → PUBLISHED` | `publish()` | `status == DRAFT` + venue/onlineAccess presente + ≥2 opciones | `EventNotPublishableException` (409) / `IncompleteEventForPublishException` (422) |
+| `PUBLISHED → CANCELLED` | `cancel(reason, now)` | `status == PUBLISHED` | `EventNotCancellableException` (409) |
+
+**`FINISHED` no implementado** (D-FINISHED). No existe job programado ni derivación al vuelo. Requiere
+decidir si la transición es automática (por fecha) o manual (el anfitrión la activa).
+
+**Borrar un `DRAFT`** tampoco está implementado (D-DELETE-DRAFT). Cancelar un borrador está bloqueado por
+diseño: un borrador no tiene invitados y cancelarlo solo ensuciaría el listado del anfitrión.
 
 **Todas** heredan de `EventDomainException`, sin excepción: el dominio no sabe de códigos HTTP, solo expresa que
 algo viola una regla suya. Es el `@RestControllerAdvice` (`GlobalExceptionHandler`, en `shared`) quien decide el
@@ -165,7 +186,7 @@ del anfitrión).
 ## Enums
 
 ```java
-EventStatus    { DRAFT, PUBLISHED, FINISHED, CANCELLED }   // hoy solo se usa DRAFT; no hay transición implementada
+EventStatus    { DRAFT, PUBLISHED, FINISHED, CANCELLED }   // FINISHED sin implementar (D-FINISHED)
 Modality       { IN_PERSON, ONLINE }
 LinkVisibility { ON_CONFIRMATION, HOURS_BEFORE, ALWAYS }
 ```
@@ -196,9 +217,12 @@ Pendiente para cuando exista la colección `guests` embebida en `events`: el ín
 | `CreateEventUseCase` | `CreateEventService` | Crea el evento en `DRAFT` con sus opciones (o los defaults) y lo persiste. |
 | `GetEventByIdUseCase` | `EventQueryService` | Devuelve el evento completo o lanza `EventNotFoundException`. |
 | `ListEventsByHostUseCase` | `EventQueryService` | Lista los eventos de un `hostId`, sin paginación. |
-| `ReplaceResponseOptionsUseCase` | `ReplaceResponseOptionsService` | Busca el evento, delega la sustitución de opciones en el propio `Event` y lo guarda. |
+| `ReplaceResponseOptionsUseCase` | `ReplaceResponseOptionsService` | Busca el evento, delega la sustitución de opciones (solo la lista, sin `allowComment`/`allowResponseChange`/`responseDeadline`) en el propio `Event` y lo guarda. |
 | `ReplaceVenueUseCase` | `EventLocationService` | Busca el evento, delega en `event.replaceVenue(...)` y lo guarda. |
 | `ReplaceOnlineAccessUseCase` | `EventLocationService` | Busca el evento, delega en `event.replaceOnlineAccess(...)` y lo guarda. |
+| `UpdateEventUseCase` | `UpdateEventService` | Busca el evento, delega en `event.edit(EventEdit)` y lo guarda. `allowComment`/`allowResponseChange`/`responseDeadline` se editan aquí, no en `replaceResponseOptions`. |
+| `PublishEventUseCase` | `PublishEventService` | Busca el evento, llama a `event.publish()` y lo guarda. |
+| `CancelEventUseCase` | `CancelEventService` | Busca el evento, llama a `event.cancel(reason, Instant.now())` y lo guarda. |
 
 `EventRepositoryPort` (`port/out`): `save`, `findById`, `findByHostId`. Implementado por `EventRepositoryAdapter`
 sobre `EventMongoRepository` (Spring Data).
@@ -212,7 +236,10 @@ sobre `EventMongoRepository` (Spring Data).
 | `POST` | `/api/events` | `CreateEventRequest` | `201` + `Location`, `400`, `422` |
 | `GET` | `/api/events/{id}` | — | `200` (`EventResponse` completo), `404` |
 | `GET` | `/api/events?hostId=` | `hostId` obligatorio (temporal, hasta que exista el usuario autenticado) | `200` (lista de `EventSummaryResponse`: `id`, `title`, `startsAt`, `modality`, `status`), `400` si falta `hostId` |
-| `PUT` | `/api/events/{id}/response-options` | `ReplaceResponseOptionsRequest` (lista completa + `allowComment` + `allowResponseChange` + `responseDeadline`) | `200` (`EventResponse` completo), `404`, `409`, `422` |
+| `PUT` | `/api/events/{id}` | `UpdateEventRequest` (título, fechas, zona horaria, modalidad, venue/onlineAccess opcionales, `allowComment`, `allowResponseChange`, `responseDeadline`) | `200` (`EventResponse` completo), `404`, `409` (no `DRAFT`), `422` |
+| `POST` | `/api/events/{id}/publish` | — | `200` (`EventResponse` completo), `404`, `409` (no `DRAFT`), `422` (falta venue/onlineAccess o < 2 opciones) |
+| `POST` | `/api/events/{id}/cancel` | `CancelEventRequest` (`reason` opcional) | `200` (`EventResponse` completo con `cancelledAt`), `404`, `409` (no `PUBLISHED`) |
+| `PUT` | `/api/events/{id}/response-options` | `ReplaceResponseOptionsRequest` (solo la lista de opciones) | `200` (`EventResponse` completo), `404`, `409`, `422` |
 | `PUT` | `/api/events/{id}/venue` | `VenueRequest` | `200` (`EventResponse` completo), `404`, `409` (no `DRAFT`), `422` (falta campo obligatorio o el evento es `ONLINE`) |
 | `PUT` | `/api/events/{id}/online-access` | `OnlineAccessRequest` | `200` (`EventResponse` completo), `404`, `409` (no `DRAFT`), `422` (falta campo obligatorio, url inválida, `hoursBefore` incoherente, o el evento es `IN_PERSON`) |
 
@@ -225,8 +252,6 @@ Documentado también en OpenAPI (`/v3/api-docs`, `/swagger-ui.html`), ver secci�
 
 - Invitados (`Guest`), estado de invitación, envío por email/WhatsApp/Telegram.
 - Respuestas de invitado (`GuestResponse`, colección `responses`).
-- Transición de `Event` fuera de `DRAFT` (publicar, finalizar, cancelar) — no hay caso de uso todavía, por eso el
-  409 de "opciones no editables" solo se prueba a nivel de dominio y no de extremo a extremo.
-- Cambiar la `modality` de un evento ya creado: llega con R4 (editar evento), y ahí habrá que decidir
-  explícitamente que cambiar de modalidad descarta los datos de la otra (`venue` u `onlineAccess`).
+- `FINISHED`: no implementado (D-FINISHED).
+- Borrar un borrador: no implementado (D-DELETE-DRAFT).
 - Muro social, acompañantes, check-in: iteración 2 o posteriores.

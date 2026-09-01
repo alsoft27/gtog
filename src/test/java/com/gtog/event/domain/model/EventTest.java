@@ -213,7 +213,7 @@ class EventTest {
 
 		event.replaceResponseOptions(List.of(
 				new ResponseOptionEdit(existingId, "Asisto seguro", true),
-				new ResponseOptionEdit(null, "No asisto", false)), false, true, null);
+				new ResponseOptionEdit(null, "No asisto", false)));
 
 		assertThat(event.getResponseOptions().get(0).id()).isEqualTo(existingId);
 		assertThat(event.getResponseOptions().get(0).label()).isEqualTo("Asisto seguro");
@@ -225,7 +225,7 @@ class EventTest {
 
 		event.replaceResponseOptions(List.of(
 				new ResponseOptionEdit(null, "Asisto", true),
-				new ResponseOptionEdit(null, "No asisto", false)), false, true, null);
+				new ResponseOptionEdit(null, "No asisto", false)));
 
 		assertThat(event.getResponseOptions()).allSatisfy(option -> assertThat(option.id()).isNotNull());
 	}
@@ -236,7 +236,7 @@ class EventTest {
 
 		assertThatThrownBy(() -> event.replaceResponseOptions(List.of(
 				new ResponseOptionEdit("unknown-id", "Asisto", true),
-				new ResponseOptionEdit(null, "No asisto", false)), false, true, null))
+				new ResponseOptionEdit(null, "No asisto", false))))
 				.isInstanceOf(UnknownResponseOptionIdException.class);
 	}
 
@@ -245,32 +245,21 @@ class EventTest {
 		Event event = createEvent();
 
 		assertThatThrownBy(() -> event.replaceResponseOptions(
-				List.of(new ResponseOptionEdit(null, "Solo una", true)), false, true, null))
+				List.of(new ResponseOptionEdit(null, "Solo una", true))))
 				.isInstanceOf(InvalidResponseOptionCountException.class);
 	}
 
 	@Test
-	void replaceResponseOptionsUpdatesAllowCommentAllowResponseChangeAndResponseDeadline() {
+	void replaceResponseOptionsDoesNotChangeAllowCommentOrDeadline() {
 		Event event = createEvent();
 
 		event.replaceResponseOptions(List.of(
 				new ResponseOptionEdit(null, "Asisto", true),
-				new ResponseOptionEdit(null, "No asisto", false)), true, false, STARTS_AT);
+				new ResponseOptionEdit(null, "No asisto", false)));
 
-		assertThat(event.isAllowComment()).isTrue();
-		assertThat(event.isAllowResponseChange()).isFalse();
-		assertThat(event.getResponseDeadline()).isEqualTo(STARTS_AT);
-	}
-
-	@Test
-	void replaceResponseOptionsRejectsResponseDeadlineAfterStartsAt() {
-		Event event = createEvent();
-		LocalDateTime deadline = STARTS_AT.plusMinutes(1);
-
-		assertThatThrownBy(() -> event.replaceResponseOptions(List.of(
-				new ResponseOptionEdit(null, "Asisto", true),
-				new ResponseOptionEdit(null, "No asisto", false)), false, true, deadline))
-				.isInstanceOf(InvalidResponseDeadlineException.class);
+		assertThat(event.isAllowComment()).isFalse();
+		assertThat(event.isAllowResponseChange()).isTrue();
+		assertThat(event.getResponseDeadline()).isNull();
 	}
 
 	@Test
@@ -295,7 +284,7 @@ class EventTest {
 
 		assertThatThrownBy(() -> event.replaceResponseOptions(List.of(
 				new ResponseOptionEdit(null, "Asisto", true),
-				new ResponseOptionEdit(null, "No asisto", false)), false, true, null))
+				new ResponseOptionEdit(null, "No asisto", false))))
 				.isInstanceOf(EventNotEditableException.class);
 	}
 
@@ -434,6 +423,208 @@ class EventTest {
 		Instant oneHourBeforeStart = event.startsAtInstant().minus(1, ChronoUnit.HOURS);
 
 		assertThat(event.visibleOnlineAccess(false, oneHourBeforeStart)).contains(onlineAccess);
+	}
+
+	// --- publish ---
+
+	@Test
+	void publishesADraftEventWithVenueAndAtLeastTwoOptions() {
+		Event event = createEvent();
+
+		event.publish();
+
+		assertThat(event.getStatus()).isEqualTo(EventStatus.PUBLISHED);
+	}
+
+	@Test
+	void publishRejectsWhenNotDraft() {
+		Event event = createEvent();
+		event.publish();
+
+		assertThatThrownBy(event::publish).isInstanceOf(EventNotPublishableException.class);
+	}
+
+	@Test
+	void publishRejectsWhenCancelled() {
+		Event event = createEvent();
+		event.publish();
+		event.cancel(null, Instant.now());
+
+		assertThatThrownBy(event::publish).isInstanceOf(EventNotPublishableException.class);
+	}
+
+	@Test
+	void publishRejectsInPersonEventWithoutVenue() {
+		Event event = Event.reconstituteBuilder()
+				.id("e-1").hostId("h-1").title("T").startsAt(STARTS_AT).endsAt(ENDS_AT)
+				.timeZone(TIME_ZONE).modality(Modality.IN_PERSON).status(EventStatus.DRAFT)
+				.responseOptions(List.of(ResponseOption.create("Asisto", true), ResponseOption.create("No", false)))
+				.allowComment(false).allowResponseChange(true).version(0L).build();
+
+		assertThatThrownBy(event::publish).isInstanceOf(IncompleteEventForPublishException.class);
+	}
+
+	@Test
+	void publishRejectsOnlineEventWithoutOnlineAccess() {
+		Event event = Event.reconstituteBuilder()
+				.id("e-1").hostId("h-1").title("T").startsAt(STARTS_AT).endsAt(ENDS_AT)
+				.timeZone(TIME_ZONE).modality(Modality.ONLINE).status(EventStatus.DRAFT)
+				.responseOptions(List.of(ResponseOption.create("Asisto", true), ResponseOption.create("No", false)))
+				.allowComment(false).allowResponseChange(true).version(0L).build();
+
+		assertThatThrownBy(event::publish).isInstanceOf(IncompleteEventForPublishException.class);
+	}
+
+	@Test
+	void publishRejectsEventWithFewerThanTwoResponseOptions() {
+		Event event = Event.reconstituteBuilder()
+				.id("e-1").hostId("h-1").title("T").startsAt(STARTS_AT).endsAt(ENDS_AT)
+				.timeZone(TIME_ZONE).modality(Modality.IN_PERSON).status(EventStatus.DRAFT)
+				.responseOptions(List.of(ResponseOption.create("Asisto", true)))
+				.allowComment(false).allowResponseChange(true).venue(aVenue()).version(0L).build();
+
+		assertThatThrownBy(event::publish).isInstanceOf(IncompleteEventForPublishException.class);
+	}
+
+	// --- cancel ---
+
+	@Test
+	void cancelsAPublishedEventWithCancelledAtAndReason() {
+		Event event = createEvent();
+		event.publish();
+		Instant now = Instant.parse("2026-08-01T10:00:00Z");
+
+		event.cancel("Imprevisto", now);
+
+		assertThat(event.getStatus()).isEqualTo(EventStatus.CANCELLED);
+		assertThat(event.getCancelledAt()).isEqualTo(now);
+		assertThat(event.getCancellationReason()).isEqualTo("Imprevisto");
+	}
+
+	@Test
+	void cancelsWithNullReasonWhenNoReasonGiven() {
+		Event event = createEvent();
+		event.publish();
+
+		event.cancel(null, Instant.now());
+
+		assertThat(event.getStatus()).isEqualTo(EventStatus.CANCELLED);
+		assertThat(event.getCancellationReason()).isNull();
+	}
+
+	@Test
+	void cancelRejectsWhenEventIsInDraft() {
+		Event event = createEvent();
+
+		assertThatThrownBy(() -> event.cancel(null, Instant.now()))
+				.isInstanceOf(EventNotCancellableException.class);
+	}
+
+	@Test
+	void cancelRejectsWhenEventIsAlreadyCancelled() {
+		Event event = createEvent();
+		event.publish();
+		event.cancel(null, Instant.now());
+
+		assertThatThrownBy(() -> event.cancel(null, Instant.now()))
+				.isInstanceOf(EventNotCancellableException.class);
+	}
+
+	// --- edit ---
+
+	@Test
+	void editUpdatesTitleAndBasicFields() {
+		Event event = createEvent();
+
+		event.edit(new EventEdit("Boda", "Nueva desc", STARTS_AT, ENDS_AT, TIME_ZONE, Modality.IN_PERSON,
+				null, null, true, false, null));
+
+		assertThat(event.getTitle()).isEqualTo("Boda");
+		assertThat(event.getDescription()).isEqualTo("Nueva desc");
+		assertThat(event.isAllowComment()).isTrue();
+		assertThat(event.isAllowResponseChange()).isFalse();
+	}
+
+	@Test
+	void editRejectsWhenEventIsNotDraft() {
+		Event event = createEvent();
+		event.publish();
+
+		assertThatThrownBy(() -> event.edit(new EventEdit("Boda", null, STARTS_AT, ENDS_AT, TIME_ZONE,
+				Modality.IN_PERSON, aVenue(), null, false, true, null)))
+				.isInstanceOf(EventNotEditableException.class);
+	}
+
+	@Test
+	void editRejectsBlankTitle() {
+		Event event = createEvent();
+
+		assertThatThrownBy(() -> event.edit(new EventEdit("  ", null, STARTS_AT, ENDS_AT, TIME_ZONE,
+				Modality.IN_PERSON, null, null, false, true, null)))
+				.isInstanceOf(BlankEventTitleException.class);
+	}
+
+	@Test
+	void editUpdatesVenueWhenModalityDoesNotChange() {
+		Event event = createEvent();
+		Venue newVenue = new Venue("Sala B", "Calle nueva", 0.0, 0.0, "place-b", null);
+
+		event.edit(new EventEdit("T", null, STARTS_AT, ENDS_AT, TIME_ZONE, Modality.IN_PERSON,
+				newVenue, null, false, true, null));
+
+		assertThat(event.getVenue()).isEqualTo(newVenue);
+	}
+
+	@Test
+	void editChangesModalityToOnlineWhenOnlineAccessProvided() {
+		Event event = createEvent();
+
+		event.edit(new EventEdit("T", null, STARTS_AT, ENDS_AT, TIME_ZONE, Modality.ONLINE,
+				null, anOnlineAccess(), false, true, null));
+
+		assertThat(event.getModality()).isEqualTo(Modality.ONLINE);
+		assertThat(event.getOnlineAccess()).isEqualTo(anOnlineAccess());
+		assertThat(event.getVenue()).isNull();
+	}
+
+	@Test
+	void editRejectsModalityChangeToOnlineWithoutOnlineAccess() {
+		Event event = createEvent();
+
+		assertThatThrownBy(() -> event.edit(new EventEdit("T", null, STARTS_AT, ENDS_AT, TIME_ZONE,
+				Modality.ONLINE, null, null, false, true, null)))
+				.isInstanceOf(ModalityChangedWithoutLocationException.class);
+	}
+
+	@Test
+	void editRejectsModalityChangeToInPersonWithoutVenue() {
+		Event event = baseBuilder().modality(Modality.ONLINE).venue(null).onlineAccess(anOnlineAccess()).build();
+
+		assertThatThrownBy(() -> event.edit(new EventEdit("T", null, STARTS_AT, ENDS_AT, TIME_ZONE,
+				Modality.IN_PERSON, null, null, false, true, null)))
+				.isInstanceOf(ModalityChangedWithoutLocationException.class);
+	}
+
+	@Test
+	void editChangesModalityToInPersonDiscardsOnlineAccess() {
+		Event event = baseBuilder().modality(Modality.ONLINE).venue(null).onlineAccess(anOnlineAccess()).build();
+
+		event.edit(new EventEdit("T", null, STARTS_AT, ENDS_AT, TIME_ZONE, Modality.IN_PERSON,
+				aVenue(), null, false, true, null));
+
+		assertThat(event.getModality()).isEqualTo(Modality.IN_PERSON);
+		assertThat(event.getVenue()).isEqualTo(aVenue());
+		assertThat(event.getOnlineAccess()).isNull();
+	}
+
+	@Test
+	void editRejectsResponseDeadlineAfterStartsAt() {
+		Event event = createEvent();
+		LocalDateTime deadline = STARTS_AT.plusMinutes(1);
+
+		assertThatThrownBy(() -> event.edit(new EventEdit("T", null, STARTS_AT, ENDS_AT, TIME_ZONE,
+				Modality.IN_PERSON, null, null, false, true, deadline)))
+				.isInstanceOf(InvalidResponseDeadlineException.class);
 	}
 
 	private Event createEvent() {

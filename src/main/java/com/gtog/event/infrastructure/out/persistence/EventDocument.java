@@ -1,5 +1,6 @@
 package com.gtog.event.infrastructure.out.persistence;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -26,13 +27,16 @@ public class EventDocument {
 	private final LocalDateTime responseDeadline;
 	private final VenueDocument venue;
 	private final OnlineAccessDocument onlineAccess;
+	private final Instant cancelledAt;
+	private final String cancellationReason;
 	@Version
 	private final Long version;
 
 	public EventDocument(String id, String hostId, String title, String description, LocalDateTime startsAt,
 			LocalDateTime endsAt, String timeZone, String modality, String status,
 			List<ResponseOptionDocument> responseOptions, boolean allowComment, boolean allowResponseChange,
-			LocalDateTime responseDeadline, VenueDocument venue, OnlineAccessDocument onlineAccess, Long version) {
+			LocalDateTime responseDeadline, VenueDocument venue, OnlineAccessDocument onlineAccess,
+			Instant cancelledAt, String cancellationReason, Long version) {
 		this.id = id;
 		this.hostId = hostId;
 		this.title = title;
@@ -48,6 +52,8 @@ public class EventDocument {
 		this.responseDeadline = responseDeadline;
 		this.venue = venue;
 		this.onlineAccess = onlineAccess;
+		this.cancelledAt = cancelledAt;
+		this.cancellationReason = cancellationReason;
 		this.version = version;
 	}
 
@@ -109,6 +115,14 @@ public class EventDocument {
 
 	public OnlineAccessDocument getOnlineAccess() {
 		return onlineAccess;
+	}
+
+	public Instant getCancelledAt() {
+		return cancelledAt;
+	}
+
+	public String getCancellationReason() {
+		return cancellationReason;
 	}
 
 	public Long getVersion() {

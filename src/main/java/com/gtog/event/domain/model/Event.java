@@ -13,12 +13,12 @@ public class Event {
 
 	private final String id;
 	private final String hostId;
-	private final String title;
-	private final String description;
-	private final LocalDateTime startsAt;
-	private final LocalDateTime endsAt;
-	private final String timeZone;
-	private final Modality modality;
+	private String title;
+	private String description;
+	private LocalDateTime startsAt;
+	private LocalDateTime endsAt;
+	private String timeZone;
+	private Modality modality;
 	private EventStatus status;
 	private List<ResponseOption> responseOptions;
 	private boolean allowComment;
@@ -26,12 +26,15 @@ public class Event {
 	private LocalDateTime responseDeadline;
 	private Venue venue;
 	private OnlineAccess onlineAccess;
+	private Instant cancelledAt;
+	private String cancellationReason;
 	private final Long version;
 
 	private Event(String id, String hostId, String title, String description, LocalDateTime startsAt,
 			LocalDateTime endsAt, String timeZone, Modality modality, EventStatus status,
 			List<ResponseOption> responseOptions, boolean allowComment, boolean allowResponseChange,
-			LocalDateTime responseDeadline, Venue venue, OnlineAccess onlineAccess, Long version) {
+			LocalDateTime responseDeadline, Venue venue, OnlineAccess onlineAccess, Instant cancelledAt,
+			String cancellationReason, Long version) {
 		this.id = id;
 		this.hostId = hostId;
 		this.title = title;
@@ -47,6 +50,8 @@ public class Event {
 		this.responseDeadline = responseDeadline;
 		this.venue = venue;
 		this.onlineAccess = onlineAccess;
+		this.cancelledAt = cancelledAt;
+		this.cancellationReason = cancellationReason;
 		this.version = version;
 	}
 
@@ -62,18 +67,13 @@ public class Event {
 		return new ReconstituteBuilder();
 	}
 
-	public void replaceResponseOptions(List<ResponseOptionEdit> edits, boolean allowComment,
-			boolean allowResponseChange, LocalDateTime responseDeadline) {
+	public void replaceResponseOptions(List<ResponseOptionEdit> edits) {
 		if (status != EventStatus.DRAFT) {
 			throw new EventNotEditableException(id);
 		}
-		validateResponseDeadline(responseDeadline, startsAt);
 		List<ResponseOption> merged = edits.stream().map(this::resolveEdit).toList();
 		validateResponseOptions(merged);
 		this.responseOptions = merged;
-		this.allowComment = allowComment;
-		this.allowResponseChange = allowResponseChange;
-		this.responseDeadline = responseDeadline;
 	}
 
 	public void replaceVenue(Venue venue) {
@@ -94,6 +94,81 @@ public class Event {
 			throw new UnexpectedOnlineAccessException();
 		}
 		this.onlineAccess = onlineAccess;
+	}
+
+	public void publish() {
+		if (status != EventStatus.DRAFT) {
+			throw new EventNotPublishableException(id);
+		}
+		if (modality == Modality.IN_PERSON && venue == null) {
+			throw new IncompleteEventForPublishException("the event has no venue");
+		}
+		if (modality == Modality.ONLINE && onlineAccess == null) {
+			throw new IncompleteEventForPublishException("the event has no online access");
+		}
+		if (responseOptions.size() < 2) {
+			throw new IncompleteEventForPublishException("at least two response options are required");
+		}
+		this.status = EventStatus.PUBLISHED;
+	}
+
+	public void cancel(String reason, Instant now) {
+		if (status != EventStatus.PUBLISHED) {
+			throw new EventNotCancellableException(id);
+		}
+		this.status = EventStatus.CANCELLED;
+		this.cancelledAt = now;
+		this.cancellationReason = reason;
+	}
+
+	public void edit(EventEdit edit) {
+		if (status != EventStatus.DRAFT) {
+			throw new EventNotEditableException(id);
+		}
+		if (edit.title() == null || edit.title().isBlank()) {
+			throw new BlankEventTitleException();
+		}
+		ZoneId zoneId = parseTimeZone(edit.timeZone());
+		if (!edit.endsAt().atZone(zoneId).toInstant().isAfter(edit.startsAt().atZone(zoneId).toInstant())) {
+			throw new InvalidEventPeriodException(edit.startsAt(), edit.endsAt());
+		}
+		validateResponseDeadline(edit.responseDeadline(), edit.startsAt());
+
+		Modality newModality = edit.modality();
+		if (newModality != this.modality) {
+			if (newModality == Modality.IN_PERSON) {
+				if (edit.venue() == null) {
+					throw new ModalityChangedWithoutLocationException();
+				}
+				this.venue = edit.venue();
+				this.onlineAccess = null;
+			}
+			else {
+				if (edit.onlineAccess() == null) {
+					throw new ModalityChangedWithoutLocationException();
+				}
+				this.onlineAccess = edit.onlineAccess();
+				this.venue = null;
+			}
+		}
+		else {
+			if (this.modality == Modality.IN_PERSON && edit.venue() != null) {
+				this.venue = edit.venue();
+			}
+			else if (this.modality == Modality.ONLINE && edit.onlineAccess() != null) {
+				this.onlineAccess = edit.onlineAccess();
+			}
+		}
+
+		this.title = edit.title();
+		this.description = edit.description();
+		this.startsAt = edit.startsAt();
+		this.endsAt = edit.endsAt();
+		this.timeZone = edit.timeZone();
+		this.modality = newModality;
+		this.allowComment = edit.allowComment();
+		this.allowResponseChange = edit.allowResponseChange();
+		this.responseDeadline = edit.responseDeadline();
 	}
 
 	// Vacio si el evento no tiene acceso en linea (presencial) o si la regla de LinkVisibility no deja verlo
@@ -252,6 +327,14 @@ public class Event {
 		return onlineAccess;
 	}
 
+	public Instant getCancelledAt() {
+		return cancelledAt;
+	}
+
+	public String getCancellationReason() {
+		return cancellationReason;
+	}
+
 	public Long getVersion() {
 		return version;
 	}
@@ -354,7 +437,8 @@ public class Event {
 			validateResponseOptions(resolvedResponseOptions);
 			return new Event(UUID.randomUUID().toString(), hostId, title, description, startsAt, endsAt, timeZone,
 					modality, EventStatus.DRAFT, resolvedResponseOptions, resolveAllowComment(allowComment),
-					resolveAllowResponseChange(allowResponseChange), responseDeadline, venue, onlineAccess, null);
+					resolveAllowResponseChange(allowResponseChange), responseDeadline, venue, onlineAccess, null, null,
+					null);
 		}
 	}
 
@@ -375,6 +459,8 @@ public class Event {
 		private LocalDateTime responseDeadline;
 		private Venue venue;
 		private OnlineAccess onlineAccess;
+		private Instant cancelledAt;
+		private String cancellationReason;
 		private Long version;
 
 		private ReconstituteBuilder() {
@@ -455,6 +541,16 @@ public class Event {
 			return this;
 		}
 
+		public ReconstituteBuilder cancelledAt(Instant cancelledAt) {
+			this.cancelledAt = cancelledAt;
+			return this;
+		}
+
+		public ReconstituteBuilder cancellationReason(String cancellationReason) {
+			this.cancellationReason = cancellationReason;
+			return this;
+		}
+
 		public ReconstituteBuilder version(Long version) {
 			this.version = version;
 			return this;
@@ -463,7 +559,7 @@ public class Event {
 		public Event build() {
 			return new Event(id, hostId, title, description, startsAt, endsAt, timeZone, modality, status,
 					responseOptions, allowComment, allowResponseChange, responseDeadline, venue, onlineAccess,
-					version);
+					cancelledAt, cancellationReason, version);
 		}
 	}
 }

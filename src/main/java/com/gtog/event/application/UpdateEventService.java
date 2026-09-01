@@ -4,24 +4,24 @@ import org.springframework.stereotype.Service;
 
 import com.gtog.event.domain.model.Event;
 import com.gtog.event.domain.model.EventNotFoundException;
-import com.gtog.event.domain.port.in.ReplaceResponseOptionsCommand;
-import com.gtog.event.domain.port.in.ReplaceResponseOptionsUseCase;
+import com.gtog.event.domain.port.in.UpdateEventCommand;
+import com.gtog.event.domain.port.in.UpdateEventUseCase;
 import com.gtog.event.domain.port.out.EventRepositoryPort;
 
 @Service
-public class ReplaceResponseOptionsService implements ReplaceResponseOptionsUseCase {
+public class UpdateEventService implements UpdateEventUseCase {
 
 	private final EventRepositoryPort eventRepositoryPort;
 
-	public ReplaceResponseOptionsService(EventRepositoryPort eventRepositoryPort) {
+	public UpdateEventService(EventRepositoryPort eventRepositoryPort) {
 		this.eventRepositoryPort = eventRepositoryPort;
 	}
 
 	@Override
-	public Event replaceResponseOptions(ReplaceResponseOptionsCommand command) {
+	public Event update(UpdateEventCommand command) {
 		Event event = eventRepositoryPort.findById(command.eventId())
 				.orElseThrow(() -> new EventNotFoundException(command.eventId()));
-		event.replaceResponseOptions(command.responseOptions());
+		event.edit(command.edit());
 		return eventRepositoryPort.save(event);
 	}
 }

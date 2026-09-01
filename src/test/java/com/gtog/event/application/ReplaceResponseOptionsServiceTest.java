@@ -37,15 +37,14 @@ class ReplaceResponseOptionsServiceTest {
 		when(eventRepositoryPort.save(any())).thenReturn(event);
 
 		ReplaceResponseOptionsCommand command = new ReplaceResponseOptionsCommand("event-1", List.of(
-				new ResponseOptionEdit(null, "Asisto", true),
-				new ResponseOptionEdit(null, "No asisto", false)), true, false, null);
+				new ResponseOptionEdit(null, "Voy", true),
+				new ResponseOptionEdit(null, "No voy", false)));
 
 		ReplaceResponseOptionsService service = new ReplaceResponseOptionsService(eventRepositoryPort);
 		Event result = service.replaceResponseOptions(command);
 
 		assertThat(result).isSameAs(event);
-		assertThat(event.isAllowComment()).isTrue();
-		assertThat(event.isAllowResponseChange()).isFalse();
+		assertThat(event.getResponseOptions()).extracting(ResponseOption::label).containsExactly("Voy", "No voy");
 		verify(eventRepositoryPort).save(event);
 	}
 
@@ -55,7 +54,7 @@ class ReplaceResponseOptionsServiceTest {
 
 		ReplaceResponseOptionsCommand command = new ReplaceResponseOptionsCommand("missing", List.of(
 				new ResponseOptionEdit(null, "Asisto", true),
-				new ResponseOptionEdit(null, "No asisto", false)), false, true, null);
+				new ResponseOptionEdit(null, "No asisto", false)));
 
 		ReplaceResponseOptionsService service = new ReplaceResponseOptionsService(eventRepositoryPort);
 

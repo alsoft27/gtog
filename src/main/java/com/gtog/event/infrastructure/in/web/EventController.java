@@ -1,6 +1,7 @@
 package com.gtog.event.infrastructure.in.web;
 
 import java.net.URI;
+import java.time.Instant;
 import java.util.List;
 
 import jakarta.validation.Valid;
@@ -27,20 +28,25 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.gtog.event.domain.model.Event;
+import com.gtog.event.domain.model.EventEdit;
 import com.gtog.event.domain.model.OnlineAccess;
 import com.gtog.event.domain.model.ResponseOptionDraft;
 import com.gtog.event.domain.model.ResponseOptionEdit;
 import com.gtog.event.domain.model.Venue;
+import com.gtog.event.domain.port.in.CancelEventUseCase;
 import com.gtog.event.domain.port.in.CreateEventCommand;
 import com.gtog.event.domain.port.in.CreateEventUseCase;
 import com.gtog.event.domain.port.in.GetEventByIdUseCase;
 import com.gtog.event.domain.port.in.ListEventsByHostUseCase;
+import com.gtog.event.domain.port.in.PublishEventUseCase;
 import com.gtog.event.domain.port.in.ReplaceOnlineAccessCommand;
 import com.gtog.event.domain.port.in.ReplaceOnlineAccessUseCase;
 import com.gtog.event.domain.port.in.ReplaceResponseOptionsCommand;
 import com.gtog.event.domain.port.in.ReplaceResponseOptionsUseCase;
 import com.gtog.event.domain.port.in.ReplaceVenueCommand;
 import com.gtog.event.domain.port.in.ReplaceVenueUseCase;
+import com.gtog.event.domain.port.in.UpdateEventCommand;
+import com.gtog.event.domain.port.in.UpdateEventUseCase;
 
 @RestController
 @RequestMapping("/api/events")
@@ -53,17 +59,24 @@ public class EventController {
 	private final ReplaceResponseOptionsUseCase replaceResponseOptionsUseCase;
 	private final ReplaceVenueUseCase replaceVenueUseCase;
 	private final ReplaceOnlineAccessUseCase replaceOnlineAccessUseCase;
+	private final PublishEventUseCase publishEventUseCase;
+	private final CancelEventUseCase cancelEventUseCase;
+	private final UpdateEventUseCase updateEventUseCase;
 
 	public EventController(CreateEventUseCase createEventUseCase, GetEventByIdUseCase getEventByIdUseCase,
 			ListEventsByHostUseCase listEventsByHostUseCase,
 			ReplaceResponseOptionsUseCase replaceResponseOptionsUseCase, ReplaceVenueUseCase replaceVenueUseCase,
-			ReplaceOnlineAccessUseCase replaceOnlineAccessUseCase) {
+			ReplaceOnlineAccessUseCase replaceOnlineAccessUseCase, PublishEventUseCase publishEventUseCase,
+			CancelEventUseCase cancelEventUseCase, UpdateEventUseCase updateEventUseCase) {
 		this.createEventUseCase = createEventUseCase;
 		this.getEventByIdUseCase = getEventByIdUseCase;
 		this.listEventsByHostUseCase = listEventsByHostUseCase;
 		this.replaceResponseOptionsUseCase = replaceResponseOptionsUseCase;
 		this.replaceVenueUseCase = replaceVenueUseCase;
 		this.replaceOnlineAccessUseCase = replaceOnlineAccessUseCase;
+		this.publishEventUseCase = publishEventUseCase;
+		this.cancelEventUseCase = cancelEventUseCase;
+		this.updateEventUseCase = updateEventUseCase;
 	}
 
 	@Operation(summary = "Crea un evento", description = "El anfitrion crea un evento nuevo. El evento se crea en "
@@ -145,11 +158,90 @@ public class EventController {
 		return listEventsByHostUseCase.listEventsByHost(hostId).stream().map(EventSummaryResponse::from).toList();
 	}
 
+	@Operation(summary = "Edita los datos basicos de un evento",
+			description = "Actualiza titulo, descripcion, fechas, zona horaria, modalidad, opciones de respuesta y "
+					+ "configuracion. Solo permitido mientras el evento esta en DRAFT.")
+	@ApiResponses({
+			@ApiResponse(responseCode = "200", description = "Evento actualizado.",
+					content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
+							schema = @Schema(implementation = EventResponse.class))),
+			@ApiResponse(responseCode = "404", description = "No existe ningun evento con ese id.",
+					content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
+							schema = @Schema(implementation = ProblemDetail.class))),
+			@ApiResponse(responseCode = "409", description = "El evento no esta en DRAFT.",
+					content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
+							schema = @Schema(implementation = ProblemDetail.class))),
+			@ApiResponse(responseCode = "422", description = "Viola una regla de negocio: titulo en blanco, periodo "
+					+ "invalido, zona horaria invalida, cambio de modalidad sin bloque de ubicacion, o fecha limite "
+					+ "posterior a startsAt.",
+					content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
+							schema = @Schema(implementation = ProblemDetail.class))) })
+	@PutMapping("/{id}")
+	public EventResponse updateEvent(@PathVariable String id, @Valid @RequestBody UpdateEventRequest request) {
+		Venue venue = request.venue() == null ? null
+				: new Venue(request.venue().placeName(), request.venue().address(), request.venue().latitude(),
+						request.venue().longitude(), request.venue().placeId(), request.venue().directions());
+		OnlineAccess onlineAccess = request.onlineAccess() == null ? null
+				: new OnlineAccess(request.onlineAccess().platform(), request.onlineAccess().url(),
+						request.onlineAccess().roomId(), request.onlineAccess().password(),
+						request.onlineAccess().instructions(), request.onlineAccess().linkVisibility(),
+						request.onlineAccess().hoursBefore());
+		boolean allowComment = request.allowComment() != null && request.allowComment();
+		boolean allowResponseChange = request.allowResponseChange() == null || request.allowResponseChange();
+		EventEdit edit = new EventEdit(request.title(), request.description(), request.startsAt(), request.endsAt(),
+				request.timeZone(), request.modality(), venue, onlineAccess, allowComment, allowResponseChange,
+				request.responseDeadline());
+		UpdateEventCommand command = new UpdateEventCommand(id, edit);
+		return EventResponse.from(updateEventUseCase.update(command));
+	}
+
+	@Operation(summary = "Publica un evento",
+			description = "Transicion DRAFT → PUBLISHED. Precondiciones: venue u onlineAccess segun modalidad, y al "
+					+ "menos dos opciones de respuesta.")
+	@ApiResponses({
+			@ApiResponse(responseCode = "200", description = "Evento publicado.",
+					content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
+							schema = @Schema(implementation = EventResponse.class))),
+			@ApiResponse(responseCode = "404", description = "No existe ningun evento con ese id.",
+					content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
+							schema = @Schema(implementation = ProblemDetail.class))),
+			@ApiResponse(responseCode = "409", description = "El evento no esta en DRAFT y no puede publicarse.",
+					content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
+							schema = @Schema(implementation = ProblemDetail.class))),
+			@ApiResponse(responseCode = "422", description = "El evento no cumple las precondiciones de publicacion: "
+					+ "falta venue u onlineAccess, o tiene menos de dos opciones de respuesta.",
+					content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
+							schema = @Schema(implementation = ProblemDetail.class))) })
+	@PostMapping("/{id}/publish")
+	public EventResponse publishEvent(@PathVariable String id) {
+		return EventResponse.from(publishEventUseCase.publish(id));
+	}
+
+	@Operation(summary = "Cancela un evento",
+			description = "Transicion PUBLISHED → CANCELLED. Irreversible. Solo posible desde PUBLISHED: un borrador "
+					+ "que nunca se publico no tiene invitados a los que notificar.")
+	@ApiResponses({
+			@ApiResponse(responseCode = "200", description = "Evento cancelado.",
+					content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
+							schema = @Schema(implementation = EventResponse.class))),
+			@ApiResponse(responseCode = "404", description = "No existe ningun evento con ese id.",
+					content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
+							schema = @Schema(implementation = ProblemDetail.class))),
+			@ApiResponse(responseCode = "409", description = "El evento no esta en PUBLISHED y no puede cancelarse.",
+					content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
+							schema = @Schema(implementation = ProblemDetail.class))) })
+	@PostMapping("/{id}/cancel")
+	public EventResponse cancelEvent(@PathVariable String id,
+			@RequestBody(required = false) CancelEventRequest request) {
+		String reason = request != null ? request.reason() : null;
+		return EventResponse.from(cancelEventUseCase.cancel(id, reason, Instant.now()));
+	}
+
 	@Operation(summary = "Reemplaza las opciones de respuesta de un evento",
-			description = "Sustituye la lista completa de opciones de respuesta, junto con allowComment, "
-					+ "allowResponseChange y responseDeadline. Solo permitido mientras el evento esta en DRAFT. "
-					+ "Para conservar el id de una opcion existente, envialo de vuelta; una opcion sin id se crea "
-					+ "como nueva.")
+			description = "Sustituye la lista completa de opciones de respuesta. Solo permitido mientras el evento "
+					+ "esta en DRAFT. Para conservar el id de una opcion existente, envialo de vuelta; una opcion "
+					+ "sin id se crea como nueva. allowComment, allowResponseChange y responseDeadline se gestionan "
+					+ "a traves de PUT /api/events/{id}.")
 	@ApiResponses({
 			@ApiResponse(responseCode = "200", description = "Opciones reemplazadas. Devuelve el evento completo.",
 					content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
@@ -163,7 +255,7 @@ public class EventController {
 							schema = @Schema(implementation = ProblemDetail.class))),
 			@ApiResponse(responseCode = "422", description = "La peticion viola una regla de negocio: numero de "
 					+ "opciones fuera de 2-5, ninguna opcion cuenta como asistencia, etiquetas vacias o duplicadas, "
-					+ "un id de opcion que no pertenece al evento, o responseDeadline posterior a startsAt.",
+					+ "o un id de opcion que no pertenece al evento.",
 					content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
 							schema = @Schema(implementation = ProblemDetail.class))) })
 	@PutMapping("/{id}/response-options")
@@ -172,8 +264,7 @@ public class EventController {
 		List<ResponseOptionEdit> edits = request.responseOptions().stream()
 				.map(option -> new ResponseOptionEdit(option.id(), option.label(), option.countsAsAttendance()))
 				.toList();
-		ReplaceResponseOptionsCommand command = new ReplaceResponseOptionsCommand(id, edits, request.allowComment(),
-				request.allowResponseChange(), request.responseDeadline());
+		ReplaceResponseOptionsCommand command = new ReplaceResponseOptionsCommand(id, edits);
 		return EventResponse.from(replaceResponseOptionsUseCase.replaceResponseOptions(command));
 	}
 

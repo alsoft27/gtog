@@ -14,6 +14,7 @@ Estado a 20 de agosto de 2026.
 | R1 — Consultar y listar eventos | `GET /api/events/{id}` (`EventResponse` completo, `EventNotFoundException` → 404) y `GET /api/events?hostId=` (proyección `EventSummaryResponse`, sin paginación, `hostId` obligatorio y temporal) |
 | R2 — Opciones de respuesta | `ResponseOption` embebido en `Event`, 2 a 5, defaults ("Asisto"/"No asisto") si no se especifican, `PUT /api/events/{id}/response-options` con identidad por `id` al editar (se conserva si coincide, se rechaza con 422 si no pertenece al evento) |
 | R3 — Ubicación y acceso en línea | `Venue` y `OnlineAccess` (el backend no llama a la API de Google), `LinkVisibility`, invariante de modalidad (`IN_PERSON`⇄`venue`, `ONLINE`⇄`onlineAccess`), `PUT /api/events/{id}/venue` y `PUT /api/events/{id}/online-access`, `Event.visibleOnlineAccess(guestHasConfirmed, now)` ya implementado (solo probado a nivel de dominio, sin invitados todavía) |
+| R4 — Editar, publicar y cancelar | Máquina de estados: `publish()` solo desde `DRAFT` (precondiciones: venue/onlineAccess según modalidad, ≥2 opciones → `IncompleteEventForPublishException` 422), `cancel(reason, now)` solo desde `PUBLISHED` → `CANCELLED` con `cancelledAt` (irreversible). `edit()` con todos los campos básicos más `allowComment`/`allowResponseChange`/`responseDeadline` (sacados de `replaceResponseOptions`): si la modalidad cambia, el bloque de ubicación correspondiente es obligatorio. `PUT /api/events/{id}`, `POST /api/events/{id}/publish`, `POST /api/events/{id}/cancel`. 61 tests de dominio, 37 de integración, todos en verde. |
 | Infraestructura | Java 25, Spring Boot 4.1, Maven aislado, MongoDB Atlas, OpenAPI |
 
 **Lo que eso valida:** la arquitectura hexagonal funciona en la práctica, el mapeo entre `Event` y `EventDocument` es asumible, y el circuito completo de desarrollo está operativo. Además, `Event.create(...)`/`reconstitute(...)` cambiaron de firma en las tres rebanadas seguidas, así que desde R3 `Event` se construye con dos builders internos (`Event.builder()` para eventos nuevos, `Event.reconstituteBuilder()` para rehidratar) en vez de factory methods con parámetros posicionales — ver `docs/modelo-evento.md`.
@@ -32,6 +33,8 @@ Esto no es una lista de pendientes cualquiera: son cosas que ya están mal a pro
 | D-5 | **Tests de integración contra Atlas** | Los tests necesitan red y son lentos | Aceptable mientras seas el único desarrollador |
 | D-6 | **Sin herramienta de migraciones** | No hay forma versionada de cambiar el esquema | Cuando haya datos reales |
 | D-7 | **"Renombrar pero no eliminar" sin implementar** | La regla de negocio 4 (`CLAUDE.md`) exige que una opción de respuesta con respuestas asociadas no se pueda eliminar tras publicar. `Event.replaceResponseOptions(...)` hoy permite quitar cualquier opción: el dominio no conoce la colección `responses` todavía, así que no puede saber qué ids tienen respuestas. Documentado en `docs/modelo-evento.md`. | Rebanada 8: `replaceResponseOptions(...)` tendrá que recibir el conjunto de ids con respuestas, calculado en la capa de aplicación |
+| D-FINISHED | **`FINISHED` sin implementar** | No existe ningún mecanismo para que un evento pase a `FINISHED`. Ni job programado ni derivación al vuelo. | A definir: requiere decidir si es automático (por fecha) o manual (anfitrión lo marca) |
+| D-DELETE-DRAFT | **Borrar un `DRAFT` sin implementar** | Un borrador no se puede cancelar (`cancel()` solo desde `PUBLISHED`). No existe `DELETE /api/events/{id}`. | Rebanada posterior |
 
 **D-4, saldada.** Decía "health indicator de Mongo desactivado", y no era así: estaba activo y en `DOWN`. El indicador por defecto de Actuator recorre **todas** las bases que el `MongoClient` ve vía `listDatabaseNames()` — no solo `local`, también `admin`, `config`, la de la propia app — y ejecuta `hello` en cada una; en Atlas el usuario de la aplicación no tiene permiso sobre `local`, así que el chequeo entero caía con `DOWN` aunque `gtog_dev`/`gtog_test` respondieran sin problema. Comprobado arrancando la app. Sustituido por `MongoDatabaseHealthIndicator` (en `shared/config`), que hace `ping` solo contra la base configurada de la aplicación; el indicador por defecto se desactiva con `management.health.mongodb.enabled=false` en ambos `application*.properties` para que no convivan. Verificado de nuevo: `GET /actuator/health` → `"mongo":{"details":{"database":"gtog_dev","ping":1},"status":"UP"}`.
 
@@ -43,8 +46,7 @@ Cada una es vertical: dominio, puerto, adaptador, controlador y test, funcionand
 
 ### Bloque A — Completar el evento
 
-**R4. Editar, publicar y cancelar**
-La máquina de estados: `publish()` solo desde `DRAFT`, `cancel()` desde `PUBLISHED`. Es donde se prueba de verdad el `@Version`. También cubre la edición general del evento (título, fechas, descripción) y, en concreto, **qué pasa con `venue`/`onlineAccess` al cambiar de modalidad** — decisión que quedó explícitamente pendiente en R3 (ver §5).
+**R4. Editar, publicar y cancelar** ✓ Completada.
 
 ### Bloque B — Identidad del anfitrión
 
@@ -94,7 +96,7 @@ La alternativa es dejarla para el final y aceptar la reescritura. Es defendible 
 | **Proveedor de correo** (SES, SendGrid, SMTP) | R10 | Media |
 | **¿Puede el anfitrión registrar a mano la respuesta de un invitado?** | R8, R9 | Baja, pero decide el modelo |
 | **Formato del token**: longitud y alfabeto | R6 | Baja, pero irreversible una vez haya enlaces circulando |
-| **¿Qué pasa con `venue`/`onlineAccess` al cambiar de modalidad en R4?** | R4 | Media — lo razonable es descartar los datos de la modalidad anterior, pero falta confirmarlo explícitamente antes de implementarlo |
+| ~~**¿Qué pasa con `venue`/`onlineAccess` al cambiar de modalidad en R4?**~~ | ~~R4~~ | **Resuelta en R4:** si la modalidad cambia, el cliente debe aportar el bloque de la nueva modalidad; el de la anterior se descarta. Si no lo aporta, `ModalityChangedWithoutLocationException` (422). |
 
 **Resuelta durante R1–R3:** la clave de Google Maps con facturación activa, que aparecía aquí bloqueando R3. Ya no bloquea nada en este repositorio: el backend no llama a la API de Google (ver `Venue` en `docs/modelo-evento.md`), confía en los datos que el cliente ya ha resuelto. Si hace falta una clave, es para el autocompletado en el frontend, fuera de este repo.
 

@@ -6,8 +6,10 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import com.gtog.event.domain.model.EventDomainException;
+import com.gtog.event.domain.model.EventNotCancellableException;
 import com.gtog.event.domain.model.EventNotEditableException;
 import com.gtog.event.domain.model.EventNotFoundException;
+import com.gtog.event.domain.model.EventNotPublishableException;
 
 // Todas las excepciones de dominio heredan de EventDomainException; el dominio no sabe de codigos HTTP.
 // Este advice es el unico responsable de mapear cada una a su codigo: los @ExceptionHandler mas especificos
@@ -27,6 +29,16 @@ public class GlobalExceptionHandler {
 
 	@ExceptionHandler(EventNotEditableException.class)
 	public ProblemDetail handleEventNotEditableException(EventNotEditableException exception) {
+		return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, exception.getMessage());
+	}
+
+	@ExceptionHandler(EventNotPublishableException.class)
+	public ProblemDetail handleEventNotPublishableException(EventNotPublishableException exception) {
+		return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, exception.getMessage());
+	}
+
+	@ExceptionHandler(EventNotCancellableException.class)
+	public ProblemDetail handleEventNotCancellableException(EventNotCancellableException exception) {
 		return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, exception.getMessage());
 	}
 }

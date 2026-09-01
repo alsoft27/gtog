@@ -30,6 +30,8 @@ public class EventMapper {
 				event.getResponseDeadline(),
 				toDocument(event.getVenue()),
 				toDocument(event.getOnlineAccess()),
+				event.getCancelledAt(),
+				event.getCancellationReason(),
 				event.getVersion());
 	}
 
@@ -50,6 +52,8 @@ public class EventMapper {
 				.responseDeadline(document.getResponseDeadline())
 				.venue(toDomain(document.getVenue()))
 				.onlineAccess(toDomain(document.getOnlineAccess()))
+				.cancelledAt(document.getCancelledAt())
+				.cancellationReason(document.getCancellationReason())
 				.version(document.getVersion())
 				.build();
 	}

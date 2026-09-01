@@ -5,6 +5,6 @@ package com.gtog.event.domain.model;
 public class EventNotEditableException extends EventDomainException {
 
 	public EventNotEditableException(String eventId) {
-		super("Event %s is not in DRAFT status and its response options can no longer be replaced".formatted(eventId));
+		super("Event %s is not in DRAFT status and can no longer be edited".formatted(eventId));
 	}
 }

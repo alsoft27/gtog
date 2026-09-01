@@ -1,5 +1,6 @@
 package com.gtog.event.infrastructure.in.web;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -59,7 +60,13 @@ public record EventResponse(
 
 		@Schema(description = "Acceso en linea del evento, solo si modality es ONLINE. Sin filtrar por "
 				+ "LinkVisibility: esta es la vista del anfitrion, no la del invitado.")
-		OnlineAccessResponse onlineAccess) {
+		OnlineAccessResponse onlineAccess,
+
+		@Schema(description = "Instante en que se cancelo el evento, null si no esta cancelado")
+		Instant cancelledAt,
+
+		@Schema(description = "Motivo de la cancelacion, null si no esta cancelado o no se indico motivo")
+		String cancellationReason) {
 
 	public static EventResponse from(Event event) {
 		return new EventResponse(
@@ -77,6 +84,8 @@ public record EventResponse(
 				event.isAllowResponseChange(),
 				event.getResponseDeadline(),
 				event.getVenue() == null ? null : VenueResponse.from(event.getVenue()),
-				event.getOnlineAccess() == null ? null : OnlineAccessResponse.from(event.getOnlineAccess()));
+				event.getOnlineAccess() == null ? null : OnlineAccessResponse.from(event.getOnlineAccess()),
+				event.getCancelledAt(),
+				event.getCancellationReason());
 	}
 }
