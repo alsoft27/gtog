@@ -81,7 +81,7 @@ public class Event {
 			throw new EventNotEditableException(id);
 		}
 		if (modality != Modality.IN_PERSON) {
-			throw new UnexpectedVenueException();
+			throw new ModalityConflictException("Event %s is ONLINE and does not accept a venue".formatted(id));
 		}
 		this.venue = venue;
 	}
@@ -91,7 +91,7 @@ public class Event {
 			throw new EventNotEditableException(id);
 		}
 		if (modality != Modality.ONLINE) {
-			throw new UnexpectedOnlineAccessException();
+			throw new ModalityConflictException("Event %s is IN_PERSON and does not accept online access".formatted(id));
 		}
 		this.onlineAccess = onlineAccess;
 	}

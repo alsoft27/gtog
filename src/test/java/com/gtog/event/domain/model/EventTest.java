@@ -352,10 +352,10 @@ class EventTest {
 	}
 
 	@Test
-	void replaceVenueRejectsWhenEventIsOnline() {
+	void replaceVenueReturns409WhenEventIsOnline() {
 		Event event = baseBuilder().modality(Modality.ONLINE).venue(null).onlineAccess(anOnlineAccess()).build();
 
-		assertThatThrownBy(() -> event.replaceVenue(aVenue())).isInstanceOf(UnexpectedVenueException.class);
+		assertThatThrownBy(() -> event.replaceVenue(aVenue())).isInstanceOf(ModalityConflictException.class);
 	}
 
 	@Test
@@ -370,11 +370,11 @@ class EventTest {
 	}
 
 	@Test
-	void replaceOnlineAccessRejectsWhenEventIsInPerson() {
+	void replaceOnlineAccessReturns409WhenEventIsInPerson() {
 		Event event = createEvent();
 
 		assertThatThrownBy(() -> event.replaceOnlineAccess(anOnlineAccess()))
-				.isInstanceOf(UnexpectedOnlineAccessException.class);
+				.isInstanceOf(ModalityConflictException.class);
 	}
 
 	@Test

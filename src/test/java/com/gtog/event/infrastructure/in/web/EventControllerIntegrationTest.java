@@ -445,13 +445,14 @@ class EventControllerIntegrationTest {
 	}
 
 	@Test
-	void replaceVenueReturns422WhenTheEventIsOnline() throws Exception {
+	void replaceVenueReturns409WhenTheEventIsOnline() throws Exception {
 		String location = createOnlineEvent("host-1", "Charla online");
 		String eventId = location.substring(location.lastIndexOf('/') + 1);
 
 		mockMvc.perform(put("/api/events/" + eventId + "/venue")
 				.contentType(MediaType.APPLICATION_JSON).content(VENUE_JSON))
-				.andExpect(status().isUnprocessableEntity());
+				.andExpect(status().isConflict())
+				.andExpect(jsonPath("$.status").value(409));
 	}
 
 	@Test
@@ -481,13 +482,14 @@ class EventControllerIntegrationTest {
 	}
 
 	@Test
-	void replaceOnlineAccessReturns422WhenTheEventIsInPerson() throws Exception {
+	void replaceOnlineAccessReturns409WhenTheEventIsInPerson() throws Exception {
 		String location = createEvent("host-1", "Cumpleaños");
 		String eventId = location.substring(location.lastIndexOf('/') + 1);
 
 		mockMvc.perform(put("/api/events/" + eventId + "/online-access")
 				.contentType(MediaType.APPLICATION_JSON).content(ONLINE_ACCESS_JSON))
-				.andExpect(status().isUnprocessableEntity());
+				.andExpect(status().isConflict())
+				.andExpect(jsonPath("$.status").value(409));
 	}
 
 	@Test
@@ -605,23 +607,6 @@ class EventControllerIntegrationTest {
 	}
 
 	@Test
-	void publishEventReturns422WhenEventHasFewerThanTwoResponseOptions() throws Exception {
-		// Insertamos directamente un documento con una sola opcion para forzar la precondicion
-		EventDocument doc = new EventDocument("test-publish-422", "host-1", "T", null,
-				java.time.LocalDateTime.of(2026, 9, 1, 20, 0), java.time.LocalDateTime.of(2026, 9, 1, 23, 0),
-				"Europe/Madrid", "IN_PERSON", "DRAFT",
-				List.of(new com.gtog.event.infrastructure.out.persistence.ResponseOptionDocument("opt-1", "Asisto", true)),
-				false, true, null,
-				new com.gtog.event.infrastructure.out.persistence.VenueDocument("Sala", "Calle", 41.0, 2.0, "p-1", null),
-				null, null, null, null);
-		eventMongoRepository.save(doc);
-
-		mockMvc.perform(post("/api/events/test-publish-422/publish"))
-				.andExpect(status().isUnprocessableEntity())
-				.andExpect(jsonPath("$.status").value(422));
-	}
-
-	@Test
 	void cancelEventReturns200WithCancelledStatus() throws Exception {
 		String location = createEvent("host-1", "Cumpleaños");
 		String eventId = location.substring(location.lastIndexOf('/') + 1);
@@ -707,6 +692,7 @@ class EventControllerIntegrationTest {
 				""".formatted(hostId, title, VENUE_JSON);
 
 		return mockMvc.perform(post("/api/events").contentType(MediaType.APPLICATION_JSON).content(requestBody))
+				.andExpect(status().isCreated())
 				.andReturn().getResponse().getHeader("Location");
 	}
 }

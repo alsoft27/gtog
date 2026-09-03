@@ -10,6 +10,7 @@ import com.gtog.event.domain.model.EventNotCancellableException;
 import com.gtog.event.domain.model.EventNotEditableException;
 import com.gtog.event.domain.model.EventNotFoundException;
 import com.gtog.event.domain.model.EventNotPublishableException;
+import com.gtog.event.domain.model.ModalityConflictException;
 
 // Todas las excepciones de dominio heredan de EventDomainException; el dominio no sabe de codigos HTTP.
 // Este advice es el unico responsable de mapear cada una a su codigo: los @ExceptionHandler mas especificos
@@ -39,6 +40,11 @@ public class GlobalExceptionHandler {
 
 	@ExceptionHandler(EventNotCancellableException.class)
 	public ProblemDetail handleEventNotCancellableException(EventNotCancellableException exception) {
+		return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, exception.getMessage());
+	}
+
+	@ExceptionHandler(ModalityConflictException.class)
+	public ProblemDetail handleModalityConflictException(ModalityConflictException exception) {
 		return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, exception.getMessage());
 	}
 }
