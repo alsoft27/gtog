@@ -183,6 +183,7 @@ Las ediciones del anfitrión sobre el cuerpo del evento sí pueden usar `save()`
 - Enums persistidos como cadenas, nunca como ordinal.
 - Marcas de tiempo en UTC. La zona horaria del evento es un campo aparte.
 - Teléfonos en formato **E.164**, normalizados al escribir.
+- **Sin integridad referencial nativa.** MongoDB no impone restricciones de clave foránea entre colecciones. Quien elimina un elemento de `events` es responsable de borrar en cascada lo que depende de él en `responses` y, cuando existan, en `wall_posts`. La cascada se orquesta en la capa de aplicación: el caso de uso llama al puerto correspondiente antes de persistir el borrado en `events`. Nunca la delegues al dominio ni confíes en que la base de datos la gestione.
 - Si en algún momento crees que una operación necesita una transacción multidocumento, para y dímelo: significa que los límites entre colecciones están mal trazados.
 
 ---
@@ -254,7 +255,7 @@ Estas reglas son el contrato final del producto, no necesariamente lo que el có
 
 3. **El envío por WhatsApp y Telegram no es automático.** El backend construye el enlace profundo y lo devuelve; el envío real lo hace el anfitrión desde su cliente y lo confirma a mano. No implementes ni propongas integración con la API de WhatsApp Business.
 
-4. **Las opciones de respuesta las define el anfitrión.** No hay enum fijo de respuestas. Entre dos y cinco opciones, ordenadas, cada una marcando si cuenta como asistencia — esta parte ya está implementada e impuesta por el dominio (R2). **Pendiente:** una vez publicado el evento, una opción con respuestas asociadas debería poder renombrarse pero no eliminarse; hoy `replaceResponseOptions(...)` no distingue eso y permite quitar cualquier opción, porque el dominio de `Event` todavía no conoce la colección `responses`. Es la deuda D-7 (`docs/plan-iteracion-1.md`), saldada en R8.
+4. **Las opciones de respuesta las define el anfitrión.** No hay enum fijo de respuestas. Entre dos y cinco opciones, ordenadas, cada una marcando si cuenta como asistencia — esta parte ya está implementada e impuesta por el dominio (R2). **Pendiente (D-7):** una vez publicado el evento, las opciones se deben poder renombrar y agregar, pero no eliminar si ya tienen respuestas. Hoy `replaceResponseOptions(...)` bloquea cualquier cambio en `PUBLISHED` con 409, sin distinguir entre renombrar, agregar o eliminar — el dominio no conoce la colección `responses` todavía. Ver D-7 en el plan, saldado en R8.
 
 5. **Un evento es presencial o en línea, nunca ambos.** La modalidad híbrida está fuera de alcance a propósito en esta iteración.
 

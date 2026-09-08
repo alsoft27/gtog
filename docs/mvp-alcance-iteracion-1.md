@@ -39,8 +39,7 @@ adicionales, check-in, cuentas de empresa, recordatorios automáticos, aplicaci�
 | RF-1.5 | Listado de los eventos del usuario con su estado y contadores de respuesta.                                                                                                                    |
 | RF-1.6 | Diseño responsivo. El anfitrión trabaja en escritorio; el invitado abrirá su enlace desde el teléfono en la mayoría de los casos, así que la página de respuesta se diseña primero para móvil. |
 
-**Estados del evento en esta iteración:** `Borrador → Publicado → Finalizado`, más `Cancelado`. Sin fase de votación
-todavía.
+**Estados del evento en esta iteración:** `Borrador → Publicado`, más `Cancelado` (solo desde Publicado). Sin fase de votación todavía. `FINISHED` no está implementado — ni automático por fecha ni acción manual del anfitrión (ver D-FINISHED en el plan). Tampoco existe `DELETE` para borradores: `cancel()` solo funciona desde `PUBLISHED`, y no hay `DELETE /api/events/{id}` (ver D-DELETE-DRAFT en el plan).
 
 ---
 
@@ -55,7 +54,7 @@ todavía.
 | RF-2.3 | Validación de formato de correo y de teléfono antes de guardar.                                                                                                    |
 | RF-2.4 | Alta rápida en serie: al guardar un invitado el formulario se limpia y mantiene el foco para capturar el siguiente.                                                |
 | RF-2.5 | Detección de duplicados dentro del mismo evento por correo o teléfono.                                                                                             |
-| RF-2.6 | Editar y eliminar invitados mientras el evento no esté finalizado.                                                                                                 |
+| RF-2.6 | Editar y eliminar invitados mientras el evento no esté finalizado. Un invitado sin respuesta se elimina directamente. Un invitado que ya respondió requiere confirmación explícita del cliente (parámetro en la petición); su documento de `responses` se borra en cascada en la capa de aplicación. Sin confirmación, 409. |
 | RF-2.7 | Cada invitado recibe al crearse un token único e irrepetible que genera su enlace personal de respuesta.                                                           |
 
 ### Elección del canal
@@ -91,7 +90,7 @@ anfitrión (RF-2.13); esta limitación debe ser visible en la interfaz para que 
 | RF-3.6 | **En línea:** campos para plataforma, enlace de la reunión, y opcionalmente identificador y contraseña de la sala.                                                                                               |
 | RF-3.7 | Regla de visibilidad del enlace de la reunión, a elección del anfitrión: **al confirmar** (solo quien respondió con una opción que cuenta como asistencia), **N horas antes** del inicio, o **siempre visible**. |
 | RF-3.8 | El filtrado del enlace se resuelve en el backend. El endpoint de la página del invitado omite el campo cuando el invitado no cumple la regla; nunca se envía al cliente para que Angular decida si lo pinta.     |
-| RF-3.9 | Si el evento cambia de ubicación o de enlace después de publicado, se notifica por correo a los invitados que ya respondieron.                                                                                   |
+| RF-3.9 | Si el evento cambia de ubicación o de enlace después de publicado, se notifica por correo a los invitados que ya respondieron. **Pendiente de decisión.** R4 dejó el evento no editable fuera de `DRAFT`: `replaceVenue` y `replaceOnlineAccess` devuelven 409 si el estado es `PUBLISHED`, por lo que este requisito es inalcanzable sin un cambio previo. Dos salidas posibles: (a) sacarlo del alcance del MVP; (b) abrir una excepción en R4 para permitir cambiar la ubicación de un evento publicado, disparando la notificación como efecto secundario. |
 
 > **Modalidad híbrida: descartada en esta iteración.** Un evento con sede y sala simultáneas obliga a que la opción de
 > respuesta indique el canal de asistencia (`Asisto presencial` / `Asisto en línea`), lo que acopla este requisito con el
@@ -111,7 +110,7 @@ anfitrión (RF-2.13); esta limitación debe ser visible en la interfaz para que 
 | RF-4.5 | Orden de las opciones definible por el anfitrión; ese orden se respeta en la página del invitado.                                                                                  |
 | RF-4.6 | Interruptor para permitir o no que el invitado deje un comentario junto con su respuesta.                                                                                          |
 | RF-4.7 | Interruptor para permitir o no que el invitado cambie su respuesta, y hasta qué fecha límite.                                                                                      |
-| RF-4.8 | Las opciones se pueden editar mientras el evento esté en borrador. Una vez publicado, solo se pueden renombrar y agregar; no eliminar opciones que ya tengan respuestas asociadas. |
+| RF-4.8 | Las opciones se pueden editar mientras el evento esté en borrador. Una vez publicado, solo se pueden renombrar y agregar; no eliminar opciones que ya tengan respuestas asociadas. **Discrepancia con el código.** `Event.replaceResponseOptions(...)` devuelve 409 ante *cualquier* cambio de opciones si el evento está publicado, sin distinguir entre renombrar, agregar o eliminar. El requisito de renombrar y agregar no está implementado. Ver D-7 en el plan, ampliado para reflejar el problema completo. |
 | RF-4.9 | El panel del anfitrión muestra el conteo por cada opción definida, más el total de invitados sin responder.                                                                        |
 
 ---
@@ -157,6 +156,7 @@ events
   modality (IN_PERSON | ONLINE),
   status (DRAFT | PUBLISHED | FINISHED | CANCELLED),
   allowComment, allowResponseChange, responseDeadline,
+  messageTemplate,             // plantilla del mensaje de invitación, editable por el anfitrión; null = texto por defecto
 
   venue                        // solo si modality = IN_PERSON
     { placeName, address, latitude, longitude, placeId, directions }
@@ -165,8 +165,8 @@ events
     { platform, url, roomId, password, instructions,
       linkVisibility (ON_CONFIRMATION | HOURS_BEFORE | ALWAYS), hoursBefore }
 
-  responseOptions[]            // entre 2 y 5, ordenadas
-    { id, label, countsAsAttendance, order }
+  responseOptions[]            // entre 2 y 5; el orden es la posición en la lista
+    { id, label, countsAsAttendance }
 
   guests[]
     { id, name, email, phoneE164, token,
@@ -225,11 +225,9 @@ wall_posts                     // iteración 2, referencia el evento
 
 ## 9. Pendientes por resolver antes de codificar
 
-1. **Zona horaria del evento:** ¿la fija el anfitrión y se convierte para cada invitado, o se muestra siempre la del
-   evento? Recomendación: guardar en UTC con la zona del evento, y mostrar ambas cuando difieran de la del navegador del
-   invitado.
-2. **Proveedor de correo:** SendGrid, Amazon SES o SMTP propio. Afecta la entregabilidad y el costo desde el primer día.
-3. **Clave de Google Maps:** hay que crear el proyecto y activar facturación antes de empezar la pantalla de ubicación.
-4. **¿El anfitrión puede registrar manualmente la respuesta de alguien que contestó por WhatsApp?** Es barato de
-   implementar y muy usado en la práctica.
-5. **Idioma:** ¿solo español en esta iteración?
+Las preguntas sobre zona horaria, clave de Google Maps e idioma están resueltas. Lo que sigue abierto:
+
+1. **Proveedor de correo:** SendGrid, Amazon SES o SMTP propio. Afecta la entregabilidad y el costo, y bloquea RF-1.2, RF-1.3 y RF-2.10. Urgencia alta: ver §5 del plan.
+2. **¿Puede el anfitrión registrar a mano la respuesta de un invitado que contestó por otro medio?** Es barato de implementar y muy usado en la práctica. Ver §5 del plan.
+
+Para el detalle y la urgencia de cada decisión, ver `docs/plan-iteracion-1.md`, §5.
