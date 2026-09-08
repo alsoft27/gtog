@@ -1,8 +1,7 @@
 # Modelo de datos: Evento
 
-Estado del modelo tras R1–R4: creación de eventos, consulta/listado (R1), opciones de respuesta (R2),
-ubicación/acceso en línea (R3), y editar/publicar/cancelar (R4). Todavía no existen invitados, respuestas ni muro
-social.
+Estado del modelo tras R1–R5: creación de eventos, consulta/listado (R1), opciones de respuesta (R2),
+ubicación/acceso en línea (R3), editar/publicar/cancelar (R4), y seguridad/ownership (R5). Todavía no existen invitados, respuestas ni muro social.
 
 ---
 
@@ -17,7 +16,7 @@ persistido sin repetir ninguna validación.
 | Campo | Tipo | Descripción |
 |---|---|---|
 | `id` | `String` | UUID generado por el dominio al crear el evento. No lo asigna Mongo. |
-| `hostId` | `String` | Identificador del anfitrión. Hoy es un campo suelto en la petición; no hay todavía usuario autenticado (RF-1.1 sin implementar). |
+| `hostId` | `String` | Identificador del anfitrión. Desde R5 proviene del usuario autenticado (sesión), nunca del body del request. |
 | `title` | `String` | Título del evento. Obligatorio. |
 | `description` | `String` | Descripción libre. Opcional. |
 | `startsAt` / `endsAt` | `LocalDateTime` | Hora local del evento. `endsAt` debe ser estrictamente posterior a `startsAt` una vez interpretados con `timeZone` (`InvalidEventPeriodException` si no). |
@@ -235,7 +234,7 @@ sobre `EventMongoRepository` (Spring Data).
 |---|---|---|---|
 | `POST` | `/api/events` | `CreateEventRequest` | `201` + `Location`, `400`, `422` |
 | `GET` | `/api/events/{id}` | — | `200` (`EventResponse` completo), `404` |
-| `GET` | `/api/events?hostId=` | `hostId` obligatorio (temporal, hasta que exista el usuario autenticado) | `200` (lista de `EventSummaryResponse`: `id`, `title`, `startsAt`, `modality`, `status`), `400` si falta `hostId` |
+| `GET` | `/api/events` | — (el host se lee del principal autenticado) | `200` (lista de `EventSummaryResponse`: `id`, `title`, `startsAt`, `modality`, `status`), `401` si no hay sesión |
 | `PUT` | `/api/events/{id}` | `UpdateEventRequest` (título, fechas, zona horaria, modalidad, venue/onlineAccess opcionales, `allowComment`, `allowResponseChange`, `responseDeadline`) | `200` (`EventResponse` completo), `404`, `409` (no `DRAFT`), `422` |
 | `POST` | `/api/events/{id}/publish` | — | `200` (`EventResponse` completo), `404`, `409` (no `DRAFT`), `422` (falta venue/onlineAccess o < 2 opciones) |
 | `POST` | `/api/events/{id}/cancel` | `CancelEventRequest` (`reason` opcional) | `200` (`EventResponse` completo con `cancelledAt`), `404`, `409` (no `PUBLISHED`) |

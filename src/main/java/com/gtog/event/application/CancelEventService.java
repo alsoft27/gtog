@@ -19,9 +19,12 @@ public class CancelEventService implements CancelEventUseCase {
 	}
 
 	@Override
-	public Event cancel(String eventId, String reason, Instant now) {
+	public Event cancel(String hostId, String eventId, String reason, Instant now) {
 		Event event = eventRepositoryPort.findById(eventId)
 				.orElseThrow(() -> new EventNotFoundException(eventId));
+		if (!event.getHostId().equals(hostId)) {
+			throw new EventNotFoundException(eventId);
+		}
 		event.cancel(reason, now);
 		return eventRepositoryPort.save(event);
 	}

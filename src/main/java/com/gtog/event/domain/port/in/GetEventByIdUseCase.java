@@ -4,5 +4,5 @@ import com.gtog.event.domain.model.Event;
 
 public interface GetEventByIdUseCase {
 
-	Event getEventById(String eventId);
+	Event getEventById(String hostId, String eventId);
 }

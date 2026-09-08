@@ -21,6 +21,9 @@ public class ReplaceResponseOptionsService implements ReplaceResponseOptionsUseC
 	public Event replaceResponseOptions(ReplaceResponseOptionsCommand command) {
 		Event event = eventRepositoryPort.findById(command.eventId())
 				.orElseThrow(() -> new EventNotFoundException(command.eventId()));
+		if (!event.getHostId().equals(command.hostId())) {
+			throw new EventNotFoundException(command.eventId());
+		}
 		event.replaceResponseOptions(command.responseOptions());
 		return eventRepositoryPort.save(event);
 	}

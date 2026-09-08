@@ -33,7 +33,7 @@ class EventQueryServiceTest {
 
 		EventQueryService service = new EventQueryService(eventRepositoryPort);
 
-		assertThat(service.getEventById("event-1")).isSameAs(event);
+		assertThat(service.getEventById("host-1", "event-1")).isSameAs(event);
 	}
 
 	@Test
@@ -42,7 +42,7 @@ class EventQueryServiceTest {
 
 		EventQueryService service = new EventQueryService(eventRepositoryPort);
 
-		assertThatThrownBy(() -> service.getEventById("missing")).isInstanceOf(EventNotFoundException.class);
+		assertThatThrownBy(() -> service.getEventById("host-1", "missing")).isInstanceOf(EventNotFoundException.class);
 	}
 
 	@Test

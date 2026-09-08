@@ -4,5 +4,5 @@ import java.util.List;
 
 import com.gtog.event.domain.model.ResponseOptionEdit;
 
-public record ReplaceResponseOptionsCommand(String eventId, List<ResponseOptionEdit> responseOptions) {
+public record ReplaceResponseOptionsCommand(String hostId, String eventId, List<ResponseOptionEdit> responseOptions) {
 }

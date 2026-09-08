@@ -21,6 +21,9 @@ public class UpdateEventService implements UpdateEventUseCase {
 	public Event update(UpdateEventCommand command) {
 		Event event = eventRepositoryPort.findById(command.eventId())
 				.orElseThrow(() -> new EventNotFoundException(command.eventId()));
+		if (!event.getHostId().equals(command.hostId())) {
+			throw new EventNotFoundException(command.eventId());
+		}
 		event.edit(command.edit());
 		return eventRepositoryPort.save(event);
 	}

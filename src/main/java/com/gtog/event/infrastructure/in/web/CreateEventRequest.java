@@ -13,9 +13,6 @@ import com.gtog.event.domain.model.Modality;
 
 public record CreateEventRequest(
 
-		@Schema(description = "Identificador del anfitrion que crea el evento", example = "host-1")
-		@NotBlank String hostId,
-
 		// Sin @NotBlank a proposito: el titulo obligatorio es una regla de negocio (BlankEventTitleException, 422
 		// del dominio), no un error de formato (400). Ver com.gtog.event.domain.model.Event.create.
 		@Schema(description = "Titulo del evento", example = "Cumpleaños de Ana")

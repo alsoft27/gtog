@@ -23,6 +23,9 @@ public class EventLocationService implements ReplaceVenueUseCase, ReplaceOnlineA
 	public Event replaceVenue(ReplaceVenueCommand command) {
 		Event event = eventRepositoryPort.findById(command.eventId())
 				.orElseThrow(() -> new EventNotFoundException(command.eventId()));
+		if (!event.getHostId().equals(command.hostId())) {
+			throw new EventNotFoundException(command.eventId());
+		}
 		event.replaceVenue(command.venue());
 		return eventRepositoryPort.save(event);
 	}
@@ -31,6 +34,9 @@ public class EventLocationService implements ReplaceVenueUseCase, ReplaceOnlineA
 	public Event replaceOnlineAccess(ReplaceOnlineAccessCommand command) {
 		Event event = eventRepositoryPort.findById(command.eventId())
 				.orElseThrow(() -> new EventNotFoundException(command.eventId()));
+		if (!event.getHostId().equals(command.hostId())) {
+			throw new EventNotFoundException(command.eventId());
+		}
 		event.replaceOnlineAccess(command.onlineAccess());
 		return eventRepositoryPort.save(event);
 	}

@@ -23,5 +23,6 @@ public class MongoIndexInitializer {
 	@EventListener(ApplicationReadyEvent.class)
 	public void createIndexes() {
 		mongoTemplate.indexOps(EventDocument.class).createIndex(new Index().on("hostId", Sort.Direction.ASC));
+		mongoTemplate.indexOps("users").createIndex(new Index().on("email", Sort.Direction.ASC).unique());
 	}
 }

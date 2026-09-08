@@ -41,7 +41,7 @@ class EventLocationServiceTest {
 		Venue newVenue = new Venue("Otra sala", "Otra direccion", 0.0, 0.0, "other-place-id", null);
 
 		EventLocationService service = new EventLocationService(eventRepositoryPort);
-		Event result = service.replaceVenue(new ReplaceVenueCommand("event-1", newVenue));
+		Event result = service.replaceVenue(new ReplaceVenueCommand("host-1", "event-1", newVenue));
 
 		assertThat(result).isSameAs(event);
 		assertThat(event.getVenue()).isEqualTo(newVenue);
@@ -55,7 +55,7 @@ class EventLocationServiceTest {
 		EventLocationService service = new EventLocationService(eventRepositoryPort);
 		Venue venue = new Venue("Sala", "Direccion", 0.0, 0.0, "place-id", null);
 
-		assertThatThrownBy(() -> service.replaceVenue(new ReplaceVenueCommand("missing", venue)))
+		assertThatThrownBy(() -> service.replaceVenue(new ReplaceVenueCommand("host-1", "missing", venue)))
 				.isInstanceOf(EventNotFoundException.class);
 	}
 
@@ -68,7 +68,7 @@ class EventLocationServiceTest {
 				LinkVisibility.ALWAYS, null);
 
 		EventLocationService service = new EventLocationService(eventRepositoryPort);
-		Event result = service.replaceOnlineAccess(new ReplaceOnlineAccessCommand("event-2", newOnlineAccess));
+		Event result = service.replaceOnlineAccess(new ReplaceOnlineAccessCommand("host-1", "event-2", newOnlineAccess));
 
 		assertThat(result).isSameAs(event);
 		assertThat(event.getOnlineAccess()).isEqualTo(newOnlineAccess);
@@ -84,7 +84,7 @@ class EventLocationServiceTest {
 				LinkVisibility.ALWAYS, null);
 
 		assertThatThrownBy(
-				() -> service.replaceOnlineAccess(new ReplaceOnlineAccessCommand("missing", onlineAccess)))
+				() -> service.replaceOnlineAccess(new ReplaceOnlineAccessCommand("host-1", "missing", onlineAccess)))
 				.isInstanceOf(EventNotFoundException.class);
 	}
 

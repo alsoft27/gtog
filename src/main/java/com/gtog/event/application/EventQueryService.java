@@ -20,8 +20,12 @@ public class EventQueryService implements GetEventByIdUseCase, ListEventsByHostU
 	}
 
 	@Override
-	public Event getEventById(String eventId) {
-		return eventRepositoryPort.findById(eventId).orElseThrow(() -> new EventNotFoundException(eventId));
+	public Event getEventById(String hostId, String eventId) {
+		Event event = eventRepositoryPort.findById(eventId).orElseThrow(() -> new EventNotFoundException(eventId));
+		if (!event.getHostId().equals(hostId)) {
+			throw new EventNotFoundException(eventId);
+		}
+		return event;
 	}
 
 	@Override

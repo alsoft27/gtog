@@ -17,9 +17,12 @@ public class PublishEventService implements PublishEventUseCase {
 	}
 
 	@Override
-	public Event publish(String eventId) {
+	public Event publish(String hostId, String eventId) {
 		Event event = eventRepositoryPort.findById(eventId)
 				.orElseThrow(() -> new EventNotFoundException(eventId));
+		if (!event.getHostId().equals(hostId)) {
+			throw new EventNotFoundException(eventId);
+		}
 		event.publish();
 		return eventRepositoryPort.save(event);
 	}

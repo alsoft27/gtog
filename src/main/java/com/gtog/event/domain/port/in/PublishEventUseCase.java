@@ -4,5 +4,5 @@ import com.gtog.event.domain.model.Event;
 
 public interface PublishEventUseCase {
 
-	Event publish(String eventId);
+	Event publish(String hostId, String eventId);
 }

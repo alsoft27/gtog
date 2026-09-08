@@ -36,7 +36,7 @@ class ReplaceResponseOptionsServiceTest {
 		when(eventRepositoryPort.findById("event-1")).thenReturn(Optional.of(event));
 		when(eventRepositoryPort.save(any())).thenReturn(event);
 
-		ReplaceResponseOptionsCommand command = new ReplaceResponseOptionsCommand("event-1", List.of(
+		ReplaceResponseOptionsCommand command = new ReplaceResponseOptionsCommand("host-1", "event-1", List.of(
 				new ResponseOptionEdit(null, "Voy", true),
 				new ResponseOptionEdit(null, "No voy", false)));
 
@@ -52,7 +52,7 @@ class ReplaceResponseOptionsServiceTest {
 	void throwsWhenTheEventDoesNotExist() {
 		when(eventRepositoryPort.findById("missing")).thenReturn(Optional.empty());
 
-		ReplaceResponseOptionsCommand command = new ReplaceResponseOptionsCommand("missing", List.of(
+		ReplaceResponseOptionsCommand command = new ReplaceResponseOptionsCommand("host-1", "missing", List.of(
 				new ResponseOptionEdit(null, "Asisto", true),
 				new ResponseOptionEdit(null, "No asisto", false)));
 

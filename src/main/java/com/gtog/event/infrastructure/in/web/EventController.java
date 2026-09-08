@@ -18,14 +18,16 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.http.MediaType;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+
+import com.gtog.user.infrastructure.out.security.AuthenticatedUser;
 
 import com.gtog.event.domain.model.Event;
 import com.gtog.event.domain.model.EventEdit;
@@ -95,7 +97,8 @@ public class EventController {
 					content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
 							schema = @Schema(implementation = ProblemDetail.class))) })
 	@PostMapping
-	public ResponseEntity<EventResponse> createEvent(@Valid @RequestBody CreateEventRequest request) {
+	public ResponseEntity<EventResponse> createEvent(@Valid @RequestBody CreateEventRequest request,
+			@AuthenticationPrincipal AuthenticatedUser principal) {
 		List<ResponseOptionDraft> responseOptionDrafts = request.responseOptions() == null ? null
 				: request.responseOptions().stream()
 						.map(option -> new ResponseOptionDraft(option.label(), option.countsAsAttendance()))
@@ -109,7 +112,7 @@ public class EventController {
 						request.onlineAccess().instructions(), request.onlineAccess().linkVisibility(),
 						request.onlineAccess().hoursBefore());
 		CreateEventCommand command = new CreateEventCommand(
-				request.hostId(),
+				principal.getUserId(),
 				request.title(),
 				request.description(),
 				request.startsAt(),
@@ -135,8 +138,8 @@ public class EventController {
 					content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
 							schema = @Schema(implementation = ProblemDetail.class))) })
 	@GetMapping("/{id}")
-	public EventResponse getEvent(@PathVariable String id) {
-		return EventResponse.from(getEventByIdUseCase.getEventById(id));
+	public EventResponse getEvent(@PathVariable String id, @AuthenticationPrincipal AuthenticatedUser principal) {
+		return EventResponse.from(getEventByIdUseCase.getEventById(principal.getUserId(), id));
 	}
 
 	@Operation(summary = "Lista los eventos de un anfitrion",
@@ -151,11 +154,9 @@ public class EventController {
 					content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
 							schema = @Schema(implementation = ProblemDetail.class))) })
 	@GetMapping
-	public List<EventSummaryResponse> listEvents(
-			@Parameter(description = "Identificador del anfitrion. Obligatorio y temporal: hoy no hay usuario "
-					+ "autenticado del que derivarlo.", required = true)
-			@RequestParam String hostId) {
-		return listEventsByHostUseCase.listEventsByHost(hostId).stream().map(EventSummaryResponse::from).toList();
+	public List<EventSummaryResponse> listEvents(@AuthenticationPrincipal AuthenticatedUser principal) {
+		return listEventsByHostUseCase.listEventsByHost(principal.getUserId()).stream()
+				.map(EventSummaryResponse::from).toList();
 	}
 
 	@Operation(summary = "Edita los datos basicos de un evento",
@@ -177,7 +178,8 @@ public class EventController {
 					content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
 							schema = @Schema(implementation = ProblemDetail.class))) })
 	@PutMapping("/{id}")
-	public EventResponse updateEvent(@PathVariable String id, @Valid @RequestBody UpdateEventRequest request) {
+	public EventResponse updateEvent(@PathVariable String id, @Valid @RequestBody UpdateEventRequest request,
+			@AuthenticationPrincipal AuthenticatedUser principal) {
 		Venue venue = request.venue() == null ? null
 				: new Venue(request.venue().placeName(), request.venue().address(), request.venue().latitude(),
 						request.venue().longitude(), request.venue().placeId(), request.venue().directions());
@@ -191,7 +193,7 @@ public class EventController {
 		EventEdit edit = new EventEdit(request.title(), request.description(), request.startsAt(), request.endsAt(),
 				request.timeZone(), request.modality(), venue, onlineAccess, allowComment, allowResponseChange,
 				request.responseDeadline());
-		UpdateEventCommand command = new UpdateEventCommand(id, edit);
+		UpdateEventCommand command = new UpdateEventCommand(principal.getUserId(), id, edit);
 		return EventResponse.from(updateEventUseCase.update(command));
 	}
 
@@ -213,8 +215,8 @@ public class EventController {
 					content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
 							schema = @Schema(implementation = ProblemDetail.class))) })
 	@PostMapping("/{id}/publish")
-	public EventResponse publishEvent(@PathVariable String id) {
-		return EventResponse.from(publishEventUseCase.publish(id));
+	public EventResponse publishEvent(@PathVariable String id, @AuthenticationPrincipal AuthenticatedUser principal) {
+		return EventResponse.from(publishEventUseCase.publish(principal.getUserId(), id));
 	}
 
 	@Operation(summary = "Cancela un evento",
@@ -232,9 +234,10 @@ public class EventController {
 							schema = @Schema(implementation = ProblemDetail.class))) })
 	@PostMapping("/{id}/cancel")
 	public EventResponse cancelEvent(@PathVariable String id,
-			@RequestBody(required = false) CancelEventRequest request) {
+			@RequestBody(required = false) CancelEventRequest request,
+			@AuthenticationPrincipal AuthenticatedUser principal) {
 		String reason = request != null ? request.reason() : null;
-		return EventResponse.from(cancelEventUseCase.cancel(id, reason, Instant.now()));
+		return EventResponse.from(cancelEventUseCase.cancel(principal.getUserId(), id, reason, Instant.now()));
 	}
 
 	@Operation(summary = "Reemplaza las opciones de respuesta de un evento",
@@ -260,11 +263,12 @@ public class EventController {
 							schema = @Schema(implementation = ProblemDetail.class))) })
 	@PutMapping("/{id}/response-options")
 	public EventResponse replaceResponseOptions(@PathVariable String id,
-			@Valid @RequestBody ReplaceResponseOptionsRequest request) {
+			@Valid @RequestBody ReplaceResponseOptionsRequest request,
+			@AuthenticationPrincipal AuthenticatedUser principal) {
 		List<ResponseOptionEdit> edits = request.responseOptions().stream()
 				.map(option -> new ResponseOptionEdit(option.id(), option.label(), option.countsAsAttendance()))
 				.toList();
-		ReplaceResponseOptionsCommand command = new ReplaceResponseOptionsCommand(id, edits);
+		ReplaceResponseOptionsCommand command = new ReplaceResponseOptionsCommand(principal.getUserId(), id, edits);
 		return EventResponse.from(replaceResponseOptionsUseCase.replaceResponseOptions(command));
 	}
 
@@ -285,10 +289,11 @@ public class EventController {
 					content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
 							schema = @Schema(implementation = ProblemDetail.class))) })
 	@PutMapping("/{id}/venue")
-	public EventResponse replaceVenue(@PathVariable String id, @Valid @RequestBody VenueRequest request) {
+	public EventResponse replaceVenue(@PathVariable String id, @Valid @RequestBody VenueRequest request,
+			@AuthenticationPrincipal AuthenticatedUser principal) {
 		Venue venue = new Venue(request.placeName(), request.address(), request.latitude(), request.longitude(),
 				request.placeId(), request.directions());
-		ReplaceVenueCommand command = new ReplaceVenueCommand(id, venue);
+		ReplaceVenueCommand command = new ReplaceVenueCommand(principal.getUserId(), id, venue);
 		return EventResponse.from(replaceVenueUseCase.replaceVenue(command));
 	}
 
@@ -312,10 +317,11 @@ public class EventController {
 							schema = @Schema(implementation = ProblemDetail.class))) })
 	@PutMapping("/{id}/online-access")
 	public EventResponse replaceOnlineAccess(@PathVariable String id,
-			@Valid @RequestBody OnlineAccessRequest request) {
+			@Valid @RequestBody OnlineAccessRequest request,
+			@AuthenticationPrincipal AuthenticatedUser principal) {
 		OnlineAccess onlineAccess = new OnlineAccess(request.platform(), request.url(), request.roomId(),
 				request.password(), request.instructions(), request.linkVisibility(), request.hoursBefore());
-		ReplaceOnlineAccessCommand command = new ReplaceOnlineAccessCommand(id, onlineAccess);
+		ReplaceOnlineAccessCommand command = new ReplaceOnlineAccessCommand(principal.getUserId(), id, onlineAccess);
 		return EventResponse.from(replaceOnlineAccessUseCase.replaceOnlineAccess(command));
 	}
 }

@@ -6,5 +6,5 @@ import com.gtog.event.domain.model.Event;
 
 public interface CancelEventUseCase {
 
-	Event cancel(String eventId, String reason, Instant now);
+	Event cancel(String hostId, String eventId, String reason, Instant now);
 }

@@ -15,6 +15,7 @@ Estado a 20 de agosto de 2026.
 | R2 — Opciones de respuesta | `ResponseOption` embebido en `Event`, 2 a 5, defaults ("Asisto"/"No asisto") si no se especifican, `PUT /api/events/{id}/response-options` con identidad por `id` al editar (se conserva si coincide, se rechaza con 422 si no pertenece al evento) |
 | R3 — Ubicación y acceso en línea | `Venue` y `OnlineAccess` (el backend no llama a la API de Google), `LinkVisibility`, invariante de modalidad (`IN_PERSON`⇄`venue`, `ONLINE`⇄`onlineAccess`), `PUT /api/events/{id}/venue` y `PUT /api/events/{id}/online-access`, `Event.visibleOnlineAccess(guestHasConfirmed, now)` ya implementado (solo probado a nivel de dominio, sin invitados todavía) |
 | R4 — Editar, publicar y cancelar | Máquina de estados: `publish()` solo desde `DRAFT` (precondiciones: venue/onlineAccess según modalidad, ≥2 opciones → `IncompleteEventForPublishException` 422), `cancel(reason, now)` solo desde `PUBLISHED` → `CANCELLED` con `cancelledAt` (irreversible). `edit()` con todos los campos básicos más `allowComment`/`allowResponseChange`/`responseDeadline` (sacados de `replaceResponseOptions`): si la modalidad cambia, el bloque de ubicación correspondiente es obligatorio. `PUT /api/events/{id}`, `POST /api/events/{id}/publish`, `POST /api/events/{id}/cancel`. 61 tests de dominio, 37 de integración, todos en verde. |
+| R5 — Usuario y seguridad | Registro, login, logout, Spring Security. `POST /api/auth/register` y `POST /api/auth/login`. Ownership check en todos los endpoints de evento: `hostId != event.hostId` → 404. `GET /api/events` lee el host del principal autenticado; `hostId` desaparece como parámetro de query. `/api/invitations/**` público. 172 tests en verde. |
 | Infraestructura | Java 25, Spring Boot 4.1, Maven aislado, MongoDB Atlas, OpenAPI |
 
 **Lo que eso valida:** la arquitectura hexagonal funciona en la práctica, el mapeo entre `Event` y `EventDocument` es asumible, y el circuito completo de desarrollo está operativo. Además, `Event.create(...)`/`reconstitute(...)` cambiaron de firma en las tres rebanadas seguidas, así que desde R3 `Event` se construye con dos builders internos (`Event.builder()` para eventos nuevos, `Event.reconstituteBuilder()` para rehidratar) en vez de factory methods con parámetros posicionales — ver `docs/modelo-evento.md`.
@@ -27,14 +28,17 @@ Esto no es una lista de pendientes cualquiera: son cosas que ya están mal a pro
 
 | # | Deuda | Consecuencia si se olvida | Cuándo se salda |
 |---|---|---|---|
-| D-1 | **Spring Security retirado** | Todos los endpoints son públicos | Rebanada 5, ver §4 |
-| D-2 | **`hostId` viaja en el cuerpo del request** | Cualquiera crea eventos en nombre de otro | Con D-1 |
+| D-1 | **Spring Security retirado** | Todos los endpoints son públicos | Rebanada 5, ver §4 — **Saldada en R5.** |
+| D-2 | **`hostId` viaja en el cuerpo del request** | Cualquiera crea eventos en nombre de otro | Con D-1 — **Saldada en R5.** |
 | D-3 | **Índice único de `guests.token` sin crear** | No es que falte el componente — `MongoIndexInitializer` (en `shared/config`) ya existe y crea el índice de `hostId` en el arranque. Es que `guests.token` no puede indexarse todavía porque `guests[]` no existe como campo de `EventDocument`. Mientras tanto, no hay ninguna consulta que lo necesite. | Rebanada 6, en cuanto exista `guests[]`: ampliar `MongoIndexInitializer` |
 | D-5 | **Tests de integración contra Atlas** | Los tests necesitan red y son lentos | Aceptable mientras seas el único desarrollador |
 | D-6 | **Sin herramienta de migraciones** | No hay forma versionada de cambiar el esquema | Cuando haya datos reales |
 | D-7 | **Opciones de respuesta bloqueadas en eventos publicados** | RF-4.8 permite renombrar y agregar opciones tras publicar, prohibiendo solo eliminar las que tengan respuestas. El código actual es más restrictivo: `Event.replaceResponseOptions(...)` lanza `EventNotEditableException` (409) ante *cualquier* cambio si `status != DRAFT`, sin distinguir renombrar, agregar o eliminar. El dominio no conoce la colección `responses` todavía, así que tampoco puede saber qué ids tienen respuestas. El fix completo tiene dos partes: (1) permitir renombrar y agregar en `PUBLISHED`; (2) bloquear solo el borrado de opciones con respuestas. | Rebanada 8: `replaceResponseOptions(...)` recibirá el conjunto de ids con respuestas (calculado en la capa de aplicación) y pasará a funcionar en `PUBLISHED` para rename/add |
 | D-FINISHED | **`FINISHED` sin implementar** | No existe ningún mecanismo para que un evento pase a `FINISHED`. Ni job programado ni derivación al vuelo. | A definir: requiere decidir si es automático (por fecha) o manual (anfitrión lo marca) |
 | D-DELETE-DRAFT | **Borrar un `DRAFT` sin implementar** | Un borrador no se puede cancelar (`cancel()` solo desde `PUBLISHED`). No existe `DELETE /api/events/{id}`. | Rebanada posterior |
+| D-SWAGGER-PUBLIC | **OpenAPI y Swagger UI sin autenticación** | Cualquiera puede ver la documentación completa de la API sin autenticarse. Hoy es conveniente para desarrollo; antes de producción hay que decidir si protegerlo o dejarlo público. | Antes del despliegue a producción |
+| D-SECURE-COOKIE | **Cookie de sesión sin `Secure` en desarrollo** | La cookie `JSESSIONID` se envía también por HTTP. En producción detrás de HTTPS con `server.ssl.*` o proxy con `server.forward-headers-strategy=native`, Spring Boot activa el flag automáticamente. Verificar antes del primer despliegue. | Antes del despliegue a producción |
+| D-DUP-KEY | **`DuplicateKeyException` mapeada por texto, no por código de error** | `UserRepositoryAdapter` inspecciona `e.getMessage().contains("email")` para distinguir el índice violado. Si el mensaje cambia (driver, Atlas, nombre de índice), la excepción se propaga como 500 en lugar de 409. | Cuando haya un segundo índice único en `users` o cuando el texto del mensaje cambie |
 
 **D-4, saldada.** Decía "health indicator de Mongo desactivado", y no era así: estaba activo y en `DOWN`. El indicador por defecto de Actuator recorre **todas** las bases que el `MongoClient` ve vía `listDatabaseNames()` — no solo `local`, también `admin`, `config`, la de la propia app — y ejecuta `hello` en cada una; en Atlas el usuario de la aplicación no tiene permiso sobre `local`, así que el chequeo entero caía con `DOWN` aunque `gtog_dev`/`gtog_test` respondieran sin problema. Comprobado arrancando la app. Sustituido por `MongoDatabaseHealthIndicator` (en `shared/config`), que hace `ping` solo contra la base configurada de la aplicación; el indicador por defecto se desactiva con `management.health.mongodb.enabled=false` en ambos `application*.properties` para que no convivan. Verificado de nuevo: `GET /actuator/health` → `"mongo":{"details":{"database":"gtog_dev","ping":1},"status":"UP"}`.
 
@@ -50,10 +54,7 @@ Cada una es vertical: dominio, puerto, adaptador, controlador y test, funcionand
 
 ### Bloque B — Identidad del anfitrión
 
-**R5. Usuario y seguridad**
-Registro, login y la cadena de Spring Security. Salda D-1 y D-2: el `hostId` sale del DTO y pasa a venir del usuario autenticado. Dos reglas de acceso desde el principio: `/api/events/**` autenticado, `/api/invitations/**` público resuelto por token.
-
-RF-1.2 (verificación de correo) y RF-1.3 (recuperación de contraseña) quedan fuera de esta rebanada: dependen del proveedor de correo, cuya elección sigue pendiente (ver §5). Se implementarán en R12, después de R10.
+**R5. Usuario y seguridad** ✓ Completada. Ver §1.
 
 ### Bloque C — El núcleo del producto
 
