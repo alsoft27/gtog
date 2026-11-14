@@ -137,8 +137,10 @@ anfitrión (RF-2.13); esta limitación debe ser visible en la interfaz para que 
    la fecha. Ese registro se implementa en R7, también si se copió el enlace sin marcar envío.
 3. En un evento online recibe siempre metadatos sin secretos (plataforma, regla de visibilidad y horas). El
    backend solo incluye URL, sala, contraseña e instrucciones si el evento está PUBLISHED y se cumple la regla.
-   Hasta el commit 2 de R8, ON_CONFIRMATION permanece oculto; confirmar significará elegir una opción que cuenta como
-   asistencia, no simplemente responder. La API no envía los secretos para que el frontend los oculte.
+   En ON_CONFIRMATION solo ve el acceso quien eligió una opción que cuenta como asistencia, no simplemente
+   quien respondió. Cambiar a "No asisto" vuelve a ocultarlo; cambiar a una opción que cuenta lo muestra.
+   Sin respuesta o con una opción que ya no existe, no se confirma. Implementado en el commit 2 de R8.
+   La API no envía los secretos para que el frontend los oculte.
 4. Si el evento está CANCELLED, ve el estado, fecha y motivo de cancelación; si está FINISHED, ve su estado.
    Ambos devuelven 200 para conservar la utilidad de los enlaces ya repartidos, sin acceso online ni registro
    de nuevas aperturas. La transición a FINISHED sigue sin implementar (D-FINISHED).

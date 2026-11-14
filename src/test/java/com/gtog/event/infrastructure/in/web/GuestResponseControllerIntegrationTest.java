@@ -30,12 +30,17 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import com.gtog.event.domain.model.Event;
 import com.gtog.event.domain.model.EventStatus;
+import com.gtog.event.domain.model.LinkVisibility;
 import com.gtog.event.domain.port.out.EventRepositoryPort;
 import com.gtog.event.domain.port.out.GuestResponseRepositoryPort;
 import com.gtog.event.domain.model.ResponseChangeNotAllowedException;
 import com.gtog.event.infrastructure.out.persistence.EventMongoRepository;
 import com.gtog.event.infrastructure.out.persistence.GuestResponseDocument;
 import static com.gtog.event.InvitationTestFixtures.NOW;
+import static com.gtog.event.InvitationTestFixtures.URL;
+import static com.gtog.event.InvitationTestFixtures.PASSWORD;
+import static com.gtog.event.InvitationTestFixtures.ROOM;
+import static com.gtog.event.InvitationTestFixtures.INSTRUCTIONS;
 import static com.gtog.event.ResponseTestFixtures.responseEvent;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -149,6 +154,67 @@ class GuestResponseControllerIntegrationTest {
 		seed(EventStatus.PUBLISHED, true, true, null);
 		mvc.perform(get(invitationPath())).andExpect(status().isOk()).andExpect(jsonPath("$.myResponse").doesNotExist())
 				.andExpect(jsonPath("$.canChangeResponse").value(false));
+	}
+
+	@Test
+	void getShowsConfirmationAccessAfterAnAttendanceResponse() throws Exception {
+		events.save(responseEvent(EventStatus.PUBLISHED, true, true, null, LinkVisibility.ON_CONFIRMATION));
+		var result = respond("yes-id", null, null);
+		assertThat(result.getResponse().getStatus()).isEqualTo(200);
+		assertThat(result.getResponse().getContentAsString()).contains(URL, PASSWORD, ROOM, INSTRUCTIONS);
+		assertConfirmationAccess(true);
+	}
+
+	@Test
+	void getHidesConfirmationAccessAfterANonAttendanceResponse() throws Exception {
+		events.save(responseEvent(EventStatus.PUBLISHED, true, true, null, LinkVisibility.ON_CONFIRMATION));
+		var result = respond("no-id", null, null);
+		assertThat(result.getResponse().getStatus()).isEqualTo(200);
+		assertThat(result.getResponse().getContentAsString()).doesNotContain(URL, PASSWORD, ROOM, INSTRUCTIONS);
+		assertConfirmationAccess(false);
+	}
+
+	@Test
+	void changingAttendanceShowsAndHidesConfirmationAccessOnTheNextGet() throws Exception {
+		events.save(responseEvent(EventStatus.PUBLISHED, true, true, null, LinkVisibility.ON_CONFIRMATION));
+		assertThat(respond("no-id", null, null).getResponse().getStatus()).isEqualTo(200);
+		assertConfirmationAccess(false);
+		assertThat(respond("yes-id", null, null).getResponse().getStatus()).isEqualTo(200);
+		assertConfirmationAccess(true);
+		assertThat(respond("no-id", null, null).getResponse().getStatus()).isEqualTo(200);
+		assertConfirmationAccess(false);
+		assertThat(mongo.count(new Query(), GuestResponseDocument.class)).isEqualTo(1);
+	}
+
+	@Test
+	void getTreatsAResponseToAnAbsentOptionAsUnconfirmedWithoutFailing() throws Exception {
+		events.save(responseEvent(EventStatus.PUBLISHED, true, true, null, LinkVisibility.ON_CONFIRMATION));
+		responses.insert(new com.gtog.event.domain.model.GuestResponse("event-id", token, "removed-option", null, null, NOW, NOW));
+		assertConfirmationAccess(false);
+		mvc.perform(get(invitationPath())).andExpect(status().isOk())
+				.andExpect(jsonPath("$.myResponse.responseOptionId").value("removed-option"));
+	}
+
+	@Test
+	void anotherGuestsConfirmationDoesNotExposeTheMeetingOrTheirResponse() throws Exception {
+		Event event = events.save(responseEvent(EventStatus.PUBLISHED, true, true, null, LinkVisibility.ON_CONFIRMATION));
+		var other = event.getGuests().get(1);
+		responses.insert(new com.gtog.event.domain.model.GuestResponse("event-id", other.getToken(), "yes-id",
+				"Other private comment", "other-response@example.com", NOW, NOW));
+		String body = mvc.perform(get(invitationPath())).andExpect(status().isOk())
+				.andExpect(jsonPath("$.myResponse").doesNotExist()).andReturn().getResponse().getContentAsString();
+		assertThat(body).doesNotContain(URL, PASSWORD, ROOM, INSTRUCTIONS, other.getName(), other.getEmail(),
+				other.getToken(), "Other private comment", "other-response@example.com");
+		token = other.getToken();
+		assertConfirmationAccess(true);
+	}
+
+	@ParameterizedTest
+	@EnumSource(value = EventStatus.class, names = {"CANCELLED", "FINISHED"})
+	void getHidesConfirmationAccessInClosedStatesEvenForAnAttendanceResponse(EventStatus state) throws Exception {
+		events.save(responseEvent(state, true, true, null, LinkVisibility.ON_CONFIRMATION));
+		responses.insert(new com.gtog.event.domain.model.GuestResponse("event-id", token, "yes-id", null, null, NOW, NOW));
+		assertConfirmationAccess(false);
 	}
 
 	@ParameterizedTest
@@ -309,6 +375,17 @@ class GuestResponseControllerIntegrationTest {
 		return mvc.perform(put(responsePath()).contentType(MediaType.APPLICATION_JSON).content(body)).andReturn();
 	}
 	private String text(String value) { return value == null ? "null" : "\"" + value + "\""; }
+	private void assertConfirmationAccess(boolean visible) throws Exception {
+		String body = mvc.perform(get(invitationPath())).andExpect(status().isOk())
+				.andExpect(header().string("Cache-Control", "no-store"))
+				.andExpect(jsonPath("$.onlineAccessInfo.linkVisibility").value("ON_CONFIRMATION"))
+				.andReturn().getResponse().getContentAsString();
+		if (visible) {
+			assertThat(body).contains(URL, PASSWORD, ROOM, INSTRUCTIONS);
+		} else {
+			assertThat(body).doesNotContain(URL, PASSWORD, ROOM, INSTRUCTIONS, "\"onlineAccess\"");
+		}
+	}
 	private void assertProblem(MvcResult result, int status) throws Exception {
 		assertThat(result.getResponse().getStatus()).isEqualTo(status);
 		assertThat(result.getResponse().getHeader("Cache-Control")).isEqualTo("no-store");

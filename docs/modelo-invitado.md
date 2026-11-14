@@ -1,7 +1,7 @@
 # Modelo de datos: Invitado
 
-Estado tras R8, commits 0 y 1, 14 de noviembre de 2026. Gestión de invitados del anfitrión, consulta pública
-y registro de respuestas. Quedan pendientes confirmación del enlace, cascada real y calendario (commits 2–4).
+Estado tras R8, commits 0–2, 14 de noviembre de 2026. Gestión de invitados del anfitrión, consulta pública,
+registro de respuestas y enlace por confirmación. Quedan pendientes cascada real y calendario (commits 3–4).
 
 La preparación de R8 (commit 0) añade el plazo editable por el anfitrión mediante
 `PUT /api/events/{id}/response-deadline`: DRAFT, o PUBLISHED estrictamente antes del inicio. null lo elimina;
@@ -165,8 +165,9 @@ Mongo ni countsAsAttendance. Los DTOs públicos son propios y se construyen camp
 
 `Clock` se inyecta en aplicación; su implementación normal es `Clock.systemUTC()`. El servicio obtiene un instante
 por petición y lo usa tanto para la visibilidad como para openedAt. No llama a Instant.now() directamente.
-ON_CONFIRMATION permanece cerrado: un único método privado devuelve false hasta el commit 2 de R8. Confirmar exigirá que la
-opción elegida tenga countsAsAttendance=true; no basta con haber respondido (D-CONFIRMED-LINK).
+ON_CONFIRMATION usa la respuesta propia: solo confirma si la opción elegida existe y tiene
+countsAsAttendance=true. Sin respuesta, con opción inexistente o con "No asisto", no confirma. La lectura
+defensiva no lanza por una opción ausente. D-CONFIRMED-LINK saldada en el commit 2 de R8.
 
 ### Escritura de OPENED
 
@@ -256,11 +257,14 @@ incluida la primera: se acepta exactamente en el plazo, pero nunca en el instant
 Éxitos y errores conservan `Cache-Control: no-store` exacto; los errores usan instancia constante
 `/api/invitations`. Los mensajes son constantes, sin eco de token, comentario ni email. JSON ilegible produce
 400 saneado sin registrar el mensaje de Jackson. `InvitationViewFactory` comparte la proyección segura de
-GET y PUT; su único método privado guestHasConfirmed sigue devolviendo false hasta el commit 2.
+GET y PUT; su método privado guestHasConfirmed calcula la confirmación con la respuesta ya cargada y la
+opción del evento, sin consultas adicionales. Cambiar de una opción que cuenta a una que no cuenta oculta
+el enlace en ON_CONFIRMATION; el cambio inverso lo muestra. La confirmación de otro invitado no da acceso.
+Fuera de PUBLISHED, el acceso sigue oculto aunque la respuesta propia cuente como asistencia.
 
 ## Verificación
 
-`mvn clean verify`: **359 tests**, sin fallos, errores ni omitidos. R6 incorporó 71 casos y R7 incorporó 31:
+`mvn clean verify`: **366 tests**, sin fallos, errores ni omitidos. R6 incorporó 71 casos y R7 incorporó 31:
 4 de dominio, 9 de aplicación y 18 de integración contra Atlas (`gtog_test`). La preparación de R8 añade
 29: 8 de dominio, 4 de aplicación y 17 de integración, incluida apertura concurrente y cancelación con
 versión anterior al cambio del plazo.
@@ -269,6 +273,10 @@ El commit 1 añade 54: 19 de dominio, 4 de aplicación y 31 de integración. Inc
 hilos reales (un 200 y un 409 sin cambios; dos 200 con cambios, siempre un documento), límite inclusivo del
 plazo y exclusivo del fin, cambios fuera de plazo, errores sin token ni comentario en logs, duplicado real
 sin causa, duplicados de otro índice en insert y upsert, preflight CORS y cabeceras exactas.
+
+El commit 2 añade 7 pruebas de integración a través del GET: confirmación afirmativa y negativa, cambios en
+ambos sentidos, opción inexistente sin error, aislamiento entre invitados y ocultación aun confirmado en
+CANCELLED y FINISHED. Se comprueba el cuerpo completo para detectar URL, contraseña, sala e instrucciones.
 
 R7 cubre privacidad comparando el cuerpo completo, fechas locales/UTC, los tres modos de visibilidad con Clock
 fijo y el umbral exacto, estados públicos y borrador, 404 indistinguibles, logs sin tokens, OPENED desde NOT_SENT

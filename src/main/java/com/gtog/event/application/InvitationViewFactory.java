@@ -21,14 +21,15 @@ public final class InvitationViewFactory {
 				event.isAllowComment(), event.isAllowResponseChange(), event.getResponseDeadline(),
 				cancelled ? event.getCancelledAt() : null, cancelled ? event.getCancellationReason() : null,
 				access == null ? null : new InvitationView.OnlineAccessInfo(access.platform(), access.linkVisibility(), access.hoursBefore()),
-				event.visibleOnlineAccess(guestHasConfirmed(event, guest), now).orElse(null),
+				event.visibleOnlineAccess(guestHasConfirmed(event, response), now).orElse(null),
 				response == null ? null : new InvitationView.MyResponse(response.responseOptionId(), response.comment(), response.answeredAt(), response.updatedAt()),
 				response != null && event.isAllowResponseChange() && event.acceptsResponses(now));
 	}
 
-	private static boolean guestHasConfirmed(Event event, Guest guest) {
-		// R8 sustituira este false consultando responses: confirmar exige countsAsAttendance=true;
-		// haber respondido (por ejemplo "No asisto") no basta. D-CONFIRMED-LINK.
-		return false;
+	private static boolean guestHasConfirmed(Event event, GuestResponse response) {
+		if (response == null) { return false; }
+		// Una opcion inexistente no confirma asistencia: lectura defensiva ante una respuesta huerfana.
+		return event.getResponseOptions().stream().anyMatch(option -> option.id().equals(response.responseOptionId())
+				&& option.countsAsAttendance());
 	}
 }

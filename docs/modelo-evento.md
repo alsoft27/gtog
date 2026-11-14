@@ -1,7 +1,7 @@
 # Modelo de datos: Evento
 
 Estado del modelo tras R1–R7: creación de eventos, consulta/listado (R1), opciones de respuesta (R2),
-ubicación/acceso en línea (R3), editar/publicar/cancelar (R4), seguridad/ownership (R5), invitados (R6), consulta pública (R7), plazo editable y registro de respuesta (R8, commits 0 y 1). Las respuestas viven en `responses`, nunca embebidas en el evento. El muro social sigue pendiente.
+ubicación/acceso en línea (R3), editar/publicar/cancelar (R4), seguridad/ownership (R5), invitados (R6), consulta pública (R7), plazo editable, registro de respuesta y enlace por confirmación (R8, commits 0–2). Las respuestas viven en `responses`, nunca embebidas en el evento. El muro social sigue pendiente.
 
 ---
 
@@ -190,8 +190,11 @@ resultado sea determinista y comprobable en tests.
 Desde R7, `GetInvitationService` aplica este método con el instante obtenido de un `Clock` inyectado;
 desde el commit 1 de R8, `InvitationViewFactory` comparte esa proyección con el PUT de respuesta.
 Solo devuelve acceso si `status == PUBLISHED`; DRAFT, CANCELLED y FINISHED siempre producen vacío.
-`guestHasConfirmed` se obtiene de un único método privado que devuelve false hasta el commit 2 de R8: se necesitará una
-respuesta cuya opción cuente como asistencia (D-CONFIRMED-LINK). `InvitationResponse` es un DTO propio,
+Desde el commit 2 de R8, `InvitationViewFactory.guestHasConfirmed(...)` usa la respuesta propia ya cargada:
+solo devuelve true si su opción todavía existe en el evento y tiene `countsAsAttendance = true`.
+Sin respuesta, con opción inexistente o con una opción que no cuenta, devuelve false sin lanzar.
+GET y PUT comparten el cálculo; cambiar de opción muestra u oculta el enlace en ON_CONFIRMATION sin guardar
+un estado adicional ni hacer otra consulta. D-CONFIRMED-LINK saldada. `InvitationResponse` es un DTO propio,
 con metadatos de acceso sin secretos y el bloque de conexión omitido cuando esté oculto. `EventResponse`
 sigue siendo la vista privada del anfitrión y conserva el acceso completo sin aplicar este filtrado.
 

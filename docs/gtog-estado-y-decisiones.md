@@ -134,6 +134,12 @@ Un 403 le confirmaría a un atacante que ese identificador existe.
 **El enlace de la reunión se filtra en el servidor.**
 Si viajara en la respuesta confiando en que Angular no lo pinte, sería legible desde las herramientas del navegador. El endpoint omite el campo.
 
+**El acceso al muro social depende de estar invitado, no de haber respondido ni confirmado.**
+El token válido acredita la invitación. La respuesta expresa una decisión de asistencia, no la pertenencia
+al evento: quien no ha respondido o ha elegido "No asisto" sigue siendo un invitado. La confirmación solo
+gobierna la visibilidad del enlace de la sala en ON_CONFIRMATION, y exige una opción con
+`countsAsAttendance = true`. Esta decisión se documenta en R8; el muro social sigue fuera del MVP.
+
 ## Convenciones
 
 **El código, las rutas y los identificadores en inglés. La documentación y los comentarios, en español.** Hay una tabla de equivalencias en el `AGENTS.md` para que la traducción sea consistente.

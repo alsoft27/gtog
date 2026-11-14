@@ -114,7 +114,7 @@ class GetInvitationServiceTest {
 	}
 
 	@Test
-	void hidesOnConfirmationUntilR8EvenIfTheInvitationWasOpened() {
+	void hidesOnConfirmationWhenTheGuestHasNotRespondedEvenIfTheInvitationWasOpened() {
 		Guest guest = guest(101, InvitationStatus.OPENED, NOW);
 		when(events.findByGuestToken(guest.getToken())).thenReturn(Optional.of(event(EventStatus.PUBLISHED, LinkVisibility.ON_CONFIRMATION, guest)));
 		var view = service.getInvitation(guest.getToken());
