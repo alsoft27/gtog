@@ -1,7 +1,7 @@
 # Modelo de datos: Evento
 
-Estado del modelo tras R1–R6: creación de eventos, consulta/listado (R1), opciones de respuesta (R2),
-ubicación/acceso en línea (R3), editar/publicar/cancelar (R4), seguridad/ownership (R5) e invitados (R6). Todavía no existen respuestas ni muro social.
+Estado del modelo tras R1–R7: creación de eventos, consulta/listado (R1), opciones de respuesta (R2),
+ubicación/acceso en línea (R3), editar/publicar/cancelar (R4), seguridad/ownership (R5), invitados (R6) y consulta pública (R7). Todavía no existen respuestas ni muro social.
 
 ---
 
@@ -179,10 +179,12 @@ regla de `LinkVisibility` todavía no lo permite) — así quien llama no puede 
 antes de leer el enlace. Recibe `now` **como parámetro**, nunca `Instant.now()` internamente, para que el
 resultado sea determinista y comprobable en tests.
 
-El método sigue probado solo a nivel de dominio: aunque R6 ya tiene invitados, todavía no existen respuestas
-ni el endpoint público que lo invoque con un `guestHasConfirmed` real. Cuando exista el endpoint público del invitado, su DTO de respuesta deberá usar este
-método (ver el comentario en `EventResponse`, que expone el `onlineAccess` completo sin filtrar por ser la vista
-del anfitrión).
+Desde R7, `GetInvitationService` aplica este método con el instante obtenido de un `Clock` inyectado.
+Solo devuelve acceso si `status == PUBLISHED`; DRAFT, CANCELLED y FINISHED siempre producen vacío.
+`guestHasConfirmed` se obtiene de un único método privado que devuelve false hasta R8: se necesitará una
+respuesta cuya opción cuente como asistencia (D-CONFIRMED-LINK). `InvitationResponse` es un DTO propio,
+con metadatos de acceso sin secretos y el bloque de conexión omitido cuando esté oculto. `EventResponse`
+sigue siendo la vista privada del anfitrión y conserva el acceso completo sin aplicar este filtrado.
 
 ---
 

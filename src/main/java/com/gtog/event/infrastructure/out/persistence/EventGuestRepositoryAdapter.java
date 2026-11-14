@@ -1,8 +1,12 @@
 package com.gtog.event.infrastructure.out.persistence;
 
+import java.time.Instant;
+import java.util.Optional;
+
 import org.bson.Document;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.FindAndModifyOptions;
 import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.data.mongodb.core.query.Update;
@@ -11,6 +15,7 @@ import org.springframework.stereotype.Component;
 import com.gtog.event.domain.model.DuplicateGuestTokenException;
 import com.gtog.event.domain.model.EventConcurrentModificationException;
 import com.gtog.event.domain.model.Guest;
+import com.gtog.event.domain.model.Event;
 import com.gtog.event.domain.port.out.EventGuestRepositoryPort;
 import com.mongodb.client.result.UpdateResult;
 
@@ -19,10 +24,24 @@ public class EventGuestRepositoryAdapter implements EventGuestRepositoryPort {
 
 	private final MongoTemplate mongoTemplate;
 	private final GuestMapper mapper;
+	private final EventMapper eventMapper;
 
-	public EventGuestRepositoryAdapter(MongoTemplate mongoTemplate, GuestMapper mapper) {
+	public EventGuestRepositoryAdapter(MongoTemplate mongoTemplate, GuestMapper mapper, EventMapper eventMapper) {
 		this.mongoTemplate = mongoTemplate;
 		this.mapper = mapper;
+		this.eventMapper = eventMapper;
+	}
+
+	@Override
+	public Optional<Event> markGuestOpened(String eventId, String token, Instant now) {
+		Query query = Query.query(Criteria.where("id").is(eventId).and("status").is("PUBLISHED")
+				.and("guests").elemMatch(Criteria.where("token").is(token)
+						.and("invitationStatus").in("NOT_SENT", "SENT")));
+		Update update = new Update().set("guests.$.invitationStatus", "OPENED")
+				.set("guests.$.openedAt", now).inc("version", 1);
+		EventDocument updated = mongoTemplate.findAndModify(query, update,
+				FindAndModifyOptions.options().returnNew(true), EventDocument.class);
+		return Optional.ofNullable(updated).map(eventMapper::toDomain);
 	}
 
 	@Override

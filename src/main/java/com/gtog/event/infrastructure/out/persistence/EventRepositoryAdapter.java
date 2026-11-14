@@ -31,6 +31,11 @@ public class EventRepositoryAdapter implements EventRepositoryPort {
 	}
 
 	@Override
+	public Optional<Event> findByGuestToken(String token) {
+		return eventMongoRepository.findByGuestsToken(token).map(eventMapper::toDomain);
+	}
+
+	@Override
 	public List<Event> findByHostId(String hostId) {
 		return eventMongoRepository.findByHostId(hostId).stream().map(eventMapper::toDomain).toList();
 	}

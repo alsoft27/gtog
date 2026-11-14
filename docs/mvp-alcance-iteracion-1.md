@@ -128,11 +128,27 @@ anfitrión (RF-2.13); esta limitación debe ser visible en la interfaz para que 
 
 **Responder una invitación**
 
-1. El invitado abre su enlace único. No hay registro ni contraseña.
-2. Ve título, descripción, fecha en su zona horaria, y la ubicación o la nota de evento en línea.
-3. Elige una de las opciones que definió el anfitrión y, si está habilitado, deja un comentario.
-4. Confirmación en pantalla, con opción de descargar el archivo de calendario.
-5. Si el anfitrión lo permitió, puede volver al mismo enlace y cambiar su respuesta.
+1. El invitado abre su enlace único sin registro, sesión ni contraseña. El frontend consulta
+   `GET /api/invitations/{token}` sin CSRF. Un token desconocido y un evento en borrador devuelven el mismo 404.
+2. En un evento publicado ve solo su nombre y los datos públicos del evento. Recibe fechas locales, zona del
+   evento e instantes UTC para que el frontend convierta la fecha a su zona; la ubicación presencial incluye
+   los datos para el mapa. No se revelan anfitrión, contactos, otros invitados, tokens ni marcas de asistencia
+   de las opciones. La primera consulta marca OPENED/openedAt desde NOT_SENT o SENT; las siguientes no cambian
+   la fecha. Ese registro se implementa en R7, también si se copió el enlace sin marcar envío.
+3. En un evento online recibe siempre metadatos sin secretos (plataforma, regla de visibilidad y horas). El
+   backend solo incluye URL, sala, contraseña e instrucciones si el evento está PUBLISHED y se cumple la regla.
+   Hasta R8, ON_CONFIRMATION permanece oculto; confirmar significará elegir una opción que cuenta como
+   asistencia, no simplemente responder. La API no envía los secretos para que el frontend los oculte.
+4. Si el evento está CANCELLED, ve el estado, fecha y motivo de cancelación; si está FINISHED, ve su estado.
+   Ambos devuelven 200 para conservar la utilidad de los enlaces ya repartidos, sin acceso online ni registro
+   de nuevas aperturas. La transición a FINISHED sigue sin implementar (D-FINISHED).
+5. Elegir una opción, dejar un comentario permitido, recibir confirmación, descargar calendario y cambiar una
+   respuesta dentro de las condiciones del anfitrión corresponden a R8 y siguen pendientes. R7 entrega la
+   información para presentar la página, no registra respuestas.
+
+La respuesta pública y sus 404 llevan `Cache-Control: no-store`. El frontend deberá servir la página que
+contiene el token en su URL con `Referrer-Policy: no-referrer`, también al mostrar un mapa embebido de Google.
+No hay límite de peticiones todavía; D-RATE-LIMIT permanece abierta.
 
 **Gestionar respuestas**
 

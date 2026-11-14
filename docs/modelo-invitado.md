@@ -1,7 +1,7 @@
 # Modelo de datos: Invitado
 
-Estado tras R6, 14 de noviembre de 2026. Gestión de invitados del anfitrión; la página pública y las respuestas
-siguen pendientes de R7 y R8.
+Estado tras R7, 14 de noviembre de 2026. Gestión de invitados del anfitrión y consulta pública de la invitación.
+Las respuestas de asistencia siguen pendientes de R8.
 
 ## Agregado y campos
 
@@ -21,7 +21,7 @@ comparte agregado y documento. No existe colección ni hexágono `guest` separad
 | `openedAt` | `Instant`, nullable | Instante UTC de apertura; inicialmente nulo |
 
 **La respuesta no vive aquí. `ANSWERED` no es un valor del enum ni se almacena.** R8 lo derivará de `responses`.
-Las transiciones de envío y apertura no están implementadas en R6.
+La primera apertura se implementa en R7. El envío y la transición a SENT siguen pendientes de R10–R11.
 
 `Guest.create(...)` valida y normaliza contactos, genera el id y aplica el estado inicial.
 `editContact(...)` devuelve un invitado con los contactos sustituidos y conserva identidad, token y todo el
@@ -72,7 +72,7 @@ no se añade en R6 un endpoint de rotación.
 
 **RF-2.16:** el anfitrión necesita recuperar el enlace después de recargar la pantalla. Por eso el alta y el
 listado devuelven `GuestInvitationResponse`, con `invitationPath: /r/{token}`. El frontend completa esa ruta
-con su origen para copiar el enlace. La ruta se podrá resolver públicamente cuando exista R7.
+con su origen para copiar el enlace. El frontend usa esa ruta para su página y consulta `GET /api/invitations/{token}`, ya implementado en R7.
 
 No se expone un campo `token` independiente. El `PUT` devuelve `GuestResponse` sin token ni enlace;
 `EventResponse` y los listados de eventos tampoco incluyen esos datos. Los errores de colisión no repiten
@@ -98,7 +98,7 @@ introduzcan duplicados. El adaptador añade también una condición de ausencia 
 - `updateGuest`: `$set` posicional de `name`, `email` y `phoneE164`; conserva token, estado y fechas.
 - `removeGuest`: `$pull` por identidad del invitado.
 
-Todas filtran por evento, propietario, estado permitido y versión esperada; edición y borrado comprueban
+Las tres operaciones de gestión del anfitrión filtran por evento, propietario, estado permitido y versión esperada; edición y borrado comprueban
 también la identidad del invitado. Incrementan `version` en la misma escritura. Si el estado leído cambió,
 se devuelve 409 y el cliente debe recargar y reintentar. No hay reintentos silenciosos ni `save(event)` como
 alternativa. También un `save()` antiguo del evento falla por bloqueo optimista, preservando los invitados.
@@ -124,6 +124,64 @@ Todos requieren sesión; las escrituras requieren CSRF. No se aceptan en el cont
 estado, canal ni fechas de envío. `Location` identifica `/api/events/{id}/guests/{guestId}`; no se añade un
 `GET` individual en esta rebanada. Las anotaciones OpenAPI permanecen en `infrastructure/in/web`.
 
+## Consulta pública y primera apertura (R7)
+
+`GetInvitationUseCase` y `GetInvitationService` resuelven el token mediante `EventRepositoryPort.findByGuestToken`,
+que aprovecha el índice existente. El controlador `InvitationController` no necesita principal autenticado ni
+CSRF. La respuesta se construye expresamente desde `InvitationView`, sin serializar el dominio.
+
+| Estado | HTTP | Apertura | Acceso online |
+|---|---|---|---|
+| Token desconocido | 404 | Ninguna | Ninguno |
+| DRAFT | Mismo 404 que desconocido | Ninguna | Ninguno |
+| PUBLISHED | 200 | Primera visita desde NOT_SENT o SENT | Según LinkVisibility |
+| CANCELLED | 200 con cancelledAt y cancellationReason | Ninguna | Nunca |
+| FINISHED | 200 con su estado | Ninguna | Nunca |
+
+La ausencia de transición actual a FINISHED no invalida los enlaces: la lectura pública ya contempla ese estado.
+`InvitationNotFoundException` no recibe el token y su mensaje es constante. El handler usa una instancia fija
+`/api/invitations`, evitando que ProblemDetail revele la credencial en la URI del error. Desconocido y borrador
+producen el mismo cuerpo. Éxito y 404 llevan exactamente `Cache-Control: no-store`.
+
+### Contrato InvitationResponse
+
+- `guest`: exclusivamente `name`, sin id ni contactos.
+- `title`, `description`, `status`, `modality`, `startsAt`, `endsAt`, `timeZone`, `startsAtInstant` y `endsAtInstant`.
+- `venue` completo si es presencial; opciones de respuesta únicamente con `id` y `label`.
+- `allowComment`, `allowResponseChange`, `responseDeadline`; datos de cancelación solo si corresponde.
+- `onlineAccessInfo`: `platform`, `linkVisibility` y `hoursBefore`, sin secretos.
+- `onlineAccess`: `url`, `roomId`, `password` e `instructions` solo cuando `Event.visibleOnlineAccess(...)` lo permite.
+  Si está oculto, se omite el bloque completo y esos valores no aparecen en ningún otro campo.
+
+No se devuelve hostId, lista de invitados, correo o teléfono de nadie, tokens, version, campos del documento
+Mongo ni countsAsAttendance. Los DTOs públicos son propios y se construyen campo a campo; no reutilizan EventResponse.
+
+`Clock` se inyecta en aplicación; su implementación normal es `Clock.systemUTC()`. El servicio obtiene un instante
+por petición y lo usa tanto para la visibilidad como para openedAt. No llama a Instant.now() directamente.
+ON_CONFIRMATION permanece cerrado: un único método privado devuelve false hasta R8. Confirmar exigirá que la
+opción elegida tenga countsAsAttendance=true; no basta con haber respondido (D-CONFIRMED-LINK).
+
+### Escritura de OPENED
+
+Si el invitado leído ya es OPENED, el servicio omite la escritura. Para NOT_SENT o SENT en PUBLISHED llama a
+`EventGuestRepositoryPort.markGuestOpened`. El adaptador usa findAndModify con retorno del documento actualizado:
+
+- Filtro de evento PUBLISHED y `$elemMatch` que une token y estado NOT_SENT/SENT del mismo invitado.
+- `$set` posicional de OPENED y openedAt más `$inc` explícito de version en la misma operación.
+- No reescribe el documento completo, no modifica a otros invitados, no toca sentAt y no exige una versión
+  leída previamente: la condición sobre el estado decide quién gana la primera apertura.
+- Una segunda apertura concurrente no coincide y no modifica fecha ni versión. El servicio reconsulta solo
+  ante esa falta de coincidencia, para devolver el estado vigente o 404 si se eliminó la invitación.
+
+R6 ya incrementaba version explícitamente y comprobaba su valor esperado en sus tres escrituras. R7 mantiene
+el incremento por cambio real. Un save antiguo del anfitrión queda protegido: OptimisticLockingFailureException
+ya tiene handler 409 con ProblemDetail y ahora un test HTTP de cancelación concurrente. Al implementar SENT en
+R11 habrá que preservar OPENED, sus fechas y el incremento de versión por modificación real.
+
+El endpoint no registra tokens. No deben habilitarse trazas de URLs ni consultas que contengan estas credenciales.
+Quedan anotadas D-RATE-LIMIT y D-REFERRER: sin límite de peticiones en R7, y el frontend debe servir su página
+con `Referrer-Policy: no-referrer` para evitar filtrar el token de la URL al cargar recursos externos.
+
 ## Borrado y extensión para R8
 
 `GuestResponseCleanupPort` declara `hasResponse(eventId, guestToken)` y `deleteResponse(eventId, guestToken)`.
@@ -141,9 +199,10 @@ real sobre una colección todavía inexistente.
 
 ## Verificación
 
-`mvn clean verify`: **245 tests**, sin fallos, errores ni omitidos. R6 incorpora 71 casos: 26 de dominio,
-12 de aplicación, 8 de adaptadores y 25 de integración contra Atlas (`gtog_test`).
+`mvn clean verify`: **276 tests**, sin fallos, errores ni omitidos. R6 incorporó 71 casos y R7 incorpora 31:
+4 de dominio, 9 de aplicación y 18 de integración contra Atlas (`gtog_test`).
 
-Incluyen contactos obligatorios e inválidos, normalización, duplicados al crear y editar, estados permitidos,
-colisión forzada de tokens en el mismo evento, índice único entre eventos, autorización de los cuatro endpoints,
-CSRF, límites de exposición del token, conservación del historial, eventos antiguos y escrituras concurrentes.
+R7 cubre privacidad comparando el cuerpo completo, fechas locales/UTC, los tres modos de visibilidad con Clock
+fijo y el umbral exacto, estados públicos y borrador, 404 indistinguibles, logs sin tokens, OPENED desde NOT_SENT
+y SENT, revisitas sin escritura, carreras entre aperturas, `$elemMatch` sobre el invitado correcto, version +1,
+conflicto HTTP 409 al cancelar con una versión antigua, cabecera exacta no-store y acceso sin sesión ni CSRF.

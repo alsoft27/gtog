@@ -270,7 +270,7 @@ El `@Bean OpenAPI` con el título, versión y descripción de la API vive en `sh
 
 Estas reglas son el contrato final del producto, no necesariamente lo que el código ya impone hoy: algunas dependen de rebanadas que todavía no existen. Cuando una regla tiene una parte pendiente, lo dice explícitamente — si esta sección afirmara algo que el código no cumple sin avisarlo, dejaría de servir para nada.
 
-1. **El enlace de la reunión en línea se filtra en el backend.** Si el invitado no cumple la regla de `LinkVisibility`, el campo se omite de la respuesta. Nunca lo envíes al cliente confiando en que Angular no lo pinte: viajaría en el JSON y sería legible desde las herramientas del navegador. La regla de dominio ya existe (`Event.visibleOnlineAccess(...)`, R3), pero todavía no la aplica ningún endpoint: el endpoint público del invitado es R7.
+1. **El enlace de la reunión en línea se filtra en el backend.** Si el invitado no cumple la regla de `LinkVisibility`, el campo se omite de la respuesta. Nunca lo envíes al cliente confiando en que Angular no lo pinte: viajaría en el JSON y sería legible desde las herramientas del navegador. La regla de dominio (`Event.visibleOnlineAccess(...)`, R3) ya se aplica en `GET /api/invitations/{token}` desde R7, exclusivamente para eventos `PUBLISHED`; `ON_CONFIRMATION` sigue cerrado hasta R8 (D-CONFIRMED-LINK).
 
 2. **El token es la única credencial del invitado.** Criptográficamente aleatorio, largo, con índice único y revocable. Nunca derivado del identificador ni de datos del invitado.
 

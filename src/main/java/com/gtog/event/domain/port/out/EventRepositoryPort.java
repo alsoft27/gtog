@@ -11,5 +11,7 @@ public interface EventRepositoryPort {
 
 	Optional<Event> findById(String id);
 
+	Optional<Event> findByGuestToken(String token);
+
 	List<Event> findByHostId(String hostId);
 }

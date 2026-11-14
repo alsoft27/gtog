@@ -235,7 +235,7 @@ public class Event {
 	// Vacio si el evento no tiene acceso en linea (presencial) o si la regla de LinkVisibility no deja verlo
 	// todavia: asi quien llama no puede olvidarse de comprobar un booleano antes de leer el enlace.
 	public Optional<OnlineAccess> visibleOnlineAccess(boolean guestHasConfirmed, Instant now) {
-		if (onlineAccess == null) {
+		if (status != EventStatus.PUBLISHED || onlineAccess == null) {
 			return Optional.empty();
 		}
 		boolean visible = switch (onlineAccess.linkVisibility()) {

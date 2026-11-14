@@ -1,13 +1,18 @@
 package com.gtog.shared;
 
+import java.net.URI;
+
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
+import org.springframework.http.CacheControl;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import com.gtog.event.domain.model.EventDomainException;
+import com.gtog.event.domain.model.InvitationNotFoundException;
 import com.gtog.event.domain.model.DuplicateGuestEmailException;
 import com.gtog.event.domain.model.DuplicateGuestPhoneException;
 import com.gtog.event.domain.model.DuplicateGuestTokenException;
@@ -28,6 +33,14 @@ import com.gtog.user.domain.model.UserDomainException;
 // (404, 409) ganan sobre el generico de *DomainException (422) para el resto de subtipos.
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+	@ExceptionHandler(InvitationNotFoundException.class)
+	public ResponseEntity<ProblemDetail> handleInvitationNotFound(InvitationNotFoundException exception) {
+		ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, exception.getMessage());
+		// Una instancia constante evita que Spring copie la URI de la peticion y filtre la credencial.
+		problem.setInstance(URI.create("/api/invitations"));
+		return ResponseEntity.status(HttpStatus.NOT_FOUND).cacheControl(CacheControl.noStore()).body(problem);
+	}
 
 	@ExceptionHandler(EventDomainException.class)
 	public ProblemDetail handleEventDomainException(EventDomainException exception) {

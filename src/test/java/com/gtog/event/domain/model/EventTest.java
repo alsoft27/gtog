@@ -389,6 +389,7 @@ class EventTest {
 		OnlineAccess onlineAccess = new OnlineAccess("Zoom", "https://zoom.us/j/123", null, null, null,
 				LinkVisibility.ALWAYS, null);
 		Event event = baseBuilder().modality(Modality.ONLINE).venue(null).onlineAccess(onlineAccess).build();
+		event.publish();
 
 		assertThat(event.visibleOnlineAccess(false, STARTS_AT.minusYears(1).atZone(ZoneOffset.of("+02:00")).toInstant()))
 				.contains(onlineAccess);
@@ -399,6 +400,7 @@ class EventTest {
 		OnlineAccess onlineAccess = new OnlineAccess("Zoom", "https://zoom.us/j/123", null, null, null,
 				LinkVisibility.ON_CONFIRMATION, null);
 		Event event = baseBuilder().modality(Modality.ONLINE).venue(null).onlineAccess(onlineAccess).build();
+		event.publish();
 		Instant now = STARTS_AT.atZone(ZoneOffset.of("+02:00")).toInstant();
 
 		assertThat(event.visibleOnlineAccess(false, now)).isEmpty();
@@ -410,6 +412,7 @@ class EventTest {
 		OnlineAccess onlineAccess = new OnlineAccess("Zoom", "https://zoom.us/j/123", null, null, null,
 				LinkVisibility.HOURS_BEFORE, 2);
 		Event event = baseBuilder().modality(Modality.ONLINE).venue(null).onlineAccess(onlineAccess).build();
+		event.publish();
 		Instant threeHoursBeforeStart = event.startsAtInstant().minus(3, ChronoUnit.HOURS);
 
 		assertThat(event.visibleOnlineAccess(true, threeHoursBeforeStart)).isEmpty();
@@ -420,6 +423,7 @@ class EventTest {
 		OnlineAccess onlineAccess = new OnlineAccess("Zoom", "https://zoom.us/j/123", null, null, null,
 				LinkVisibility.HOURS_BEFORE, 2);
 		Event event = baseBuilder().modality(Modality.ONLINE).venue(null).onlineAccess(onlineAccess).build();
+		event.publish();
 		Instant oneHourBeforeStart = event.startsAtInstant().minus(1, ChronoUnit.HOURS);
 
 		assertThat(event.visibleOnlineAccess(false, oneHourBeforeStart)).contains(onlineAccess);
