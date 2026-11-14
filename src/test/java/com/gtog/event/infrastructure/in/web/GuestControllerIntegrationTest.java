@@ -13,7 +13,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.dao.OptimisticLockingFailureException;
@@ -26,6 +25,7 @@ import org.springframework.security.test.context.support.TestExecutionEvent;
 import org.springframework.security.test.context.support.WithAnonymousUser;
 import org.springframework.security.test.context.support.WithUserDetails;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.TestConstructor;
 import org.springframework.test.web.servlet.MockMvc;
 
 import com.gtog.event.domain.model.DeliveryChannel;
@@ -61,18 +61,29 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
+@TestConstructor(autowireMode = TestConstructor.AutowireMode.ALL)
 @WithUserDetails(value = "host@example.com", setupBefore = TestExecutionEvent.TEST_EXECUTION)
 class GuestControllerIntegrationTest {
 
 	private static final String PASSWORD_HASH = new BCryptPasswordEncoder().encode("password12");
 	private static final String BASE = "/api/events/event-1/guests";
 
-	@Autowired private MockMvc mockMvc;
-	@Autowired private EventRepositoryPort events;
-	@Autowired private EventGuestRepositoryPort guests;
-	@Autowired private EventMongoRepository eventDocuments;
-	@Autowired private UserMongoRepository users;
-	@Autowired private MongoTemplate mongoTemplate;
+	private final MockMvc mockMvc;
+	private final EventRepositoryPort events;
+	private final EventGuestRepositoryPort guests;
+	private final EventMongoRepository eventDocuments;
+	private final UserMongoRepository users;
+	private final MongoTemplate mongoTemplate;
+
+	GuestControllerIntegrationTest(MockMvc mockMvc, EventRepositoryPort events, EventGuestRepositoryPort guests,
+			EventMongoRepository eventDocuments, UserMongoRepository users, MongoTemplate mongoTemplate) {
+		this.mockMvc = mockMvc;
+		this.events = events;
+		this.guests = guests;
+		this.eventDocuments = eventDocuments;
+		this.users = users;
+		this.mongoTemplate = mongoTemplate;
+	}
 
 	@BeforeEach
 	void setUp() {

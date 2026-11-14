@@ -7,7 +7,7 @@ import com.jayway.jsonpath.JsonPath;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
@@ -16,6 +16,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.test.context.support.TestExecutionEvent;
 import org.springframework.security.test.context.support.WithUserDetails;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.TestConstructor;
 import org.springframework.test.web.servlet.MockMvc;
 
 import com.gtog.event.infrastructure.out.persistence.EventDocument;
@@ -35,6 +36,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
+@TestConstructor(autowireMode = TestConstructor.AutowireMode.ALL)
 class EventControllerIntegrationTest {
 
 	static final String TEST_HOST_EMAIL = "host@example.com";
@@ -58,16 +60,18 @@ class EventControllerIntegrationTest {
 			  "linkVisibility": "ALWAYS"
 			}""";
 
-	@Autowired
-	private MockMvc mockMvc;
-	@Autowired
-	private org.springframework.data.mongodb.core.MongoTemplate mongoTemplate;
+	private final MockMvc mockMvc;
+	private final MongoTemplate mongoTemplate;
+	private final EventMongoRepository eventMongoRepository;
+	private final UserMongoRepository userMongoRepository;
 
-	@Autowired
-	private EventMongoRepository eventMongoRepository;
-
-	@Autowired
-	private UserMongoRepository userMongoRepository;
+	EventControllerIntegrationTest(MockMvc mockMvc, MongoTemplate mongoTemplate,
+			EventMongoRepository eventMongoRepository, UserMongoRepository userMongoRepository) {
+		this.mockMvc = mockMvc;
+		this.mongoTemplate = mongoTemplate;
+		this.eventMongoRepository = eventMongoRepository;
+		this.userMongoRepository = userMongoRepository;
+	}
 
 	@BeforeEach
 	void cleanDatabase() {

@@ -14,7 +14,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
-import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
@@ -23,6 +23,7 @@ import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.TestExecutionEvent;
 import org.springframework.security.test.context.support.WithUserDetails;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.TestConstructor;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -60,16 +61,26 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
+@TestConstructor(autowireMode = TestConstructor.AutowireMode.ALL)
 @ExtendWith(OutputCaptureExtension.class)
 class InvitationControllerIntegrationTest {
 
-	@Autowired private MockMvc mockMvc;
-	@Autowired private org.springframework.data.mongodb.core.MongoTemplate mongo;
+	private final MockMvc mockMvc;
+	private final MongoTemplate mongo;
 	@MockitoSpyBean private EventRepositoryPort events;
-	@Autowired private EventGuestRepositoryPort guests;
-	@Autowired private EventMongoRepository eventDocuments;
-	@Autowired private UserMongoRepository users;
+	private final EventGuestRepositoryPort guests;
+	private final EventMongoRepository eventDocuments;
+	private final UserMongoRepository users;
 	@MockitoBean private Clock clock;
+
+	InvitationControllerIntegrationTest(MockMvc mockMvc, MongoTemplate mongo, EventGuestRepositoryPort guests,
+			EventMongoRepository eventDocuments, UserMongoRepository users) {
+		this.mockMvc = mockMvc;
+		this.mongo = mongo;
+		this.guests = guests;
+		this.eventDocuments = eventDocuments;
+		this.users = users;
+	}
 
 	@BeforeEach
 	void setUp() {

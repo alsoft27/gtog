@@ -297,6 +297,7 @@ Estas reglas son el contrato final del producto, no necesariamente lo que el có
 
 - Dominio y casos de uso: tests unitarios planos, sin contexto de Spring. Deben ser rápidos, y la arquitectura hexagonal es justamente lo que lo permite: si un test de caso de uso necesita Spring, las dependencias están mal.
 - Adaptadores y flujos completos: tests de integración con `@SpringBootTest @ActiveProfiles("test")` contra MongoDB Atlas (base `gtog_test`). La conexión está en `src/test/resources/application-test.properties`. Hace falta `MONGODB_URI` en el entorno antes de lanzar los tests (ver sección Comandos). Nada de Mongo embebido ni Testcontainers.
+- También en los tests de integración, inyecta los beans por constructor en campos `final`, con `@TestConstructor(autowireMode = ALL)`, sin `@Autowired` en campos. `@MockitoBean` y `@MockitoSpyBean` se mantienen para declarar los dobles del contexto.
 - Los tests de integración limpian las colecciones que usan antes de cada test (`@BeforeEach`) para no depender del orden de ejecución.
 - Nombres descriptivos en inglés: `doesNotAllowDeletingOptionWithAttachedResponses()`.
 - Cada regla de la sección anterior necesita al menos un test que la cubra. La de concurrencia necesita un test con escrituras en paralelo.

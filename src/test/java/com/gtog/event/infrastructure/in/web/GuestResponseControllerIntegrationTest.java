@@ -14,7 +14,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
@@ -25,6 +24,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.TestConstructor;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
@@ -51,16 +51,26 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
+@TestConstructor(autowireMode = TestConstructor.AutowireMode.ALL)
 @ExtendWith(OutputCaptureExtension.class)
 class GuestResponseControllerIntegrationTest {
 	private static final LocalDateTime DEADLINE = LocalDateTime.of(2027, 1, 1, 17, 0);
-	@Autowired private MockMvc mvc;
-	@Autowired private MongoTemplate mongo;
-	@Autowired private EventRepositoryPort events;
-	@Autowired private EventMongoRepository eventDocuments;
-	@Autowired private GuestResponseRepositoryPort responses;
+	private final MockMvc mvc;
+	private final MongoTemplate mongo;
+	private final EventRepositoryPort events;
+	private final EventMongoRepository eventDocuments;
+	private final GuestResponseRepositoryPort responses;
 	@MockitoBean private Clock clock;
 	private String token;
+
+	GuestResponseControllerIntegrationTest(MockMvc mvc, MongoTemplate mongo, EventRepositoryPort events,
+			EventMongoRepository eventDocuments, GuestResponseRepositoryPort responses) {
+		this.mvc = mvc;
+		this.mongo = mongo;
+		this.events = events;
+		this.eventDocuments = eventDocuments;
+		this.responses = responses;
+	}
 
 	@BeforeEach
 	void setUp() {

@@ -14,7 +14,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
@@ -22,6 +21,7 @@ import org.springframework.security.test.context.support.TestExecutionEvent;
 import org.springframework.security.test.context.support.WithAnonymousUser;
 import org.springframework.security.test.context.support.WithUserDetails;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.TestConstructor;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -56,19 +56,31 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
+@TestConstructor(autowireMode = TestConstructor.AutowireMode.ALL)
 @WithUserDetails(value = "host@example.com", setupBefore = TestExecutionEvent.TEST_EXECUTION)
 class ResponseDeadlineControllerIntegrationTest {
 
 	private static final String PATH = "/api/events/event-id/response-deadline";
 	private static final LocalDateTime DEADLINE = LocalDateTime.of(2027, 1, 1, 17, 30);
-	@Autowired private MockMvc mockMvc;
+	private final MockMvc mockMvc;
 	@MockitoSpyBean private EventRepositoryPort events;
-	@Autowired private EventResponseDeadlineRepositoryPort deadlines;
-	@Autowired private EventGuestRepositoryPort guests;
-	@Autowired private ChangeResponseDeadlineUseCase changeDeadline;
-	@Autowired private EventMongoRepository eventDocuments;
-	@Autowired private UserMongoRepository users;
+	private final EventResponseDeadlineRepositoryPort deadlines;
+	private final EventGuestRepositoryPort guests;
+	private final ChangeResponseDeadlineUseCase changeDeadline;
+	private final EventMongoRepository eventDocuments;
+	private final UserMongoRepository users;
 	@MockitoBean private Clock clock;
+
+	ResponseDeadlineControllerIntegrationTest(MockMvc mockMvc, EventResponseDeadlineRepositoryPort deadlines,
+			EventGuestRepositoryPort guests, ChangeResponseDeadlineUseCase changeDeadline,
+			EventMongoRepository eventDocuments, UserMongoRepository users) {
+		this.mockMvc = mockMvc;
+		this.deadlines = deadlines;
+		this.guests = guests;
+		this.changeDeadline = changeDeadline;
+		this.eventDocuments = eventDocuments;
+		this.users = users;
+	}
 
 	@BeforeEach
 	void setUp() {

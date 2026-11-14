@@ -5,7 +5,6 @@ import java.util.List;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
@@ -15,6 +14,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.test.context.support.TestExecutionEvent;
 import org.springframework.security.test.context.support.WithUserDetails;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.TestConstructor;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
@@ -36,6 +36,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
+@TestConstructor(autowireMode = TestConstructor.AutowireMode.ALL)
 class AuthControllerIntegrationTest {
 
 	static final String HOST_A_EMAIL = "hosta@example.com";
@@ -43,14 +44,15 @@ class AuthControllerIntegrationTest {
 	private static final PasswordEncoder PASSWORD_ENCODER = new BCryptPasswordEncoder();
 	private static final String HASHED_PASSWORD = PASSWORD_ENCODER.encode("password12");
 
-	@Autowired
-	private MockMvc mockMvc;
+	private final MockMvc mockMvc;
+	private final UserMongoRepository userMongoRepository;
+	private final EventMongoRepository eventMongoRepository;
 
-	@Autowired
-	private UserMongoRepository userMongoRepository;
-
-	@Autowired
-	private EventMongoRepository eventMongoRepository;
+	AuthControllerIntegrationTest(MockMvc mockMvc, UserMongoRepository userMongoRepository, EventMongoRepository eventMongoRepository) {
+		this.mockMvc = mockMvc;
+		this.userMongoRepository = userMongoRepository;
+		this.eventMongoRepository = eventMongoRepository;
+	}
 
 	@BeforeEach
 	void cleanDatabase() {

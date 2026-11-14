@@ -7,7 +7,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.data.mongodb.core.MongoTemplate;
@@ -16,6 +15,7 @@ import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.TestExecutionEvent;
 import org.springframework.security.test.context.support.WithUserDetails;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.TestConstructor;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -44,6 +44,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
+@TestConstructor(autowireMode = TestConstructor.AutowireMode.ALL)
 @WithUserDetails(value = "host@example.com", setupBefore = TestExecutionEvent.TEST_EXECUTION)
 class ResponseOptionsAndCascadeIntegrationTest {
 	private static final String OPTIONS = "/api/events/event-id/response-options";
@@ -60,17 +61,27 @@ class ResponseOptionsAndCascadeIntegrationTest {
 			{"responseOptions":[{"id":"yes-id","label":"Ahora no","countsAsAttendance":false},
 			{"id":"no-id","label":"No asisto","countsAsAttendance":false}]}
 			""";
-	@Autowired private MockMvc mvc;
-	@Autowired private MongoTemplate mongo;
-	@Autowired private EventRepositoryPort events;
-	@Autowired private GuestResponseRepositoryPort responses;
-	@Autowired private EventMongoRepository eventDocuments;
-	@Autowired private UserMongoRepository users;
+	private final MockMvc mvc;
+	private final MongoTemplate mongo;
+	private final EventRepositoryPort events;
+	private final GuestResponseRepositoryPort responses;
+	private final EventMongoRepository eventDocuments;
+	private final UserMongoRepository users;
 	@MockitoSpyBean private GuestResponseCleanupPort cleanup;
 	@MockitoSpyBean private EventGuestRepositoryPort guests;
 	@MockitoBean private Clock clock;
 	private String token;
 	private String otherToken;
+
+	ResponseOptionsAndCascadeIntegrationTest(MockMvc mvc, MongoTemplate mongo, EventRepositoryPort events,
+			GuestResponseRepositoryPort responses, EventMongoRepository eventDocuments, UserMongoRepository users) {
+		this.mvc = mvc;
+		this.mongo = mongo;
+		this.events = events;
+		this.responses = responses;
+		this.eventDocuments = eventDocuments;
+		this.users = users;
+	}
 
 	@BeforeEach
 	void setUp() {
