@@ -13,6 +13,12 @@ import com.gtog.event.domain.model.Venue;
 @Component
 public class EventMapper {
 
+	private final GuestMapper guestMapper;
+
+	public EventMapper(GuestMapper guestMapper) {
+		this.guestMapper = guestMapper;
+	}
+
 	public EventDocument toDocument(Event event) {
 		return new EventDocument(
 				event.getId(),
@@ -32,7 +38,8 @@ public class EventMapper {
 				toDocument(event.getOnlineAccess()),
 				event.getCancelledAt(),
 				event.getCancellationReason(),
-				event.getVersion());
+				event.getVersion(),
+				event.getGuests().stream().map(guestMapper::toDocument).toList());
 	}
 
 	public Event toDomain(EventDocument document) {
@@ -55,6 +62,7 @@ public class EventMapper {
 				.cancelledAt(document.getCancelledAt())
 				.cancellationReason(document.getCancellationReason())
 				.version(document.getVersion())
+				.guests(document.getGuests().stream().map(guestMapper::toDomain).toList())
 				.build();
 	}
 

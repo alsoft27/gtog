@@ -218,8 +218,8 @@ public class EventController {
 	}
 
 	@Operation(summary = "Cancela un evento",
-			description = "Transicion PUBLISHED → CANCELLED. Irreversible. Solo posible desde PUBLISHED: un borrador "
-					+ "que nunca se publico no tiene invitados a los que notificar.")
+			description = "Transicion PUBLISHED → CANCELLED. Irreversible. Solo posible desde PUBLISHED; "
+					+ "un borrador no se puede cancelar aunque ya tenga invitados.")
 	@ApiResponses({
 			@ApiResponse(responseCode = "200", description = "Evento cancelado.",
 					content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,

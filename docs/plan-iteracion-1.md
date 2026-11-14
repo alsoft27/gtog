@@ -1,6 +1,6 @@
 # gtog — Plan de la iteración 1
 
-Estado a 13 de noviembre de 2026.
+Estado a 14 de noviembre de 2026.
 
 ---
 
@@ -13,10 +13,13 @@ Estado a 13 de noviembre de 2026.
 | Crear evento en `DRAFT` | `POST /api/events` funcionando de punta a punta, con dominio, puertos, adaptador Mongo, controlador y tests |
 | R1 — Consultar y listar eventos | `GET /api/events/{id}` (`EventResponse` completo, `EventNotFoundException` → 404) y `GET /api/events` (proyección `EventSummaryResponse`, sin paginación; desde R5 el anfitrión se obtiene de la sesión, sin parámetro `hostId`) |
 | R2 — Opciones de respuesta | `ResponseOption` embebido en `Event`, 2 a 5, defaults ("Asisto"/"No asisto") si no se especifican, `PUT /api/events/{id}/response-options` con identidad por `id` al editar (se conserva si coincide, se rechaza con 422 si no pertenece al evento) |
-| R3 — Ubicación y acceso en línea | `Venue` y `OnlineAccess` (el backend no llama a la API de Google), `LinkVisibility`, invariante de modalidad (`IN_PERSON`⇄`venue`, `ONLINE`⇄`onlineAccess`), `PUT /api/events/{id}/venue` y `PUT /api/events/{id}/online-access`, `Event.visibleOnlineAccess(guestHasConfirmed, now)` ya implementado (solo probado a nivel de dominio, sin invitados todavía) |
-| R4 — Editar, publicar y cancelar | Máquina de estados: `publish()` solo desde `DRAFT` (precondiciones: venue/onlineAccess según modalidad, ≥2 opciones → `IncompleteEventForPublishException` 422), `cancel(reason, now)` solo desde `PUBLISHED` → `CANCELLED` con `cancelledAt` (irreversible). `edit()` con todos los campos básicos más `allowComment`/`allowResponseChange`/`responseDeadline` (sacados de `replaceResponseOptions`): si la modalidad cambia, el bloque de ubicación correspondiente es obligatorio. `PUT /api/events/{id}`, `POST /api/events/{id}/publish`, `POST /api/events/{id}/cancel`. Cobertura actual del evento: 84 tests de dominio y 35 de integración, todos en verde. |
-| R5 — Usuario y seguridad | Registro, login, logout, Spring Security. `POST /api/auth/register` y `POST /api/auth/login`. Ownership check en todos los endpoints de evento: `hostId != event.hostId` → 404. `GET /api/events` lee el host del principal autenticado; `hostId` desaparece como parámetro de query. `/api/invitations/**` público. 174 tests en verde tras añadir la validación de zona horaria del usuario y su cobertura HTTP. |
+| R3 — Ubicación y acceso en línea | `Venue` y `OnlineAccess` (el backend no llama a la API de Google), `LinkVisibility`, invariante de modalidad (`IN_PERSON`⇄`venue`, `ONLINE`⇄`onlineAccess`), `PUT /api/events/{id}/venue` y `PUT /api/events/{id}/online-access`, `Event.visibleOnlineAccess(guestHasConfirmed, now)` ya implementado (solo probado a nivel de dominio, sin endpoint público todavía) |
+| R4 — Editar, publicar y cancelar | Máquina de estados: `publish()` solo desde `DRAFT` (precondiciones: venue/onlineAccess según modalidad, ≥2 opciones → `IncompleteEventForPublishException` 422), `cancel(reason, now)` solo desde `PUBLISHED` → `CANCELLED` con `cancelledAt` (irreversible). `edit()` con todos los campos básicos más `allowComment`/`allowResponseChange`/`responseDeadline` (sacados de `replaceResponseOptions`): si la modalidad cambia, el bloque de ubicación correspondiente es obligatorio. `PUT /api/events/{id}`, `POST /api/events/{id}/publish`, `POST /api/events/{id}/cancel`. Cobertura de eventos e invitados: 110 tests de dominio y 60 de integración, todos en verde. |
+| R5 — Usuario y seguridad | Registro, login, logout, Spring Security. `POST /api/auth/register` y `POST /api/auth/login`. Ownership check en todos los endpoints de evento: `hostId != event.hostId` → 404. `GET /api/events` lee el host del principal autenticado; `hostId` desaparece como parámetro de query. `/api/invitations/**` público. 174 tests en verde antes de R6, incluida la validación de zona horaria del usuario y su cobertura HTTP. |
+| R6 — Invitados | `Guest` dentro de `event`, `guests[]` embebido, alta/edición/borrado/listado autenticados con ownership en aplicación. Normalización E.164 con libphonenumber 9.0.43; tokens de 32 bytes de `SecureRandom`, Base64 URL-safe sin relleno. Escrituras parciales con control e incremento de versión. `invitationPath` solo en alta y listado. D-3 saldada; cascada preparada para R8 sin crear `responses`. 71 tests nuevos. |
 | Infraestructura | Java 25, Spring Boot 4.1, Maven por defecto, MongoDB Atlas, OpenAPI |
+
+**Verificación actual:** `mvn clean verify` pasa con **245 tests**, 0 fallos, 0 errores y 0 omitidos. Los 71 nuevos se reparten en 26 de dominio, 12 de aplicación, 8 de adaptadores y 25 de integración.
 
 **Lo que eso valida:** la arquitectura hexagonal funciona en la práctica, el mapeo entre `Event` y `EventDocument` es asumible, y el circuito completo de desarrollo está operativo. Además, `Event.create(...)`/`reconstitute(...)` cambiaron de firma en las tres rebanadas seguidas, así que desde R3 `Event` se construye con dos builders internos (`Event.builder()` para eventos nuevos, `Event.reconstituteBuilder()` para rehidratar) en vez de factory methods con parámetros posicionales — ver `docs/modelo-evento.md`.
 
@@ -30,7 +33,7 @@ Esto no es una lista de pendientes cualquiera: son cosas que ya están mal a pro
 |---|---|---|---|
 | D-1 | **Spring Security retirado** | Todos los endpoints son públicos | Rebanada 5, ver §4 — **Saldada en R5.** |
 | D-2 | **`hostId` viaja en el cuerpo del request** | Cualquiera crea eventos en nombre de otro | Con D-1 — **Saldada en R5.** |
-| D-3 | **Índice único de `guests.token` sin crear** | No es que falte el componente — `MongoIndexInitializer` (en `shared/config`) ya existe y crea el índice de `hostId` en el arranque. Es que `guests.token` no puede indexarse todavía porque `guests[]` no existe como campo de `EventDocument`. Mientras tanto, no hay ninguna consulta que lo necesite. | Rebanada 6, en cuanto exista `guests[]`: ampliar `MongoIndexInitializer` |
+| D-3 | **Índice único de `guests.token`** | Creado de forma idempotente en `MongoIndexInitializer`, con filtro parcial para tokens de tipo string. Permite eventos sin invitados. La unicidad dentro del mismo array se asegura en `Event` y con la escritura condicionada por versión. | **Saldada en R6.** |
 | D-5 | **Tests de integración contra Atlas** | Los tests necesitan red y son lentos | Aceptable mientras seas el único desarrollador |
 | D-6 | **Sin herramienta de migraciones** | No hay forma versionada de cambiar el esquema | Cuando haya datos reales |
 | D-7 | **Opciones de respuesta bloqueadas en eventos publicados** | RF-4.8 permite renombrar y agregar opciones tras publicar, prohibiendo solo eliminar las que tengan respuestas. El código actual es más restrictivo: `Event.replaceResponseOptions(...)` lanza `EventNotEditableException` (409) ante *cualquier* cambio si `status != DRAFT`, sin distinguir renombrar, agregar o eliminar. El dominio no conoce la colección `responses` todavía, así que tampoco puede saber qué ids tienen respuestas. El fix completo tiene dos partes: (1) permitir renombrar y agregar en `PUBLISHED`; (2) bloquear solo el borrado de opciones con respuestas. | Rebanada 8: `replaceResponseOptions(...)` recibirá el conjunto de ids con respuestas (calculado en la capa de aplicación) y pasará a funcionar en `PUBLISHED` para rename/add |
@@ -59,12 +62,19 @@ Cada una es vertical: dominio, puerto, adaptador, controlador y test, funcionand
 
 ### Bloque C — El núcleo del producto
 
-**R6. Invitados**
-Alta con nombre y correo o teléfono, normalización a E.164, detección de duplicados, y generación del token criptográficamente aleatorio. Salda D-3: aquí es donde el índice único sobre `guests.token` deja de ser opcional.
+**R6. Invitados** ✓ Implementada. Ver §1 y `docs/modelo-invitado.md`.
 
-También en esta rebanada (RF-2.6): editar datos de un invitado (`PUT /api/events/{id}/guests/{guestId}`) y eliminarlo (`DELETE /api/events/{id}/guests/{guestId}`) mientras el evento no esté finalizado. Regla de cascada confirmada: un invitado sin respuesta se elimina directamente; un invitado con respuesta requiere un parámetro de confirmación explícito en la petición (`confirmDeleteResponse=true`), y la capa de aplicación borra en cascada su documento de `responses` antes de eliminar al invitado del evento. Sin el parámetro de confirmación, 409.
+Los cuatro endpoints permiten gestionar contactos en `DRAFT` y `PUBLISHED`; `FINISHED` y `CANCELLED` bloquean
+las mutaciones con 409. El listado sigue disponible para el propietario. `POST` devuelve 201 con `Location`;
+`PUT`, 200; `DELETE`, 204; `GET`, 200. El anfitrión recibe 404 por un evento ajeno o un invitado inexistente.
 
-RF-4.2 (conjuntos predefinidos de opciones): los presets *Asisto / No asisto*, *Asisto / No asisto / Tal vez* y *Confirmo / Declino / Pendiente* pueden vivir enteramente en el frontend como listas hardcodeadas que el cliente envía al crear el evento. El backend ya acepta cualquier combinación válida. No se necesita endpoint nuevo; confirmar con el equipo de frontend antes de empezar R6.
+RF-2.6: el contrato `confirmDeleteResponse` está preparado en `GuestService` mediante
+`GuestResponseCleanupPort`. `NoGuestResponsesYetAdapter` representa expresamente que R6 no tiene respuestas;
+no crea ni consulta `responses`. Los tests con dobles comprueban el 409 sin confirmación y el orden de borrado
+con confirmación. En R8 hay que sustituir ese adaptador y resolver la concurrencia del borrado real con las
+respuestas y con un posible conflicto de versión; el punto de extensión no equivale a una cascada real ya implementada.
+
+RF-4.2 (conjuntos predefinidos de opciones): los presets *Asisto / No asisto*, *Asisto / No asisto / Tal vez* y *Confirmo / Declino / Pendiente* pueden vivir enteramente en el frontend como listas hardcodeadas que el cliente envía al crear el evento. El backend ya acepta cualquier combinación válida. No se necesita endpoint nuevo; confirmar con el equipo de frontend al integrar la pantalla de creación.
 
 **R7. Página pública del invitado**
 `GET /api/invitations/{token}`. Devuelve el evento tal como lo ve ese invitado. El filtrado del enlace de la reunión ya tiene su regla de dominio lista desde R3 (`Event.visibleOnlineAccess(guestHasConfirmed, now)`, hoy solo probada de forma aislada); este endpoint le pasa el estado real del invitado y necesita su propio DTO de respuesta — distinto de `EventResponse`, que es la vista del anfitrión y expone el enlace sin filtrar (ver comentario en `EventResponse`).
@@ -90,7 +100,7 @@ RF-2.14 (envío en bloque por correo): el endpoint de envío debe aceptar un lis
 
 RF-2.15 (plantilla editable): la plantilla vive como campo `messageTemplate` en el documento del evento (campo nulo = texto por defecto generado en el backend). No hay colección separada porque no existen plantillas reutilizables entre eventos en el alcance del MVP. Se edita con el mismo `PUT /api/events/{id}` del bloque básico.
 
-RF-2.16 (copiar enlace individual): puramente frontend; no requiere endpoint nuevo — el enlace es `<base-url>/r/{token}` y el token ya viene en `EventResponse`.
+RF-2.16 (copiar enlace individual): R6 devuelve `invitationPath: /r/{token}` exclusivamente en el alta y el listado de invitados. El frontend completa la ruta con su origen para copiar el enlace. No se expone un campo `token` suelto ni se añade a `EventResponse`; el `PUT` tampoco devuelve el enlace.
 
 RF-2.17 (reenvío): el reenvío a quien no ha respondido es un filtro sobre la lista de invitados con `invitationStatus != OPENED && ANSWERED derivado == false`; el endpoint de envío en bloque de correo cubre este caso si acepta una lista de tokens.
 
@@ -123,7 +133,7 @@ ya implementado evita rehacer los controladores al añadir seguridad más adelan
 |---|---|---|
 | **Proveedor de correo** (SES, SendGrid, SMTP) | R5 (RF-1.2, RF-1.3 excluidos hasta decidir), R10 (RF-2.10), R12 (RF-1.2, RF-1.3) | **Alta** |
 | **¿Puede el anfitrión registrar a mano la respuesta de un invitado?** | R8, R9 | Baja, pero decide el modelo |
-| **Formato del token**: longitud y alfabeto | R6 | Baja, pero irreversible una vez haya enlaces circulando |
+| ~~**Formato del token**: longitud y alfabeto~~ | ~~R6~~ | **Resuelta e implementada en R6:** 32 bytes de `SecureRandom`, Base64 URL-safe sin relleno, 43 caracteres; independiente de ids y datos personales. |
 | ~~**¿Qué pasa con `venue`/`onlineAccess` al cambiar de modalidad en R4?**~~ | ~~R4~~ | **Resuelta en R4:** si la modalidad cambia, el cliente debe aportar el bloque de la nueva modalidad; el de la anterior se descarta. Si no lo aporta, `ModalityChangedWithoutLocationException` (422). |
 
 **Resuelta durante R1–R3:** la clave de Google Maps con facturación activa, que aparecía aquí bloqueando R3. Ya no bloquea nada en este repositorio: el backend no llama a la API de Google (ver `Venue` en `docs/modelo-evento.md`), confía en los datos que el cliente ya ha resuelto. Si hace falta una clave, es para el autocompletado en el frontend, fuera de este repo.

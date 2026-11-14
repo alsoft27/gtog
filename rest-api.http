@@ -1,0 +1,396 @@
+# Prueba funcional sencilla: evento presencial e invitados (R1–R6).
+# Arranca tu el backend. Ejecuta desde la peticion 01 en orden, con las flechas verdes,
+# o con Run All Requests del HTTP Client. No requiere un environment de IntelliJ.
+# Cada ejecucion completa registra una cuenta de prueba nueva; guarda datos en gtog_dev.
+# Las variables gtogSmoke* se rellenan al recibir las respuestas, sin copiar ids a mano.
+# Al terminar queda un evento publicado con un invitado. No se envian invitaciones.
+#
+# CSRF: para este cliente de prueba se envia la misma cadena en XSRF-TOKEN y X-XSRF-TOKEN.
+# Esto es compatible con la configuracion actual y no prueba el bootstrap CSRF del frontend.
+# Se desactiva el cookie jar por peticion y se envia la sesion explicitamente para evitar
+# interferencias con otras pruebas abiertas en IntelliJ. No imprimir ni versionar sesiones.
+# Registro y login estan incluidos como preparacion del recorrido.
+
+@baseUrl = http://localhost:8080
+@password = SmokeTest2026!
+@csrf = gtog-local-smoke-csrf
+@startsAt = 2027-01-20T18:00:00
+@endsAt = 2027-01-20T20:00:00
+
+### 01 — Registrar anfitrion de prueba
+# @no-cookie-jar
+< {%
+    const suffix = Date.now().toString();
+    client.global.set("gtogSmokeEmail", "host-smoke-" + suffix + "@example.com");
+    ["gtogSmokeSession", "gtogSmokeEventId", "gtogSmokeGuest1", "gtogSmokeGuest2", "gtogSmokeInvitationPath1"].forEach(function (name) {
+        client.global.clear(name);
+    });
+%}
+POST {{baseUrl}}/api/auth/register
+Accept: application/json
+Cookie: XSRF-TOKEN={{csrf}}
+X-XSRF-TOKEN: {{csrf}}
+Content-Type: application/json
+
+{
+  "name": "Anfitrión prueba simple",
+  "email": "{{gtogSmokeEmail}}",
+  "rawPassword": "{{password}}",
+  "timeZone": "Europe/Madrid"
+}
+
+> {%
+    client.test("01 returns 201", function () {
+        client.assert(response.status === 201, "Unexpected HTTP status: " + response.status);
+    });
+    client.assert(response.status === 201, "Cannot continue this step: unexpected status");
+    client.test("01 satisfies functional expectations", function () {
+        client.assert(!!response.body.id, "Missing host id");
+        client.assert(response.headers.valueOf("Location") === "/api/users/" + response.body.id, "Unexpected Location");
+        client.assert(!("passwordHash" in response.body), "Password hash must not be exposed");
+    });
+%}
+
+### 02 — Iniciar sesion
+# @no-cookie-jar
+POST {{baseUrl}}/api/auth/login
+Accept: application/json
+Cookie: XSRF-TOKEN={{csrf}}
+X-XSRF-TOKEN: {{csrf}}
+Content-Type: application/json
+
+{
+  "email": "{{gtogSmokeEmail}}",
+  "password": "{{password}}"
+}
+
+> {%
+    client.test("02 returns 200", function () {
+        client.assert(response.status === 200, "Unexpected HTTP status: " + response.status);
+    });
+    client.assert(response.status === 200, "Cannot continue this step: unexpected status");
+    const session = response.cookiesByName("JSESSIONID")[0];
+    client.assert(!!session, "Login did not return JSESSIONID");
+    client.global.set("gtogSmokeSession", session.value);
+%}
+
+### 03 — Crear evento presencial
+# @no-cookie-jar
+POST {{baseUrl}}/api/events
+Accept: application/json
+Cookie: XSRF-TOKEN={{csrf}}; JSESSIONID={{gtogSmokeSession}}
+X-XSRF-TOKEN: {{csrf}}
+Content-Type: application/json
+
+{
+  "title": "Evento de prueba simple",
+  "description": "Creación y gestión de invitados",
+  "startsAt": "{{startsAt}}",
+  "endsAt": "{{endsAt}}",
+  "timeZone": "Europe/Madrid",
+  "modality": "IN_PERSON",
+  "venue": {
+    "placeName": "Sala de prueba",
+    "address": "Calle de prueba 1, Madrid",
+    "latitude": 40.4168,
+    "longitude": -3.7038,
+    "placeId": "manual-place-id",
+    "directions": "Entrada principal"
+  }
+}
+
+> {%
+    client.test("03 returns 201", function () {
+        client.assert(response.status === 201, "Unexpected HTTP status: " + response.status);
+    });
+    client.assert(response.status === 201, "Cannot continue this step: unexpected status");
+    client.test("03 satisfies functional expectations", function () {
+        client.assert(response.body.status === "DRAFT", "Event must start as DRAFT");
+        client.assert(response.body.responseOptions.length === 2, "Expected default response options");
+        client.assert(response.headers.valueOf("Location") === "/api/events/" + response.body.id, "Unexpected Location");
+    });
+    client.global.set("gtogSmokeEventId", response.body.id);
+%}
+
+### 04 — Consultar evento creado
+# @no-cookie-jar
+GET {{baseUrl}}/api/events/{{gtogSmokeEventId}}
+Accept: application/json
+Cookie: XSRF-TOKEN={{csrf}}; JSESSIONID={{gtogSmokeSession}}
+
+> {%
+    client.test("04 returns 200", function () {
+        client.assert(response.status === 200, "Unexpected HTTP status: " + response.status);
+    });
+    client.assert(response.status === 200, "Cannot continue this step: unexpected status");
+    client.test("04 satisfies functional expectations", function () {
+        client.assert(response.body.id === client.global.get("gtogSmokeEventId"), "Unexpected event");
+        client.assert(response.body.title === "Evento de prueba simple", "Title was not persisted");
+        client.assert(response.body.venue.placeName === "Sala de prueba", "Venue was not persisted");
+    });
+%}
+
+### 05 — Editar titulo y descripcion
+# @no-cookie-jar
+PUT {{baseUrl}}/api/events/{{gtogSmokeEventId}}
+Accept: application/json
+Cookie: XSRF-TOKEN={{csrf}}; JSESSIONID={{gtogSmokeSession}}
+X-XSRF-TOKEN: {{csrf}}
+Content-Type: application/json
+
+{
+  "title": "Evento de prueba actualizado",
+  "description": "Descripción modificada durante la prueba",
+  "startsAt": "{{startsAt}}",
+  "endsAt": "{{endsAt}}",
+  "timeZone": "Europe/Madrid",
+  "modality": "IN_PERSON"
+}
+
+> {%
+    client.test("05 returns 200", function () {
+        client.assert(response.status === 200, "Unexpected HTTP status: " + response.status);
+    });
+    client.assert(response.status === 200, "Cannot continue this step: unexpected status");
+    client.test("05 satisfies functional expectations", function () {
+        client.assert(response.body.title === "Evento de prueba actualizado", "Title was not updated");
+        client.assert(response.body.description === "Descripción modificada durante la prueba", "Description was not updated");
+        client.assert(response.body.status === "DRAFT", "Event must remain DRAFT");
+    });
+%}
+
+### 06 — Anadir invitada con correo
+# @no-cookie-jar
+POST {{baseUrl}}/api/events/{{gtogSmokeEventId}}/guests
+Accept: application/json
+Cookie: XSRF-TOKEN={{csrf}}; JSESSIONID={{gtogSmokeSession}}
+X-XSRF-TOKEN: {{csrf}}
+Content-Type: application/json
+
+{
+  "name": "Ana",
+  "email": " ANA@Example.COM ",
+  "phone": null
+}
+
+> {%
+    client.test("06 returns 201", function () {
+        client.assert(response.status === 201, "Unexpected HTTP status: " + response.status);
+    });
+    client.assert(response.status === 201, "Cannot continue this step: unexpected status");
+    client.test("06 satisfies functional expectations", function () {
+        client.assert(response.body.email === "ana@example.com", "Email was not normalized");
+        client.assert(response.body.invitationStatus === "NOT_SENT", "Unexpected invitation status");
+        client.assert(/^\/r\/[A-Za-z0-9_-]{43}$/.test(response.body.invitationPath), "Invalid invitation path");
+        client.assert(!("token" in response.body), "Raw token must not be exposed");
+    });
+    client.global.set("gtogSmokeGuest1", response.body.id);
+    client.global.set("gtogSmokeInvitationPath1", response.body.invitationPath);
+%}
+
+### 07 — Anadir invitado con telefono
+# @no-cookie-jar
+POST {{baseUrl}}/api/events/{{gtogSmokeEventId}}/guests
+Accept: application/json
+Cookie: XSRF-TOKEN={{csrf}}; JSESSIONID={{gtogSmokeSession}}
+X-XSRF-TOKEN: {{csrf}}
+Content-Type: application/json
+
+{
+  "name": "Luis",
+  "email": null,
+  "phone": "+34 612 345 678"
+}
+
+> {%
+    client.test("07 returns 201", function () {
+        client.assert(response.status === 201, "Unexpected HTTP status: " + response.status);
+    });
+    client.assert(response.status === 201, "Cannot continue this step: unexpected status");
+    client.test("07 satisfies functional expectations", function () {
+        client.assert(response.body.phoneE164 === "+34612345678", "Phone was not normalized to E.164");
+        client.assert(response.body.invitationPath !== client.global.get("gtogSmokeInvitationPath1"), "Invitation paths must differ");
+    });
+    client.global.set("gtogSmokeGuest2", response.body.id);
+%}
+
+### 08 — Listar los dos invitados
+# @no-cookie-jar
+GET {{baseUrl}}/api/events/{{gtogSmokeEventId}}/guests
+Accept: application/json
+Cookie: XSRF-TOKEN={{csrf}}; JSESSIONID={{gtogSmokeSession}}
+
+> {%
+    client.test("08 returns 200", function () {
+        client.assert(response.status === 200, "Unexpected HTTP status: " + response.status);
+    });
+    client.assert(response.status === 200, "Cannot continue this step: unexpected status");
+    client.test("08 satisfies functional expectations", function () {
+        client.assert(response.body.length === 2, "Expected two guests");
+        client.assert(response.body.some(g => g.id === client.global.get("gtogSmokeGuest1")), "Ana is missing");
+        client.assert(response.body.some(g => g.id === client.global.get("gtogSmokeGuest2")), "Luis is missing");
+        client.assert(response.body.every(g => !!g.invitationPath && !("token" in g)), "Unexpected invitation exposure");
+    });
+%}
+
+### 09 — Rechazar correo duplicado
+# @no-cookie-jar
+POST {{baseUrl}}/api/events/{{gtogSmokeEventId}}/guests
+Accept: application/json
+Cookie: XSRF-TOKEN={{csrf}}; JSESSIONID={{gtogSmokeSession}}
+X-XSRF-TOKEN: {{csrf}}
+Content-Type: application/json
+
+{
+  "name": "Ana duplicada",
+  "email": "ana@example.com",
+  "phone": null
+}
+
+> {%
+    client.test("09 returns 409", function () {
+        client.assert(response.status === 409, "Unexpected HTTP status: " + response.status);
+    });
+    client.assert(response.status === 409, "Cannot continue this step: unexpected status");
+    client.test("09 satisfies functional expectations", function () {
+        client.assert(response.body.status === 409, "Expected conflict ProblemDetail");
+    });
+%}
+
+### 10 — Rechazar invitado sin contacto
+# @no-cookie-jar
+POST {{baseUrl}}/api/events/{{gtogSmokeEventId}}/guests
+Accept: application/json
+Cookie: XSRF-TOKEN={{csrf}}; JSESSIONID={{gtogSmokeSession}}
+X-XSRF-TOKEN: {{csrf}}
+Content-Type: application/json
+
+{
+  "name": "Sin contacto",
+  "email": null,
+  "phone": null
+}
+
+> {%
+    client.test("10 returns 422", function () {
+        client.assert(response.status === 422, "Unexpected HTTP status: " + response.status);
+    });
+    client.assert(response.status === 422, "Cannot continue this step: unexpected status");
+    client.test("10 satisfies functional expectations", function () {
+        client.assert(response.body.status === 422, "Expected validation ProblemDetail");
+    });
+%}
+
+### 11 — Editar la primera invitada
+# @no-cookie-jar
+PUT {{baseUrl}}/api/events/{{gtogSmokeEventId}}/guests/{{gtogSmokeGuest1}}
+Accept: application/json
+Cookie: XSRF-TOKEN={{csrf}}; JSESSIONID={{gtogSmokeSession}}
+X-XSRF-TOKEN: {{csrf}}
+Content-Type: application/json
+
+{
+  "name": "Ana María",
+  "email": "ana.maria@example.com",
+  "phone": null
+}
+
+> {%
+    client.test("11 returns 200", function () {
+        client.assert(response.status === 200, "Unexpected HTTP status: " + response.status);
+    });
+    client.assert(response.status === 200, "Cannot continue this step: unexpected status");
+    client.test("11 satisfies functional expectations", function () {
+        client.assert(response.body.id === client.global.get("gtogSmokeGuest1"), "Guest identity changed");
+        client.assert(response.body.name === "Ana María", "Name was not updated");
+        client.assert(response.body.email === "ana.maria@example.com", "Email was not updated");
+        client.assert(!("token" in response.body) && !("invitationPath" in response.body), "Edit must not expose invitation credentials");
+    });
+%}
+
+### 12 — Comprobar edicion y estabilidad del enlace
+# @no-cookie-jar
+GET {{baseUrl}}/api/events/{{gtogSmokeEventId}}/guests
+Accept: application/json
+Cookie: XSRF-TOKEN={{csrf}}; JSESSIONID={{gtogSmokeSession}}
+
+> {%
+    client.test("12 returns 200", function () {
+        client.assert(response.status === 200, "Unexpected HTTP status: " + response.status);
+    });
+    client.assert(response.status === 200, "Cannot continue this step: unexpected status");
+    client.test("12 satisfies functional expectations", function () {
+        client.assert(response.body.length === 2, "Rejected additions must not create guests");
+        const ana = response.body.find(g => g.id === client.global.get("gtogSmokeGuest1"));
+        client.assert(!!ana && ana.name === "Ana María" && ana.email === "ana.maria@example.com", "Edit was not persisted");
+        client.assert(ana.invitationPath === client.global.get("gtogSmokeInvitationPath1"), "Invitation link changed on edit");
+    });
+%}
+
+### 13 — Eliminar al segundo invitado
+# @no-cookie-jar
+DELETE {{baseUrl}}/api/events/{{gtogSmokeEventId}}/guests/{{gtogSmokeGuest2}}
+Accept: application/json
+Cookie: XSRF-TOKEN={{csrf}}; JSESSIONID={{gtogSmokeSession}}
+X-XSRF-TOKEN: {{csrf}}
+
+> {%
+    client.test("13 returns 204", function () {
+        client.assert(response.status === 204, "Unexpected HTTP status: " + response.status);
+    });
+    client.assert(response.status === 204, "Cannot continue this step: unexpected status");
+%}
+
+### 14 — Comprobar que solo queda la primera invitada
+# @no-cookie-jar
+GET {{baseUrl}}/api/events/{{gtogSmokeEventId}}/guests
+Accept: application/json
+Cookie: XSRF-TOKEN={{csrf}}; JSESSIONID={{gtogSmokeSession}}
+
+> {%
+    client.test("14 returns 200", function () {
+        client.assert(response.status === 200, "Unexpected HTTP status: " + response.status);
+    });
+    client.assert(response.status === 200, "Cannot continue this step: unexpected status");
+    client.test("14 satisfies functional expectations", function () {
+        client.assert(response.body.length === 1, "Expected one remaining guest");
+        client.assert(response.body[0].id === client.global.get("gtogSmokeGuest1"), "Wrong guest remains");
+        client.assert(response.body[0].name === "Ana María", "Remaining guest changed");
+    });
+%}
+
+### 15 — Publicar el evento
+# @no-cookie-jar
+POST {{baseUrl}}/api/events/{{gtogSmokeEventId}}/publish
+Accept: application/json
+Cookie: XSRF-TOKEN={{csrf}}; JSESSIONID={{gtogSmokeSession}}
+X-XSRF-TOKEN: {{csrf}}
+
+> {%
+    client.test("15 returns 200", function () {
+        client.assert(response.status === 200, "Unexpected HTTP status: " + response.status);
+    });
+    client.assert(response.status === 200, "Cannot continue this step: unexpected status");
+    client.test("15 satisfies functional expectations", function () {
+        client.assert(response.body.status === "PUBLISHED", "Event was not published");
+        client.assert(response.body.title === "Evento de prueba actualizado", "Updated event title was lost");
+    });
+%}
+
+### 16 — Confirmar invitada conservada tras publicar
+# @no-cookie-jar
+GET {{baseUrl}}/api/events/{{gtogSmokeEventId}}/guests
+Accept: application/json
+Cookie: XSRF-TOKEN={{csrf}}; JSESSIONID={{gtogSmokeSession}}
+
+> {%
+    client.test("16 returns 200", function () {
+        client.assert(response.status === 200, "Unexpected HTTP status: " + response.status);
+    });
+    client.assert(response.status === 200, "Cannot continue this step: unexpected status");
+    client.test("16 satisfies functional expectations", function () {
+        client.assert(response.body.length === 1, "Publication changed the guest list");
+        client.assert(response.body[0].id === client.global.get("gtogSmokeGuest1"), "Publication lost the guest");
+        client.assert(response.body[0].invitationPath === client.global.get("gtogSmokeInvitationPath1"), "Publication changed the invitation link");
+    });
+%}

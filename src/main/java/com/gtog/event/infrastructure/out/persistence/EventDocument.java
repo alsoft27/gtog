@@ -5,6 +5,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import org.springframework.data.annotation.Id;
+import org.springframework.data.annotation.PersistenceCreator;
 import org.springframework.data.annotation.Version;
 import org.springframework.data.mongodb.core.mapping.Document;
 
@@ -31,12 +32,24 @@ public class EventDocument {
 	private final String cancellationReason;
 	@Version
 	private final Long version;
+	private final List<GuestDocument> guests;
 
 	public EventDocument(String id, String hostId, String title, String description, LocalDateTime startsAt,
 			LocalDateTime endsAt, String timeZone, String modality, String status,
 			List<ResponseOptionDocument> responseOptions, boolean allowComment, boolean allowResponseChange,
 			LocalDateTime responseDeadline, VenueDocument venue, OnlineAccessDocument onlineAccess,
 			Instant cancelledAt, String cancellationReason, Long version) {
+		this(id, hostId, title, description, startsAt, endsAt, timeZone, modality, status, responseOptions,
+				allowComment, allowResponseChange, responseDeadline, venue, onlineAccess, cancelledAt, cancellationReason,
+				version, List.of());
+	}
+
+	@PersistenceCreator
+	public EventDocument(String id, String hostId, String title, String description, LocalDateTime startsAt,
+			LocalDateTime endsAt, String timeZone, String modality, String status,
+			List<ResponseOptionDocument> responseOptions, boolean allowComment, boolean allowResponseChange,
+			LocalDateTime responseDeadline, VenueDocument venue, OnlineAccessDocument onlineAccess,
+			Instant cancelledAt, String cancellationReason, Long version, List<GuestDocument> guests) {
 		this.id = id;
 		this.hostId = hostId;
 		this.title = title;
@@ -55,6 +68,7 @@ public class EventDocument {
 		this.cancelledAt = cancelledAt;
 		this.cancellationReason = cancellationReason;
 		this.version = version;
+		this.guests = guests == null ? List.of() : List.copyOf(guests);
 	}
 
 	public String getId() {
@@ -123,6 +137,10 @@ public class EventDocument {
 
 	public String getCancellationReason() {
 		return cancellationReason;
+	}
+
+	public List<GuestDocument> getGuests() {
+		return guests;
 	}
 
 	public Long getVersion() {

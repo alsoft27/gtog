@@ -1,7 +1,7 @@
 # Modelo de datos: Evento
 
-Estado del modelo tras R1–R5: creación de eventos, consulta/listado (R1), opciones de respuesta (R2),
-ubicación/acceso en línea (R3), editar/publicar/cancelar (R4), y seguridad/ownership (R5). Todavía no existen invitados, respuestas ni muro social.
+Estado del modelo tras R1–R6: creación de eventos, consulta/listado (R1), opciones de respuesta (R2),
+ubicación/acceso en línea (R3), editar/publicar/cancelar (R4), seguridad/ownership (R5) e invitados (R6). Todavía no existen respuestas ni muro social.
 
 ---
 
@@ -31,6 +31,7 @@ persistido sin repetir ninguna validación.
 | `responseDeadline` | `LocalDateTime` (nullable) | Fecha límite para responder, en la hora local del evento. Si viene, no puede ser posterior a `startsAt` (`InvalidResponseDeadlineException`). Sin valor por defecto. |
 | `venue` | `Venue` (nullable) | Ver más abajo. Obligatorio si `modality` es `IN_PERSON`, prohibido si es `ONLINE`. |
 | `onlineAccess` | `OnlineAccess` (nullable) | Ver más abajo. Obligatorio si `modality` es `ONLINE`, prohibido si es `IN_PERSON`. |
+| `guests` | `List<Guest>` | Invitados del mismo agregado, sin respuesta embebida. Lista vacía por defecto. Ver `docs/modelo-invitado.md`. |
 | `version` | `Long` (nullable) | Bloqueo optimista de Mongo (`@Version`). `null` hasta el primer `save()`. |
 
 Métodos derivados: `startsAtInstant()` / `endsAtInstant()` calculan el instante UTC a partir de la hora local y
@@ -76,7 +77,7 @@ bloque siguen produciendo 422. Los demás conflictos de estado son `EventNotEdit
 DRAFT ──publish()──► PUBLISHED ──cancel(reason, now)──► CANCELLED
   │                                                          │
   └──────── cancel() lanza EventNotCancellableException ─────┘
-            (DRAFT no tiene invitados, no hay a quién notificar)
+            (cancelar solo se permite desde PUBLISHED)
 ```
 
 | Transición | Método | Condición de entrada | Excepción si falla |
@@ -87,8 +88,8 @@ DRAFT ──publish()──► PUBLISHED ──cancel(reason, now)──► CANC
 **`FINISHED` no implementado** (D-FINISHED). No existe job programado ni derivación al vuelo. Requiere
 decidir si la transición es automática (por fecha) o manual (el anfitrión la activa).
 
-**Borrar un `DRAFT`** tampoco está implementado (D-DELETE-DRAFT). Cancelar un borrador está bloqueado por
-diseño: un borrador no tiene invitados y cancelarlo solo ensuciaría el listado del anfitrión.
+**Borrar un `DRAFT`** tampoco está implementado (D-DELETE-DRAFT). Cancelar un borrador sigue bloqueado por
+diseño. Desde R6 puede tener invitados; esa circunstancia no cambia la máquina de estados ni implementa el borrado.
 
 **Todas** heredan de `EventDomainException`, sin excepción: el dominio no sabe de códigos HTTP, solo expresa que
 algo viola una regla suya. Es el `@RestControllerAdvice` (`GlobalExceptionHandler`, en `shared`) quien decide el
@@ -178,8 +179,8 @@ regla de `LinkVisibility` todavía no lo permite) — así quien llama no puede 
 antes de leer el enlace. Recibe `now` **como parámetro**, nunca `Instant.now()` internamente, para que el
 resultado sea determinista y comprobable en tests.
 
-Esta rebanada solo prueba el método a nivel de dominio: no hay invitados todavía, así que no hay quien llame con
-un `guestHasConfirmed` real. Cuando exista el endpoint público del invitado, su DTO de respuesta deberá usar este
+El método sigue probado solo a nivel de dominio: aunque R6 ya tiene invitados, todavía no existen respuestas
+ni el endpoint público que lo invoque con un `guestHasConfirmed` real. Cuando exista el endpoint público del invitado, su DTO de respuesta deberá usar este
 método (ver el comentario en `EventResponse`, que expone el `onlineAccess` completo sin filtrar por ser la vista
 del anfitrión).
 
@@ -198,17 +199,28 @@ LinkVisibility { ON_CONFIRMATION, HOURS_BEFORE, ALWAYS }
 ## Persistencia (`events`)
 
 `EventDocument` (en `infrastructure/out/persistence`) espeja `Event` campo a campo, con `ResponseOptionDocument`,
-`VenueDocument` y `OnlineAccessDocument` como clases embebidas (sin `@Document` propio, sin colección aparte).
+`VenueDocument`, `OnlineAccessDocument` y `GuestDocument` como documentos embebidos (sin `@Document` propio, sin colección aparte).
 `EventMapper` traduce en ambos sentidos; `modality`, `status` y `linkVisibility` se guardan como `String` (nombre
 del enum), nunca como ordinal.
 
-Índice creado en el arranque (`MongoIndexInitializer`, en `shared/config`, idempotente vía
+Índices creados en el arranque (`MongoIndexInitializer`, en `shared/config`, idempotente vía
 `MongoTemplate.indexOps(...).createIndex(...)`):
 
 - `hostId` — ascendente, para el listado del panel del anfitrión.
 
-Pendiente para cuando exista la colección `guests` embebida en `events`: el índice único y multiclave sobre
-`guests.token` que describe `docs/mvp-alcance-iteracion-1.md`.
+- `guests.token` — único y multiclave, con filtro parcial `guests.token: { $type: "string" }`, para que los
+  eventos sin invitados queden fuera del índice. D-3 saldada.
+
+`GuestMapper` traduce los invitados en ambos sentidos. `invitationStatus` y `deliveryChannel` se guardan como
+cadenas; los documentos anteriores sin `guests[]` se leen con lista vacía. Los `save()` existentes de evento
+preservan todos sus invitados mediante el mapper.
+
+Las operaciones de R6 nunca guardan el evento entero: `EventGuestRepositoryPort` se implementa con `$push`,
+`$set` posicional sobre los campos editables y `$pull`, siempre filtrando por id, propietario, estado permitido
+y versión esperada, e incrementando `version` en la misma operación. Un conflicto se traduce a 409. Esto
+protege las reglas validadas en el agregado y evita que un `save()` anterior borre una escritura parcial.
+El índice impone unicidad entre eventos; la regla de dominio y la escritura condicionada evitan duplicados
+dentro del mismo `guests[]`. Ver `docs/modelo-invitado.md`.
 
 ---
 
@@ -224,6 +236,9 @@ Pendiente para cuando exista la colección `guests` embebida en `events`: el ín
 | `ReplaceOnlineAccessUseCase` | `EventLocationService` | Busca el evento, delega en `event.replaceOnlineAccess(...)` y lo guarda. |
 | `UpdateEventUseCase` | `UpdateEventService` | Busca el evento, delega en `event.edit(EventEdit)` y lo guarda. `allowComment`/`allowResponseChange`/`responseDeadline` se editan aquí, no en `replaceResponseOptions`. |
 | `PublishEventUseCase` | `PublishEventService` | Busca el evento, llama a `event.publish()` y lo guarda. |
+| `AddGuestUseCase` / `UpdateGuestUseCase` | `GuestService` | Valida propiedad y reglas del agregado; persiste únicamente el alta o los contactos editados. |
+| `DeleteGuestUseCase` | `GuestService` | Valida estado y propiedad; prepara la futura confirmación y cascada, y elimina el invitado con escritura parcial. |
+| `ListGuestUseCase` | `GuestService` | Devuelve los invitados al propietario, también en eventos cerrados. |
 | `CancelEventUseCase` | `CancelEventService` | Busca el evento, llama a `event.cancel(reason, Instant.now())` y lo guarda. |
 
 `EventRepositoryPort` (`port/out`): `save`, `findById`, `findByHostId`. Implementado por `EventRepositoryAdapter`
@@ -245,6 +260,19 @@ sobre `EventMongoRepository` (Spring Data).
 | `PUT` | `/api/events/{id}/venue` | `VenueRequest` | `200` (`EventResponse` completo), `404`, `409` (no `DRAFT` o el evento es `ONLINE`), `422` (falta campo obligatorio) |
 | `PUT` | `/api/events/{id}/online-access` | `OnlineAccessRequest` | `200` (`EventResponse` completo), `404`, `409` (no `DRAFT` o el evento es `IN_PERSON`), `422` (falta campo obligatorio, url inválida o `hoursBefore` incoherente) |
 
+Los cuatro endpoints de invitados también son autenticados; las escrituras requieren CSRF:
+
+| Método | Ruta | Respuesta |
+|---|---|---|
+| `POST` | `/api/events/{id}/guests` | `201` + `Location` + `GuestInvitationResponse`, `404`, `409`, `422` |
+| `PUT` | `/api/events/{id}/guests/{guestId}` | `200` + `GuestResponse`, `404`, `409`, `422` |
+| `DELETE` | `/api/events/{id}/guests/{guestId}` | `204`, `404`, `409`; parámetro `confirmDeleteResponse=false` |
+| `GET` | `/api/events/{id}/guests` | `200` + lista de `GuestInvitationResponse`, `404` |
+
+`EventResponse` continúa sin invitados ni tokens. El enlace individual solo se expone como `invitationPath`
+en el alta y el listado de invitados, para RF-2.16. El DTO web `GuestResponse` describe contactos editados;
+no es una respuesta de asistencia ni un documento de `responses`.
+
 Documentado también en OpenAPI (`/v3/api-docs`, `/swagger-ui.html`), ver sección "Documentación de API" en
 `AGENTS.md`.
 
@@ -252,8 +280,8 @@ Documentado también en OpenAPI (`/v3/api-docs`, `/swagger-ui.html`), ver secci�
 
 ## Fuera de alcance por ahora
 
-- Invitados (`Guest`), estado de invitación, envío por email/WhatsApp/Telegram.
-- Respuestas de invitado (`GuestResponse`, colección `responses`).
+- Transiciones a `SENT` y `OPENED`, envío por email/WhatsApp/Telegram.
+- Respuestas de asistencia (futura colección `responses`).
 - `FINISHED`: no implementado (D-FINISHED).
 - Borrar un borrador: no implementado (D-DELETE-DRAFT).
 - Muro social, acompañantes, check-in: iteración 2 o posteriores.

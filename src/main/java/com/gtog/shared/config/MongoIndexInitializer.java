@@ -5,6 +5,8 @@ import org.springframework.context.event.EventListener;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.index.Index;
+import org.springframework.data.mongodb.core.index.PartialIndexFilter;
+import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.stereotype.Component;
 
 import com.gtog.event.infrastructure.out.persistence.EventDocument;
@@ -23,6 +25,8 @@ public class MongoIndexInitializer {
 	@EventListener(ApplicationReadyEvent.class)
 	public void createIndexes() {
 		mongoTemplate.indexOps(EventDocument.class).createIndex(new Index().on("hostId", Sort.Direction.ASC));
+		mongoTemplate.indexOps(EventDocument.class).createIndex(new Index().on("guests.token", Sort.Direction.ASC)
+				.unique().partial(PartialIndexFilter.of(Criteria.where("guests.token").type(2))));
 		mongoTemplate.indexOps("users").createIndex(new Index().on("email", Sort.Direction.ASC).unique());
 	}
 }

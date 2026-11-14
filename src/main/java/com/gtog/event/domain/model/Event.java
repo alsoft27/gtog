@@ -5,6 +5,7 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -29,6 +30,7 @@ public class Event {
 	private Instant cancelledAt;
 	private String cancellationReason;
 	private final Long version;
+	private List<Guest> guests = List.of();
 
 	private Event(String id, String hostId, String title, String description, LocalDateTime startsAt,
 			LocalDateTime endsAt, String timeZone, Modality modality, EventStatus status,
@@ -65,6 +67,65 @@ public class Event {
 	// Punto de entrada para rehidratar un evento ya persistido: no repite ninguna validacion.
 	public static ReconstituteBuilder reconstituteBuilder() {
 		return new ReconstituteBuilder();
+	}
+
+	public Guest addGuest(Guest guest) {
+		ensureGuestsEditable();
+		validateGuestUniqueness(guest, null);
+		List<Guest> updated = new ArrayList<>(guests);
+		updated.add(guest);
+		guests = List.copyOf(updated);
+		return guest;
+	}
+
+	public Guest updateGuest(String guestId, Guest replacement) {
+		ensureGuestsEditable();
+		Guest existing = getGuest(guestId);
+		if (!existing.getId().equals(replacement.getId()) || !existing.getToken().equals(replacement.getToken())) {
+			throw new IllegalArgumentException("Guest identity and token cannot be changed");
+		}
+		validateGuestUniqueness(replacement, guestId);
+		guests = guests.stream().map(guest -> guest.getId().equals(guestId) ? replacement : guest).toList();
+		return replacement;
+	}
+
+	public Guest removeGuest(String guestId) {
+		ensureGuestsEditable();
+		Guest guest = getGuest(guestId);
+		guests = guests.stream().filter(existing -> !existing.getId().equals(guestId)).toList();
+		return guest;
+	}
+
+	public Guest getGuest(String guestId) {
+		return guests.stream().filter(guest -> guest.getId().equals(guestId)).findFirst()
+				.orElseThrow(GuestNotFoundException::new);
+	}
+
+	public List<Guest> getGuests() {
+		return List.copyOf(guests);
+	}
+
+	public void ensureGuestsEditable() {
+		if (status == EventStatus.FINISHED || status == EventStatus.CANCELLED) {
+			throw new EventGuestsNotEditableException();
+		}
+	}
+
+	private void validateGuestUniqueness(Guest candidate, String excludedGuestId) {
+		for (Guest existing : guests) {
+			if (existing.getId().equals(excludedGuestId)) {
+				continue;
+			}
+			if (existing.getToken().equals(candidate.getToken())) {
+				throw new DuplicateGuestTokenException();
+			}
+			if (candidate.getEmail() != null && candidate.getEmail().equals(existing.getEmail())) {
+				throw new DuplicateGuestEmailException();
+			}
+			if (candidate.getPhoneE164() != null && candidate.getPhoneE164().equals(existing.getPhoneE164())) {
+				throw new DuplicateGuestPhoneException();
+			}
+		}
 	}
 
 	public void replaceResponseOptions(List<ResponseOptionEdit> edits) {
@@ -462,6 +523,7 @@ public class Event {
 		private Instant cancelledAt;
 		private String cancellationReason;
 		private Long version;
+		private List<Guest> guests = List.of();
 
 		private ReconstituteBuilder() {
 		}
@@ -551,15 +613,22 @@ public class Event {
 			return this;
 		}
 
+		public ReconstituteBuilder guests(List<Guest> guests) {
+			this.guests = guests == null ? List.of() : List.copyOf(guests);
+			return this;
+		}
+
 		public ReconstituteBuilder version(Long version) {
 			this.version = version;
 			return this;
 		}
 
 		public Event build() {
-			return new Event(id, hostId, title, description, startsAt, endsAt, timeZone, modality, status,
+			Event event = new Event(id, hostId, title, description, startsAt, endsAt, timeZone, modality, status,
 					responseOptions, allowComment, allowResponseChange, responseDeadline, venue, onlineAccess,
 					cancelledAt, cancellationReason, version);
+			event.guests = guests;
+			return event;
 		}
 	}
 }

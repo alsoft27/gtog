@@ -1,5 +1,6 @@
 package com.gtog.shared;
 
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.security.authentication.BadCredentialsException;
@@ -7,6 +8,13 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import com.gtog.event.domain.model.EventDomainException;
+import com.gtog.event.domain.model.DuplicateGuestEmailException;
+import com.gtog.event.domain.model.DuplicateGuestPhoneException;
+import com.gtog.event.domain.model.DuplicateGuestTokenException;
+import com.gtog.event.domain.model.EventGuestsNotEditableException;
+import com.gtog.event.domain.model.EventConcurrentModificationException;
+import com.gtog.event.domain.model.GuestNotFoundException;
+import com.gtog.event.domain.model.GuestResponseDeletionConfirmationRequiredException;
 import com.gtog.event.domain.model.EventNotCancellableException;
 import com.gtog.event.domain.model.EventNotEditableException;
 import com.gtog.event.domain.model.EventNotFoundException;
@@ -49,6 +57,23 @@ public class GlobalExceptionHandler {
 	@ExceptionHandler(ModalityConflictException.class)
 	public ProblemDetail handleModalityConflictException(ModalityConflictException exception) {
 		return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, exception.getMessage());
+	}
+
+	@ExceptionHandler(GuestNotFoundException.class)
+	public ProblemDetail handleGuestNotFound(GuestNotFoundException exception) {
+		return ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, exception.getMessage());
+	}
+
+	@ExceptionHandler({DuplicateGuestEmailException.class, DuplicateGuestPhoneException.class,
+			DuplicateGuestTokenException.class, EventGuestsNotEditableException.class,
+			EventConcurrentModificationException.class, GuestResponseDeletionConfirmationRequiredException.class})
+	public ProblemDetail handleGuestConflict(EventDomainException exception) {
+		return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, exception.getMessage());
+	}
+
+	@ExceptionHandler(OptimisticLockingFailureException.class)
+	public ProblemDetail handleOptimisticLocking(OptimisticLockingFailureException exception) {
+		return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, "Event changed concurrently; reload and retry");
 	}
 
 	@ExceptionHandler(UserDomainException.class)
