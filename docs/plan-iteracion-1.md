@@ -18,9 +18,10 @@ Estado a 14 de noviembre de 2026.
 | R5 — Usuario y seguridad | Registro, login, logout, Spring Security. `POST /api/auth/register` y `POST /api/auth/login`. Ownership check en todos los endpoints de evento: `hostId != event.hostId` → 404. `GET /api/events` lee el host del principal autenticado; `hostId` desaparece como parámetro de query. `/api/invitations/**` público. 174 tests en verde antes de R6, incluida la validación de zona horaria del usuario y su cobertura HTTP. |
 | R6 — Invitados | `Guest` dentro de `event`, `guests[]` embebido, alta/edición/borrado/listado autenticados con ownership en aplicación. Normalización E.164 con libphonenumber 9.0.43; tokens de 32 bytes de `SecureRandom`, Base64 URL-safe sin relleno. Escrituras parciales con control e incremento de versión. `invitationPath` solo en alta y listado. D-3 saldada; cascada preparada para R8 sin crear `responses`. 71 tests nuevos. |
 | R7 — Página pública del invitado | `GET /api/invitations/{token}`, sin sesión ni CSRF; DTO público construido campo a campo, acceso online filtrado y Clock inyectado. DRAFT y desconocido devuelven el mismo 404; PUBLISHED, CANCELLED y FINISHED devuelven 200. Primera apertura atómica con $elemMatch y version +1; las revisitas OPENED no escriben. Cache-Control exacto `no-store` en éxito y 404. 31 tests nuevos. |
+| Preparación de R8 — Plazo editable (commit 0) | `PUT /api/events/{id}/response-deadline`, autenticado y con CSRF. Permite cambiar o quitar el plazo en DRAFT, y en PUBLISHED solo antes del inicio. Escritura parcial atómica con incremento de versión, compatible con aperturas concurrentes. 29 tests nuevos. R8 sigue pendiente. |
 | Infraestructura | Java 25, Spring Boot 4.1, Maven por defecto, MongoDB Atlas, OpenAPI |
 
-**Verificación actual:** `mvn clean verify` pasa con **276 tests**, 0 fallos, 0 errores y 0 omitidos. R6 añadió 71 casos y R7 añade 31: 4 de dominio, 9 de aplicación y 18 de integración. Las pruebas originales de visibilidad ahora publican el evento para respetar la nueva precondición.
+**Verificación actual:** `mvn clean verify` pasa con **305 tests**, 0 fallos, 0 errores y 0 omitidos. R6 añadió 71 casos y R7 añadió 31. El commit 0 de R8 añade 29: 8 de dominio, 4 de aplicación y 17 de integración, incluidos concurrencia con apertura y cancelación con versión antigua.
 
 **Lo que eso valida:** la arquitectura hexagonal funciona en la práctica, el mapeo entre `Event` y `EventDocument` es asumible, y el circuito completo de desarrollo está operativo. Además, `Event.create(...)`/`reconstitute(...)` cambiaron de firma en las tres rebanadas seguidas, así que desde R3 `Event` se construye con dos builders internos (`Event.builder()` para eventos nuevos, `Event.reconstituteBuilder()` para rehidratar) en vez de factory methods con parámetros posicionales — ver `docs/modelo-evento.md`.
 
@@ -113,7 +114,23 @@ No se registran tokens; los tests comprueban también la salida de logs.
 **R8. Registrar respuesta**
 `POST /api/invitations/{token}/response`. Crea la colección `responses`, con el índice único sobre `(eventId, guestToken)` y el upsert al cambiar de respuesta. Aquí se implementa que `ANSWERED` se derive y no se almacene. También salda D-7: `replaceResponseOptions(...)` empieza a recibir el conjunto de ids de opciones con respuestas para poder rechazar su eliminación y aceptar rename/add.
 
-RF-4.7 (límite de cambio de respuesta): los campos `allowResponseChange` y `responseDeadline` ya existen en el dominio desde R4 pero ningún endpoint los comprueba. En esta rebanada, el endpoint de respuesta debe verificar ambas condiciones antes de aceptar una respuesta nueva sobre una existente, y devolver 409 si el plazo venció o el anfitrión no lo permite.
+**Preparación implementada (commit 0): plazo editable.** `PUT /api/events/{id}/response-deadline` recibe
+`{ "responseDeadline": LocalDateTime | null }` y devuelve 200 con `EventResponse`. Requiere sesión, CSRF y
+propiedad del evento (404 si es ajeno). La fecha es local a la zona del evento; null quita el plazo y un plazo
+pasado se acepta. En DRAFT se puede cambiar sin restricción temporal; en PUBLISHED solo si `now < startsAtInstant`,
+con Clock inyectado. En el inicio exacto, después, CANCELLED o FINISHED, devuelve 409. La validación compartida
+con `edit()` mantiene 422 si el plazo es posterior a startsAt.
+
+La persistencia usa `$set` del plazo y `$inc` de version, filtrando por id, hostId y estado DRAFT/PUBLISHED,
+sin filtrar por versión ni guardar el documento completo. Así una apertura concurrente no bloquea el cambio.
+Si no coincide ningún documento, devuelve 409 por cambio concurrente. El handler existente de
+`OptimisticLockingFailureException` ya devuelve 409 con ProblemDetail: el test de cancelación con versión
+anterior al cambio del plazo comprueba que no se sobrescribe el plazo.
+
+RF-4.7: el plazo se aplica a toda escritura de respuesta, tanto la primera como los cambios. Queda pendiente
+implementarlo en el commit 1: solo PUBLISHED, `responseDeadline == null || now <= responseDeadline` y
+`now < endsAtInstant`; los cambios requieren además `allowResponseChange`. El plazo se interpreta en la zona
+del evento. En PUBLISHED, fijar un plazo pasado equivale a cerrar las respuestas.
 
 RF descarga de calendario: `GET /api/invitations/{token}/calendar` devuelve un archivo `.ics` con los datos del evento. Se puede devolver como `text/calendar` directamente. Añadir aquí: el frontend solicita la descarga desde la pantalla de confirmación (flujo de respuesta, paso 4 del MVP §6).
 

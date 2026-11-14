@@ -36,6 +36,8 @@ import com.gtog.event.domain.model.ResponseOptionDraft;
 import com.gtog.event.domain.model.ResponseOptionEdit;
 import com.gtog.event.domain.model.Venue;
 import com.gtog.event.domain.port.in.CancelEventUseCase;
+import com.gtog.event.domain.port.in.ChangeResponseDeadlineUseCase;
+import com.gtog.event.domain.port.in.ChangeResponseDeadlineCommand;
 import com.gtog.event.domain.port.in.CreateEventCommand;
 import com.gtog.event.domain.port.in.CreateEventUseCase;
 import com.gtog.event.domain.port.in.GetEventByIdUseCase;
@@ -64,12 +66,14 @@ public class EventController {
 	private final PublishEventUseCase publishEventUseCase;
 	private final CancelEventUseCase cancelEventUseCase;
 	private final UpdateEventUseCase updateEventUseCase;
+	private final ChangeResponseDeadlineUseCase changeResponseDeadlineUseCase;
 
 	public EventController(CreateEventUseCase createEventUseCase, GetEventByIdUseCase getEventByIdUseCase,
 			ListEventsByHostUseCase listEventsByHostUseCase,
 			ReplaceResponseOptionsUseCase replaceResponseOptionsUseCase, ReplaceVenueUseCase replaceVenueUseCase,
 			ReplaceOnlineAccessUseCase replaceOnlineAccessUseCase, PublishEventUseCase publishEventUseCase,
-			CancelEventUseCase cancelEventUseCase, UpdateEventUseCase updateEventUseCase) {
+			CancelEventUseCase cancelEventUseCase, UpdateEventUseCase updateEventUseCase,
+			ChangeResponseDeadlineUseCase changeResponseDeadlineUseCase) {
 		this.createEventUseCase = createEventUseCase;
 		this.getEventByIdUseCase = getEventByIdUseCase;
 		this.listEventsByHostUseCase = listEventsByHostUseCase;
@@ -79,6 +83,7 @@ public class EventController {
 		this.publishEventUseCase = publishEventUseCase;
 		this.cancelEventUseCase = cancelEventUseCase;
 		this.updateEventUseCase = updateEventUseCase;
+		this.changeResponseDeadlineUseCase = changeResponseDeadlineUseCase;
 	}
 
 	@Operation(summary = "Crea un evento", description = "El anfitrion crea un evento nuevo. El evento se crea en "
@@ -193,6 +198,27 @@ public class EventController {
 				request.responseDeadline());
 		UpdateEventCommand command = new UpdateEventCommand(principal.getUserId(), id, edit);
 		return EventResponse.from(updateEventUseCase.update(command));
+	}
+
+	@Operation(summary = "Cambia el plazo de respuesta",
+			description = "Permitido en DRAFT o en PUBLISHED antes del instante de inicio. null elimina el plazo; "
+					+ "un plazo pasado se acepta. Fecha local interpretada con la zona del evento. Requiere sesion y CSRF.")
+	@ApiResponses({
+			@ApiResponse(responseCode = "200", description = "Plazo actualizado",
+					content = @Content(schema = @Schema(implementation = EventResponse.class))),
+			@ApiResponse(responseCode = "401", description = "Sin sesion", content = @Content),
+			@ApiResponse(responseCode = "403", description = "CSRF ausente o invalido", content = @Content),
+			@ApiResponse(responseCode = "404", description = "Evento inexistente o ajeno",
+					content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+			@ApiResponse(responseCode = "409", description = "Estado o instante no permiten el cambio, o cambio concurrente",
+					content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+			@ApiResponse(responseCode = "422", description = "Plazo posterior al inicio",
+					content = @Content(schema = @Schema(implementation = ProblemDetail.class))) })
+	@PutMapping("/{id}/response-deadline")
+	public EventResponse changeResponseDeadline(@PathVariable String id, @RequestBody ChangeResponseDeadlineRequest request,
+			@AuthenticationPrincipal AuthenticatedUser principal) {
+		return EventResponse.from(changeResponseDeadlineUseCase.changeResponseDeadline(
+				new ChangeResponseDeadlineCommand(principal.getUserId(), id, request.responseDeadline())));
 	}
 
 	@Operation(summary = "Publica un evento",

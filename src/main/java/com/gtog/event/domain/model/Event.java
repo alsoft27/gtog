@@ -182,6 +182,14 @@ public class Event {
 		this.cancellationReason = reason;
 	}
 
+	public void changeResponseDeadline(LocalDateTime responseDeadline, Instant now) {
+		if (status != EventStatus.DRAFT && !(status == EventStatus.PUBLISHED && now.isBefore(startsAtInstant()))) {
+			throw new ResponseDeadlineNotEditableException();
+		}
+		validateResponseDeadline(responseDeadline, startsAt);
+		this.responseDeadline = responseDeadline;
+	}
+
 	public void edit(EventEdit edit) {
 		if (status != EventStatus.DRAFT) {
 			throw new EventNotEditableException(id);

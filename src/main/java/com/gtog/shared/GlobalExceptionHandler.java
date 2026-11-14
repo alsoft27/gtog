@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import com.gtog.event.domain.model.EventDomainException;
+import com.gtog.event.domain.model.ResponseDeadlineNotEditableException;
 import com.gtog.event.domain.model.InvitationNotFoundException;
 import com.gtog.event.domain.model.DuplicateGuestEmailException;
 import com.gtog.event.domain.model.DuplicateGuestPhoneException;
@@ -81,6 +82,11 @@ public class GlobalExceptionHandler {
 			DuplicateGuestTokenException.class, EventGuestsNotEditableException.class,
 			EventConcurrentModificationException.class, GuestResponseDeletionConfirmationRequiredException.class})
 	public ProblemDetail handleGuestConflict(EventDomainException exception) {
+		return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, exception.getMessage());
+	}
+
+	@ExceptionHandler(ResponseDeadlineNotEditableException.class)
+	public ProblemDetail handleResponseDeadlineNotEditable(ResponseDeadlineNotEditableException exception) {
 		return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, exception.getMessage());
 	}
 

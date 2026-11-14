@@ -3,6 +3,13 @@
 Estado tras R7, 14 de noviembre de 2026. Gestión de invitados del anfitrión y consulta pública de la invitación.
 Las respuestas de asistencia siguen pendientes de R8.
 
+La preparación de R8 (commit 0) añade el plazo editable por el anfitrión mediante
+`PUT /api/events/{id}/response-deadline`: DRAFT, o PUBLISHED estrictamente antes del inicio. null lo elimina;
+la fecha es local a la zona del evento y puede estar en el pasado, pero no después del inicio. La escritura
+parcial incrementa version sin exigir una versión esperada; una primera apertura concurrente no impide el
+cambio ni se pierde. La consulta pública sigue reflejando `responseDeadline`. La aplicación del plazo a la
+primera respuesta y a sus cambios se implementará en el commit 1 de R8.
+
 ## Agregado y campos
 
 `Guest` pertenece al hexágono `event`, en `com.gtog.event.domain.model`. No tiene vida independiente del evento:
@@ -199,8 +206,10 @@ real sobre una colección todavía inexistente.
 
 ## Verificación
 
-`mvn clean verify`: **276 tests**, sin fallos, errores ni omitidos. R6 incorporó 71 casos y R7 incorpora 31:
-4 de dominio, 9 de aplicación y 18 de integración contra Atlas (`gtog_test`).
+`mvn clean verify`: **305 tests**, sin fallos, errores ni omitidos. R6 incorporó 71 casos y R7 incorporó 31:
+4 de dominio, 9 de aplicación y 18 de integración contra Atlas (`gtog_test`). La preparación de R8 añade
+29: 8 de dominio, 4 de aplicación y 17 de integración, incluida apertura concurrente y cancelación con
+versión anterior al cambio del plazo.
 
 R7 cubre privacidad comparando el cuerpo completo, fechas locales/UTC, los tres modos de visibilidad con Clock
 fijo y el umbral exacto, estados públicos y borrador, 404 indistinguibles, logs sin tokens, OPENED desde NOT_SENT

@@ -1,7 +1,7 @@
 # Modelo de datos: Evento
 
 Estado del modelo tras R1–R7: creación de eventos, consulta/listado (R1), opciones de respuesta (R2),
-ubicación/acceso en línea (R3), editar/publicar/cancelar (R4), seguridad/ownership (R5), invitados (R6) y consulta pública (R7). Todavía no existen respuestas ni muro social.
+ubicación/acceso en línea (R3), editar/publicar/cancelar (R4), seguridad/ownership (R5), invitados (R6), consulta pública (R7) y plazo editable (preparación de R8, commit 0). Todavía no existen respuestas ni muro social.
 
 ---
 
@@ -200,6 +200,22 @@ LinkVisibility { ON_CONFIRMATION, HOURS_BEFORE, ALWAYS }
 
 ## Persistencia (`events`)
 
+### Plazo editable (preparación de R8)
+
+`Event.changeResponseDeadline(deadline, now)` permite cambiar el plazo en DRAFT y en PUBLISHED solo antes
+de `startsAtInstant()`. El inicio exacto y los estados CANCELLED/FINISHED producen
+`ResponseDeadlineNotEditableException` (409). El instante procede del Clock inyectado en aplicación.
+La misma validación que usan creación y `edit()` exige plazo no posterior a startsAt
+(`InvalidResponseDeadlineException`, 422). null elimina el plazo; un plazo pasado es válido.
+
+`ChangeResponseDeadlineService` comprueba propiedad (404 si es ajeno) y delega la escritura en
+`EventResponseDeadlineRepositoryPort`. El adaptador usa findAndModify con `$set` de responseDeadline y
+`$inc` de version, filtrando por id, hostId y estado DRAFT/PUBLISHED, sin versión esperada ni `save()`.
+Un resultado sin coincidencia es conflicto concurrente (409). Las aperturas concurrentes conservan ambos
+cambios; una cancelación con versión anterior falla con 409 y no sobrescribe el plazo.
+
+### Documento e índices
+
 `EventDocument` (en `infrastructure/out/persistence`) espeja `Event` campo a campo, con `ResponseOptionDocument`,
 `VenueDocument`, `OnlineAccessDocument` y `GuestDocument` como documentos embebidos (sin `@Document` propio, sin colección aparte).
 `EventMapper` traduce en ambos sentidos; `modality`, `status` y `linkVisibility` se guardan como `String` (nombre
@@ -237,6 +253,7 @@ dentro del mismo `guests[]`. Ver `docs/modelo-invitado.md`.
 | `ReplaceVenueUseCase` | `EventLocationService` | Busca el evento, delega en `event.replaceVenue(...)` y lo guarda. |
 | `ReplaceOnlineAccessUseCase` | `EventLocationService` | Busca el evento, delega en `event.replaceOnlineAccess(...)` y lo guarda. |
 | `UpdateEventUseCase` | `UpdateEventService` | Busca el evento, delega en `event.edit(EventEdit)` y lo guarda. `allowComment`/`allowResponseChange`/`responseDeadline` se editan aquí, no en `replaceResponseOptions`. |
+| `ChangeResponseDeadlineUseCase` | `ChangeResponseDeadlineService` | Comprueba propiedad, valida plazo y estado con Clock, y actualiza solo el plazo mediante el puerto de escritura parcial. |
 | `PublishEventUseCase` | `PublishEventService` | Busca el evento, llama a `event.publish()` y lo guarda. |
 | `AddGuestUseCase` / `UpdateGuestUseCase` | `GuestService` | Valida propiedad y reglas del agregado; persiste únicamente el alta o los contactos editados. |
 | `DeleteGuestUseCase` | `GuestService` | Valida estado y propiedad; prepara la futura confirmación y cascada, y elimina el invitado con escritura parcial. |
@@ -256,6 +273,7 @@ sobre `EventMongoRepository` (Spring Data).
 | `GET` | `/api/events/{id}` | — | `200` (`EventResponse` completo), `404` |
 | `GET` | `/api/events` | — (el host se lee del principal autenticado) | `200` (lista de `EventSummaryResponse`: `id`, `title`, `startsAt`, `modality`, `status`), `401` si no hay sesión |
 | `PUT` | `/api/events/{id}` | `UpdateEventRequest` (título, fechas, zona horaria, modalidad, venue/onlineAccess opcionales, `allowComment`, `allowResponseChange`, `responseDeadline`) | `200` (`EventResponse` completo), `404`, `409` (no `DRAFT`), `422` |
+| `PUT` | `/api/events/{id}/response-deadline` | `{ "responseDeadline": LocalDateTime o null }`, sesión y CSRF | `200` (`EventResponse`), `401`, `403`, `404` (inexistente o ajeno), `409` (estado, inicio alcanzado o carrera), `422` (plazo posterior al inicio) |
 | `POST` | `/api/events/{id}/publish` | — | `200` (`EventResponse` completo), `404`, `409` (no `DRAFT`), `422` (falta venue/onlineAccess o < 2 opciones) |
 | `POST` | `/api/events/{id}/cancel` | `CancelEventRequest` (`reason` opcional) | `200` (`EventResponse` completo con `cancelledAt`), `404`, `409` (no `PUBLISHED`) |
 | `PUT` | `/api/events/{id}/response-options` | `ReplaceResponseOptionsRequest` (solo la lista de opciones) | `200` (`EventResponse` completo), `404`, `409`, `422` |
