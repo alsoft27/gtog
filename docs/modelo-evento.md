@@ -1,7 +1,7 @@
 # Modelo de datos: Evento
 
 Estado del modelo tras R1–R7: creación de eventos, consulta/listado (R1), opciones de respuesta (R2),
-ubicación/acceso en línea (R3), editar/publicar/cancelar (R4), seguridad/ownership (R5), invitados (R6), consulta pública (R7) y plazo editable (preparación de R8, commit 0). Todavía no existen respuestas ni muro social.
+ubicación/acceso en línea (R3), editar/publicar/cancelar (R4), seguridad/ownership (R5), invitados (R6), consulta pública (R7), plazo editable y registro de respuesta (R8, commits 0 y 1). Las respuestas viven en `responses`, nunca embebidas en el evento. El muro social sigue pendiente.
 
 ---
 
@@ -37,6 +37,14 @@ persistido sin repetir ninguna validación.
 Métodos derivados: `startsAtInstant()` / `endsAtInstant()` calculan el instante UTC a partir de la hora local y
 `timeZone` **al vuelo**, no lo guardan congelado — así reflejan cualquier cambio futuro en las reglas horarias de
 la zona.
+
+`acceptsResponses(now)` centraliza las condiciones de tiempo y estado: PUBLISHED,
+`responseDeadline == null || now <= responseDeadline` y `now < endsAtInstant()`. El plazo se convierte a
+instante con la zona del evento. `requireAcceptingResponses(now)` lanza `ResponseNotAcceptedException` (409)
+si falla alguna condición; la aplicación transforma DRAFT en el mismo 404 de un token desconocido antes de
+validar la respuesta. El instante procede de Clock inyectado. La regla rige primeras respuestas y cambios;
+estos últimos necesitan además `allowResponseChange`, impuesto mediante la política atómica de escritura.
+Consultar `canChangeResponse` reutiliza esta regla, sin duplicar comparaciones de fechas en la capa web.
 
 ### Reglas de negocio y sus excepciones
 
@@ -179,9 +187,10 @@ regla de `LinkVisibility` todavía no lo permite) — así quien llama no puede 
 antes de leer el enlace. Recibe `now` **como parámetro**, nunca `Instant.now()` internamente, para que el
 resultado sea determinista y comprobable en tests.
 
-Desde R7, `GetInvitationService` aplica este método con el instante obtenido de un `Clock` inyectado.
+Desde R7, `GetInvitationService` aplica este método con el instante obtenido de un `Clock` inyectado;
+desde el commit 1 de R8, `InvitationViewFactory` comparte esa proyección con el PUT de respuesta.
 Solo devuelve acceso si `status == PUBLISHED`; DRAFT, CANCELLED y FINISHED siempre producen vacío.
-`guestHasConfirmed` se obtiene de un único método privado que devuelve false hasta R8: se necesitará una
+`guestHasConfirmed` se obtiene de un único método privado que devuelve false hasta el commit 2 de R8: se necesitará una
 respuesta cuya opción cuente como asistencia (D-CONFIRMED-LINK). `InvitationResponse` es un DTO propio,
 con metadatos de acceso sin secretos y el bloque de conexión omitido cuando esté oculto. `EventResponse`
 sigue siendo la vista privada del anfitrión y conserva el acceso completo sin aplicar este filtrado.
@@ -254,6 +263,7 @@ dentro del mismo `guests[]`. Ver `docs/modelo-invitado.md`.
 | `ReplaceOnlineAccessUseCase` | `EventLocationService` | Busca el evento, delega en `event.replaceOnlineAccess(...)` y lo guarda. |
 | `UpdateEventUseCase` | `UpdateEventService` | Busca el evento, delega en `event.edit(EventEdit)` y lo guarda. `allowComment`/`allowResponseChange`/`responseDeadline` se editan aquí, no en `replaceResponseOptions`. |
 | `ChangeResponseDeadlineUseCase` | `ChangeResponseDeadlineService` | Comprueba propiedad, valida plazo y estado con Clock, y actualiza solo el plazo mediante el puerto de escritura parcial. |
+| `RecordGuestResponseUseCase` | `RecordGuestResponseService` | Resuelve la invitación por token, valida la respuesta y la inserta o actualiza atómicamente en `responses`, sin guardar el evento. Devuelve la vista pública con la respuesta propia. |
 | `PublishEventUseCase` | `PublishEventService` | Busca el evento, llama a `event.publish()` y lo guarda. |
 | `AddGuestUseCase` / `UpdateGuestUseCase` | `GuestService` | Valida propiedad y reglas del agregado; persiste únicamente el alta o los contactos editados. |
 | `DeleteGuestUseCase` | `GuestService` | Valida estado y propiedad; prepara la futura confirmación y cascada, y elimina el invitado con escritura parcial. |

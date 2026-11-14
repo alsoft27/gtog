@@ -9,7 +9,9 @@ public record InvitationView(String guestName, String title, String description,
 		Modality modality, LocalDateTime startsAt, LocalDateTime endsAt, String timeZone,
 		Instant startsAtInstant, Instant endsAtInstant, Venue venue, List<Option> responseOptions,
 		boolean allowComment, boolean allowResponseChange, LocalDateTime responseDeadline,
-		Instant cancelledAt, String cancellationReason, OnlineAccessInfo onlineAccessInfo, OnlineAccess onlineAccess) {
+		Instant cancelledAt, String cancellationReason, OnlineAccessInfo onlineAccessInfo, OnlineAccess onlineAccess, MyResponse myResponse, boolean canChangeResponse) {
+
+	public record MyResponse(String responseOptionId, String comment, Instant answeredAt, Instant updatedAt) {}
 
 	public record Option(String id, String label) {}
 

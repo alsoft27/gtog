@@ -33,6 +33,8 @@ public class SecurityConfig {
 		http
 			.cors(cors -> cors.configurationSource(corsConfigurationSource()))
 			.csrf(csrf -> csrf
+				// La credencial publica es el token de la ruta, no una cookie: no hay credencial ambiental aprovechable.
+				.ignoringRequestMatchers("/api/invitations/**")
 				.csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
 				.csrfTokenRequestHandler(new CsrfTokenRequestAttributeHandler()))
 			.authorizeHttpRequests(auth -> auth

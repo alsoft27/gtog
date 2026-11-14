@@ -19,7 +19,9 @@ public record InvitationResponse(GuestName guest, String title, String descripti
 		Instant startsAtInstant, Instant endsAtInstant, VenueDetails venue, List<Option> responseOptions,
 		boolean allowComment, boolean allowResponseChange, LocalDateTime responseDeadline,
 		Instant cancelledAt, String cancellationReason, OnlineAccessInfo onlineAccessInfo,
-		@Schema(description = "Bloque omitido completamente mientras el acceso no sea visible") OnlineAccessDetails onlineAccess) {
+		@Schema(description = "Bloque omitido completamente mientras el acceso no sea visible") OnlineAccessDetails onlineAccess, MyResponse myResponse, boolean canChangeResponse) {
+
+	public record MyResponse(String responseOptionId, String comment, Instant answeredAt, Instant updatedAt) {}
 
 	public record GuestName(String name) {}
 	public record Option(String id, String label) {}
@@ -37,6 +39,8 @@ public record InvitationResponse(GuestName guest, String title, String descripti
 				view.responseOptions().stream().map(option -> new Option(option.id(), option.label())).toList(),
 				view.allowComment(), view.allowResponseChange(), view.responseDeadline(), view.cancelledAt(), view.cancellationReason(),
 				info == null ? null : new OnlineAccessInfo(info.platform(), info.linkVisibility(), info.hoursBefore()),
-				access == null ? null : new OnlineAccessDetails(access.url(), access.roomId(), access.password(), access.instructions()));
+				access == null ? null : new OnlineAccessDetails(access.url(), access.roomId(), access.password(), access.instructions()),
+				view.myResponse() == null ? null : new MyResponse(view.myResponse().responseOptionId(), view.myResponse().comment(), view.myResponse().answeredAt(), view.myResponse().updatedAt()),
+				view.canChangeResponse());
 	}
 }

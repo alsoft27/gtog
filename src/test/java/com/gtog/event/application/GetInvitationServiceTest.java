@@ -18,6 +18,7 @@ import com.gtog.event.domain.model.InvitationStatus;
 import com.gtog.event.domain.model.LinkVisibility;
 import com.gtog.event.domain.port.out.EventGuestRepositoryPort;
 import com.gtog.event.domain.port.out.EventRepositoryPort;
+import com.gtog.event.domain.port.out.GuestResponseRepositoryPort;
 
 import static com.gtog.event.InvitationTestFixtures.NOW;
 import static com.gtog.event.InvitationTestFixtures.event;
@@ -33,12 +34,13 @@ import static org.mockito.Mockito.times;
 class GetInvitationServiceTest {
 
 	@Mock private EventRepositoryPort events;
+	@Mock private GuestResponseRepositoryPort responses;
 	@Mock private EventGuestRepositoryPort guests;
 	private GetInvitationService service;
 
 	@BeforeEach
 	void setUp() {
-		service = new GetInvitationService(events, guests, Clock.fixed(NOW, ZoneOffset.UTC));
+		service = new GetInvitationService(events, guests, Clock.fixed(NOW, ZoneOffset.UTC), responses);
 	}
 
 	@Test

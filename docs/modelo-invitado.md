@@ -1,14 +1,14 @@
 # Modelo de datos: Invitado
 
-Estado tras R7, 14 de noviembre de 2026. Gestión de invitados del anfitrión y consulta pública de la invitación.
-Las respuestas de asistencia siguen pendientes de R8.
+Estado tras R8, commits 0 y 1, 14 de noviembre de 2026. Gestión de invitados del anfitrión, consulta pública
+y registro de respuestas. Quedan pendientes confirmación del enlace, cascada real y calendario (commits 2–4).
 
 La preparación de R8 (commit 0) añade el plazo editable por el anfitrión mediante
 `PUT /api/events/{id}/response-deadline`: DRAFT, o PUBLISHED estrictamente antes del inicio. null lo elimina;
 la fecha es local a la zona del evento y puede estar en el pasado, pero no después del inicio. La escritura
 parcial incrementa version sin exigir una versión esperada; una primera apertura concurrente no impide el
 cambio ni se pierde. La consulta pública sigue reflejando `responseDeadline`. La aplicación del plazo a la
-primera respuesta y a sus cambios se implementará en el commit 1 de R8.
+primera respuesta y a sus cambios está implementada desde el commit 1 de R8.
 
 ## Agregado y campos
 
@@ -27,7 +27,7 @@ comparte agregado y documento. No existe colección ni hexágono `guest` separad
 | `sentAt` | `Instant`, nullable | Instante UTC de envío; inicialmente nulo |
 | `openedAt` | `Instant`, nullable | Instante UTC de apertura; inicialmente nulo |
 
-**La respuesta no vive aquí. `ANSWERED` no es un valor del enum ni se almacena.** R8 lo derivará de `responses`.
+**La respuesta no vive aquí. `ANSWERED` no es un valor del enum ni se almacena.** Se deriva de la existencia de un documento en `responses`; el panel del anfitrión sigue pendiente de R9.
 La primera apertura se implementa en R7. El envío y la transición a SENT siguen pendientes de R10–R11.
 
 `Guest.create(...)` valida y normaliza contactos, genera el id y aplica el estado inicial.
@@ -165,7 +165,7 @@ Mongo ni countsAsAttendance. Los DTOs públicos son propios y se construyen camp
 
 `Clock` se inyecta en aplicación; su implementación normal es `Clock.systemUTC()`. El servicio obtiene un instante
 por petición y lo usa tanto para la visibilidad como para openedAt. No llama a Instant.now() directamente.
-ON_CONFIRMATION permanece cerrado: un único método privado devuelve false hasta R8. Confirmar exigirá que la
+ON_CONFIRMATION permanece cerrado: un único método privado devuelve false hasta el commit 2 de R8. Confirmar exigirá que la
 opción elegida tenga countsAsAttendance=true; no basta con haber respondido (D-CONFIRMED-LINK).
 
 ### Escritura de OPENED
@@ -191,25 +191,84 @@ con `Referrer-Policy: no-referrer` para evitar filtrar el token de la URL al car
 
 ## Borrado y extensión para R8
 
+**Estado transitorio tras el commit 1:** `responses` ya existe, pero el adaptador provisional de R6 sigue
+activo hasta el commit 3. La confirmación y cascada todavía no operan sobre respuestas reales. En el commit 3
+se cambiará el orden: primero quitar el invitado del evento y solo después borrar la respuesta; si la limpieza
+falla, quedará una respuesta inalcanzable, nunca una respuesta perdida con el invitado vivo.
+
 `GuestResponseCleanupPort` declara `hasResponse(eventId, guestToken)` y `deleteResponse(eventId, guestToken)`.
 El servicio rechaza con 409 un borrado con respuesta sin confirmación; con confirmación, invoca el borrado
 de la respuesta antes de persistir el borrado del invitado. Si la limpieza falla, no elimina al invitado.
 
-En R6 **no existe la colección `responses`**. `NoGuestResponsesYetAdapter` devuelve siempre `false` al consultar
+En R6 **no existía la colección `responses`**. `NoGuestResponsesYetAdapter` devuelve siempre `false` al consultar
 y falla expresamente si se intenta borrar una respuesta. No consulta ni crea colecciones. Los tests con dobles
 comprueban las ramas futuras de confirmación, orden y fallo de cascada.
 
 R8 debe sustituir ese bean por el adaptador real y cubrir las carreras entre responder, borrar y modificar la
 versión del evento. En particular, debe definir cómo completar o recuperar el borrado si la limpieza ya se
 hizo pero la escritura del evento encuentra un conflicto. R6 prepara el contrato, no implementa una cascada
-real sobre una colección todavía inexistente.
+real sobre la colección de respuestas.
+
+## Respuesta propia (R8, commit 1)
+
+`GuestResponse`, en `event/domain/model`, contiene `eventId`, `guestToken`, `responseOptionId`, `comment`,
+`email`, `answeredAt` y `updatedAt`. Es independiente de `Guest` y se persiste en `responses`, con índices
+centrales: único `(eventId, guestToken)` llamado `response_per_guest`, y no único sobre `eventId`.
+
+`PUT /api/invitations/{token}/response` recibe:
+
+```json
+{ "responseOptionId": "yes-id", "comment": "Texto opcional", "email": "guest@example.com" }
+```
+
+Solo la opción es obligatoria. La operación es pública, sin sesión ni CSRF. Se excluye exclusivamente
+`/api/invitations/**`: su credencial es la ruta, no una cookie ambiental. CORS ya permite PUT y Content-Type;
+un test verifica el preflight sin ampliar la configuración. Devuelve 200 con `InvitationResponse`, construido
+campo a campo y compartido con GET. No registra una apertura ni modifica el documento del evento al responder.
+
+| Regla | Excepción | HTTP |
+|---|---|---|
+| Token desconocido o DRAFT | `InvitationNotFoundException`, mismo detalle | 404 |
+| Solo PUBLISHED, plazo inclusive y fin exclusivo, con Clock inyectado | `ResponseNotAcceptedException` | 409 |
+| Opción del evento obligatoria | `InvalidResponseOptionException` | 422 |
+| Comentario con contenido solo si allowComment | `ResponseCommentNotAllowedException` | 422 |
+| Comentario máximo 500 caracteres | `ResponseCommentTooLongException` | 422 |
+| Email opcional con formato válido | `InvalidResponseEmailException` | 422 |
+| Ya respondió y allowResponseChange es false | `ResponseChangeNotAllowedException` | 409 |
+
+Comentario null o en blanco se guarda como null, incluso con allowComment=false. El contenido no vacío se
+conserva. Email null o en blanco es ausente; el resto se normaliza sin espacios exteriores y en minúsculas.
+El email se almacena únicamente en la respuesta y no se envía ningún correo (D-EMAIL-NOT-SENT, hasta R10).
+
+Con allowResponseChange=false se ejecuta un insert sin consultar existencia antes: el índice único decide
+la carrera. El comando de inserción conserva `code` y `keyPattern` que el driver pierde al construir
+MongoWriteException de insertOne. Solo el 11000 de la clave compuesta se transforma en 409. No se conserva
+mensaje ni causa originales, que incluyen el token. Otro duplicado produce un 500 saneado, sin falsa
+clasificación como respuesta existente. Con allowResponseChange=true se usa findAndModify con upsert:
+`$setOnInsert` de answeredAt y `$set` del resto y updatedAt. Una colisión de inserción concurrente sobre la
+misma clave reintenta solo la actualización atómica, sin lectura previa.
+
+GET y PUT añaden `myResponse { responseOptionId, comment, answeredAt, updatedAt }`, sin email, ni token ni
+identificadores internos. Si no hay respuesta se omite el bloque. `canChangeResponse` requiere respuesta
+existente, allowResponseChange y las mismas condiciones de tiempo y estado. El plazo rige toda escritura,
+incluida la primera: se acepta exactamente en el plazo, pero nunca en el instante exacto del fin.
+
+Éxitos y errores conservan `Cache-Control: no-store` exacto; los errores usan instancia constante
+`/api/invitations`. Los mensajes son constantes, sin eco de token, comentario ni email. JSON ilegible produce
+400 saneado sin registrar el mensaje de Jackson. `InvitationViewFactory` comparte la proyección segura de
+GET y PUT; su único método privado guestHasConfirmed sigue devolviendo false hasta el commit 2.
 
 ## Verificación
 
-`mvn clean verify`: **305 tests**, sin fallos, errores ni omitidos. R6 incorporó 71 casos y R7 incorporó 31:
+`mvn clean verify`: **359 tests**, sin fallos, errores ni omitidos. R6 incorporó 71 casos y R7 incorporó 31:
 4 de dominio, 9 de aplicación y 18 de integración contra Atlas (`gtog_test`). La preparación de R8 añade
 29: 8 de dominio, 4 de aplicación y 17 de integración, incluida apertura concurrente y cancelación con
 versión anterior al cambio del plazo.
+
+El commit 1 añade 54: 19 de dominio, 4 de aplicación y 31 de integración. Incluye dos PUT simultáneos con
+hilos reales (un 200 y un 409 sin cambios; dos 200 con cambios, siempre un documento), límite inclusivo del
+plazo y exclusivo del fin, cambios fuera de plazo, errores sin token ni comentario en logs, duplicado real
+sin causa, duplicados de otro índice en insert y upsert, preflight CORS y cabeceras exactas.
 
 R7 cubre privacidad comparando el cuerpo completo, fechas locales/UTC, los tres modos de visibilidad con Clock
 fijo y el umbral exacto, estados públicos y borrador, 404 indistinguibles, logs sin tokens, OPENED desde NOT_SENT

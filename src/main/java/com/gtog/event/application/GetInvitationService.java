@@ -11,7 +11,7 @@ import com.gtog.event.domain.model.Guest;
 import com.gtog.event.domain.model.InvitationNotFoundException;
 import com.gtog.event.domain.model.InvitationStatus;
 import com.gtog.event.domain.model.InvitationView;
-import com.gtog.event.domain.model.OnlineAccess;
+import com.gtog.event.domain.port.out.GuestResponseRepositoryPort;
 import com.gtog.event.domain.port.in.GetInvitationUseCase;
 import com.gtog.event.domain.port.out.EventGuestRepositoryPort;
 import com.gtog.event.domain.port.out.EventRepositoryPort;
@@ -22,11 +22,13 @@ public class GetInvitationService implements GetInvitationUseCase {
 	private final EventRepositoryPort events;
 	private final EventGuestRepositoryPort guests;
 	private final Clock clock;
+	private final GuestResponseRepositoryPort responses;
 
-	public GetInvitationService(EventRepositoryPort events, EventGuestRepositoryPort guests, Clock clock) {
+	public GetInvitationService(EventRepositoryPort events, EventGuestRepositoryPort guests, Clock clock, GuestResponseRepositoryPort responses) {
 		this.events = events;
 		this.guests = guests;
 		this.clock = clock;
+		this.responses = responses;
 	}
 
 	@Override
@@ -41,7 +43,7 @@ public class GetInvitationService implements GetInvitationUseCase {
 			ensurePublic(event);
 			guest = invitedGuest(event, token);
 		}
-		return viewOf(event, guest, now);
+		return InvitationViewFactory.create(event, guest, now, responses.find(event.getId(), token).orElse(null));
 	}
 
 	private Event loadInvitation(String token) {
@@ -61,22 +63,4 @@ public class GetInvitationService implements GetInvitationUseCase {
 				.orElseThrow(InvitationNotFoundException::new);
 	}
 
-	private InvitationView viewOf(Event event, Guest guest, Instant now) {
-		OnlineAccess access = event.getOnlineAccess();
-		boolean cancelled = event.getStatus() == EventStatus.CANCELLED;
-		return new InvitationView(guest.getName(), event.getTitle(), event.getDescription(), event.getStatus(),
-				event.getModality(), event.getStartsAt(), event.getEndsAt(), event.getTimeZone(), event.startsAtInstant(),
-				event.endsAtInstant(), event.getVenue(), event.getResponseOptions().stream()
-						.map(option -> new InvitationView.Option(option.id(), option.label())).toList(),
-				event.isAllowComment(), event.isAllowResponseChange(), event.getResponseDeadline(),
-				cancelled ? event.getCancelledAt() : null, cancelled ? event.getCancellationReason() : null,
-				access == null ? null : new InvitationView.OnlineAccessInfo(access.platform(), access.linkVisibility(), access.hoursBefore()),
-				event.visibleOnlineAccess(guestHasConfirmed(event, guest), now).orElse(null));
-	}
-
-	private boolean guestHasConfirmed(Event event, Guest guest) {
-		// R8 sustituira este false consultando responses: confirmar exige countsAsAttendance=true;
-		// haber respondido (por ejemplo "No asisto") no basta. D-CONFIRMED-LINK.
-		return false;
-	}
 }

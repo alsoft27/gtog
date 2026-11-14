@@ -64,6 +64,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class InvitationControllerIntegrationTest {
 
 	@Autowired private MockMvc mockMvc;
+	@Autowired private org.springframework.data.mongodb.core.MongoTemplate mongo;
 	@MockitoSpyBean private EventRepositoryPort events;
 	@Autowired private EventGuestRepositoryPort guests;
 	@Autowired private EventMongoRepository eventDocuments;
@@ -73,6 +74,7 @@ class InvitationControllerIntegrationTest {
 	@BeforeEach
 	void setUp() {
 		eventDocuments.deleteAll();
+		mongo.remove(new org.springframework.data.mongodb.core.query.Query(), com.gtog.event.infrastructure.out.persistence.GuestResponseDocument.class);
 		users.deleteAll();
 		UserDocument host = new UserDocument();
 		host.setId("host-1");

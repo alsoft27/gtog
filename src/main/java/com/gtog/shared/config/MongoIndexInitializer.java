@@ -10,6 +10,7 @@ import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.stereotype.Component;
 
 import com.gtog.event.infrastructure.out.persistence.EventDocument;
+import com.gtog.event.infrastructure.out.persistence.GuestResponseDocument;
 
 // Los indices se crean aqui en el arranque, no con @Indexed en los documentos: asi se sabe que existe
 // en produccion mirando una sola clase, sin tener que rastrear anotaciones repartidas por el modelo.
@@ -27,6 +28,9 @@ public class MongoIndexInitializer {
 		mongoTemplate.indexOps(EventDocument.class).createIndex(new Index().on("hostId", Sort.Direction.ASC));
 		mongoTemplate.indexOps(EventDocument.class).createIndex(new Index().on("guests.token", Sort.Direction.ASC)
 				.unique().partial(PartialIndexFilter.of(Criteria.where("guests.token").type(2))));
+		mongoTemplate.indexOps(GuestResponseDocument.class).createIndex(new Index().on("eventId", Sort.Direction.ASC)
+				.on("guestToken", Sort.Direction.ASC).unique().named("response_per_guest"));
+		mongoTemplate.indexOps(GuestResponseDocument.class).createIndex(new Index().on("eventId", Sort.Direction.ASC));
 		mongoTemplate.indexOps("users").createIndex(new Index().on("email", Sort.Direction.ASC).unique());
 	}
 }

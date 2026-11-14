@@ -19,9 +19,10 @@ Estado a 14 de noviembre de 2026.
 | R6 — Invitados | `Guest` dentro de `event`, `guests[]` embebido, alta/edición/borrado/listado autenticados con ownership en aplicación. Normalización E.164 con libphonenumber 9.0.43; tokens de 32 bytes de `SecureRandom`, Base64 URL-safe sin relleno. Escrituras parciales con control e incremento de versión. `invitationPath` solo en alta y listado. D-3 saldada; cascada preparada para R8 sin crear `responses`. 71 tests nuevos. |
 | R7 — Página pública del invitado | `GET /api/invitations/{token}`, sin sesión ni CSRF; DTO público construido campo a campo, acceso online filtrado y Clock inyectado. DRAFT y desconocido devuelven el mismo 404; PUBLISHED, CANCELLED y FINISHED devuelven 200. Primera apertura atómica con $elemMatch y version +1; las revisitas OPENED no escriben. Cache-Control exacto `no-store` en éxito y 404. 31 tests nuevos. |
 | Preparación de R8 — Plazo editable (commit 0) | `PUT /api/events/{id}/response-deadline`, autenticado y con CSRF. Permite cambiar o quitar el plazo en DRAFT, y en PUBLISHED solo antes del inicio. Escritura parcial atómica con incremento de versión, compatible con aperturas concurrentes. 29 tests nuevos. R8 sigue pendiente. |
+| R8 — Registrar respuesta (commit 1) | `PUT /api/invitations/{token}/response`, público sin sesión ni CSRF. Colección `responses`, insert o upsert atómico según permiso de cambios. GET y PUT incluyen `myResponse` sin email y `canChangeResponse`. 54 tests nuevos. R8 queda parcialmente implementada: faltan los commits 2–4. |
 | Infraestructura | Java 25, Spring Boot 4.1, Maven por defecto, MongoDB Atlas, OpenAPI |
 
-**Verificación actual:** `mvn clean verify` pasa con **305 tests**, 0 fallos, 0 errores y 0 omitidos. R6 añadió 71 casos y R7 añadió 31. El commit 0 de R8 añade 29: 8 de dominio, 4 de aplicación y 17 de integración, incluidos concurrencia con apertura y cancelación con versión antigua.
+**Verificación actual:** `mvn clean verify` pasa con **359 tests**, 0 fallos, 0 errores y 0 omitidos. El commit 0 de R8 añadió 29. El commit 1 añade 54: 19 de dominio, 4 de aplicación y 31 de integración, incluidos PUT concurrentes con hilos reales, privacidad de errores y preflight CORS.
 
 **Lo que eso valida:** la arquitectura hexagonal funciona en la práctica, el mapeo entre `Event` y `EventDocument` es asumible, y el circuito completo de desarrollo está operativo. Además, `Event.create(...)`/`reconstitute(...)` cambiaron de firma en las tres rebanadas seguidas, así que desde R3 `Event` se construye con dos builders internos (`Event.builder()` para eventos nuevos, `Event.reconstituteBuilder()` para rehidratar) en vez de factory methods con parámetros posicionales — ver `docs/modelo-evento.md`.
 
@@ -39,7 +40,8 @@ Esto no es una lista de pendientes cualquiera: son cosas que ya están mal a pro
 | D-5 | **Tests de integración contra Atlas** | Los tests necesitan red y son lentos | Aceptable mientras seas el único desarrollador |
 | D-6 | **Sin herramienta de migraciones** | No hay forma versionada de cambiar el esquema | Cuando haya datos reales |
 | D-7 | **Opciones de respuesta bloqueadas en eventos publicados** | RF-4.8 permite renombrar y agregar opciones tras publicar, prohibiendo solo eliminar las que tengan respuestas. El código actual es más restrictivo: `Event.replaceResponseOptions(...)` lanza `EventNotEditableException` (409) ante *cualquier* cambio si `status != DRAFT`, sin distinguir renombrar, agregar o eliminar. El dominio no conoce la colección `responses` todavía, así que tampoco puede saber qué ids tienen respuestas. El fix completo tiene dos partes: (1) permitir renombrar y agregar en `PUBLISHED`; (2) bloquear solo el borrado de opciones con respuestas. | Rebanada 8: `replaceResponseOptions(...)` recibirá el conjunto de ids con respuestas (calculado en la capa de aplicación) y pasará a funcionar en `PUBLISHED` para rename/add |
-| D-CONFIRMED-LINK | **Confirmación de asistencia provisional en R7** | `GetInvitationService.guestHasConfirmed(...)` devuelve `false` desde un único método privado. En R8 debe consultar la respuesta y la opción elegida: confirmado significa `countsAsAttendance = true`, no haber respondido. Quien elige "No asisto" no recibe el acceso con ON_CONFIRMATION. | R8 |
+| D-CONFIRMED-LINK | **Confirmación de asistencia provisional en R7** | El método privado `guestHasConfirmed(...)`, trasladado a `InvitationViewFactory` para compartir la proyección de GET y PUT, todavía devuelve `false`. Debe usar la respuesta y la opción elegida: confirmado significa `countsAsAttendance = true`, no haber respondido. Quien elige "No asisto" no recibe el acceso con ON_CONFIRMATION. | R8, commit 2 |
+| D-EMAIL-NOT-SENT | **Correo de respuesta sin envío** | El correo opcional se valida y se guarda únicamente en `responses`; no sale en `myResponse` ni se envía confirmación por correo. | R10 |
 | D-RATE-LIMIT | **Endpoint público sin límite de peticiones** | La entropía del token hace inviable adivinarlo, pero no protege frente a abuso o tráfico repetido sobre un enlace conocido. No hay rate limiting en R7. | Pendiente de planificación |
 | D-REFERRER | **Política de Referer del frontend** | La página del invitado lleva la credencial en la URL. Para evitar filtrarla al cargar un mapa de Google u otros recursos externos, el frontend debe servir la página con `Referrer-Policy: no-referrer`. La cabecera de la API no sustituye la política del documento del frontend. | Frontend, al integrar la página del invitado |
 | D-FINISHED | **`FINISHED` sin implementar** | No existe ningún mecanismo para que un evento pase a `FINISHED`. Ni job programado ni derivación al vuelo. | A definir: requiere decidir si es automático (por fecha) o manual (anfitrión lo marca) |
@@ -47,7 +49,7 @@ Esto no es una lista de pendientes cualquiera: son cosas que ya están mal a pro
 | D-SWAGGER-PUBLIC | **OpenAPI y Swagger UI sin autenticación** | Cualquiera puede ver la documentación completa de la API sin autenticarse. Hoy es conveniente para desarrollo; antes de producción hay que decidir si protegerlo o dejarlo público. | Antes del despliegue a producción |
 | D-SECURE-COOKIE | **Cookie de sesión sin `Secure` en desarrollo** | La cookie `JSESSIONID` se envía también por HTTP. En producción detrás de HTTPS con `server.ssl.*` o proxy con `server.forward-headers-strategy=native`, Spring Boot activa el flag automáticamente. Verificar antes del primer despliegue. | Antes del despliegue a producción |
 | D-ERROR-FORMAT | **401 de los filtros de seguridad sin `ProblemDetail`** | El advice devuelve `ProblemDetail`, pero el rechazo por falta de autenticación se produce en los filtros y no garantiza el mismo formato. La unificación queda pendiente; no cambiar los filtros en esta corrección. | Pendiente de planificación |
-| D-DUP-KEY | **`DuplicateKeyException` mapeada por texto, no por código de error** | `UserRepositoryAdapter` inspecciona `e.getMessage().contains("email")` para distinguir el índice violado. Si el mensaje cambia (driver, Atlas, nombre de índice), la excepción se propaga como 500 en lugar de 409. | Cuando haya un segundo índice único en `users` o cuando el texto del mensaje cambie |
+| D-DUP-KEY | **`DuplicateKeyException` mapeada por texto, no por código de error en users** | `UserRepositoryAdapter` sigue inspeccionando `e.getMessage().contains("email")`. En `responses` se evita desde R8: código 11000 y `keyPattern` estructurado distinguen el índice compuesto de cualquier otro duplicado, sin conservar mensaje ni causa. La inserción usa el comando Mongo porque el driver descarta keyPattern en insertOne; el upsert conserva los metadatos del error de comando. Los otros duplicados devuelven 500 saneado, nunca el 409 de respuesta existente. | Pendiente solo en users |
 
 **D-4, saldada.** Decía "health indicator de Mongo desactivado", y no era así: estaba activo y en `DOWN`. El indicador por defecto de Actuator recorre **todas** las bases que el `MongoClient` ve vía `listDatabaseNames()` — no solo `local`, también `admin`, `config`, la de la propia app — y ejecuta `hello` en cada una; en Atlas el usuario de la aplicación no tiene permiso sobre `local`, así que el chequeo entero caía con `DOWN` aunque `gtog_dev`/`gtog_test` respondieran sin problema. Comprobado arrancando la app. Sustituido por `MongoDatabaseHealthIndicator` (en `shared/config`), que hace `ping` solo contra la base configurada de la aplicación; el indicador por defecto se desactiva con `management.health.mongodb.enabled=false` en ambos `application*.properties` para que no convivan. Verificado de nuevo: `GET /actuator/health` → `"mongo":{"details":{"database":"gtog_dev","ping":1},"status":"UP"}`.
 
@@ -92,7 +94,7 @@ Estados: desconocido y `DRAFT` producen el mismo 404, detalle e instancia consta
 incluir el token; `PUBLISHED`, `CANCELLED` y `FINISHED` producen 200. CANCELLED incluye fecha y motivo.
 `Event.visibleOnlineAccess(...)` solo devuelve acceso en `PUBLISHED`: en cualquier otro estado lo oculta.
 `onlineAccessInfo` contiene únicamente plataforma, regla y horas; `onlineAccess` se omite completamente cuando
-no es visible. D-CONFIRMED-LINK mantiene ON_CONFIRMATION cerrado hasta R8.
+no es visible. D-CONFIRMED-LINK mantiene ON_CONFIRMATION cerrado hasta el commit 2 de R8.
 
 OPENED se implementa aquí, trasladado desde R11. Una visita a PUBLISHED de un invitado NOT_SENT o SENT ejecuta
 una actualización posicional con `$elemMatch`, fija OPENED/openedAt y aumenta version una sola vez. Si ya estaba
@@ -112,7 +114,26 @@ completo para no pasar accidentalmente con las cabeceras anti-caché predetermin
 No se registran tokens; los tests comprueban también la salida de logs.
 
 **R8. Registrar respuesta**
-`POST /api/invitations/{token}/response`. Crea la colección `responses`, con el índice único sobre `(eventId, guestToken)` y el upsert al cambiar de respuesta. Aquí se implementa que `ANSWERED` se derive y no se almacene. También salda D-7: `replaceResponseOptions(...)` empieza a recibir el conjunto de ids de opciones con respuestas para poder rechazar su eliminación y aceptar rename/add.
+`PUT /api/invitations/{token}/response`, recurso singular e idempotente, implementado en el commit 1.
+Crea `responses`, con índice único `(eventId, guestToken)` y otro sobre `eventId`, en el inicializador central.
+Sin permiso de cambios se inserta directamente: el duplicado del índice compuesto produce 409, sin consultar
+existencia antes. Con permiso se usa upsert atómico, `$setOnInsert` de answeredAt y `$set` del resto y updatedAt.
+Una colisión de inserción concurrente en ese upsert reintenta solo la actualización atómica de la misma clave.
+No se escribe ANSWERED en `events`: se deriva de la existencia de respuesta. No se modifica el evento al responder.
+
+GET y PUT devuelven `InvitationResponse`, con `myResponse` (opción, comentario y fechas, sin email) y
+`canChangeResponse`: true solo si existe respuesta, se permiten cambios y se cumplen las reglas de tiempo y estado.
+Opción ajena, comentario con contenido sin permiso, longitud mayor de 500 y email inválido producen 422;
+comentario en blanco equivale a ausente y se guarda como null. Email opcional, validado y almacenado, sin envío
+(D-EMAIL-NOT-SENT). Los errores usan instancia constante `/api/invitations` y `Cache-Control: no-store` exacto;
+los duplicados se traducen sin mensaje ni causa del driver, que pueden incluir el token. No se registran tokens ni comentarios.
+
+Solo `/api/invitations/**` se excluye de CSRF: la credencial está en la ruta, no en una cookie ambiental.
+Login, registro y endpoints del anfitrión conservan CSRF. El preflight CORS ya permitía PUT y Content-Type;
+se prueba sin ampliar la configuración.
+
+Pendientes: commit 2 (D-CONFIRMED-LINK), commit 3 (D-7 y cascada real) y commit 4 (calendario).
+El adaptador provisional de limpieza de R6 sigue activo hasta el commit 3; todavía no consulta ni borra respuestas reales.
 
 **Preparación implementada (commit 0): plazo editable.** `PUT /api/events/{id}/response-deadline` recibe
 `{ "responseDeadline": LocalDateTime | null }` y devuelve 200 con `EventResponse`. Requiere sesión, CSRF y
@@ -127,8 +148,8 @@ Si no coincide ningún documento, devuelve 409 por cambio concurrente. El handle
 `OptimisticLockingFailureException` ya devuelve 409 con ProblemDetail: el test de cancelación con versión
 anterior al cambio del plazo comprueba que no se sobrescribe el plazo.
 
-RF-4.7: el plazo se aplica a toda escritura de respuesta, tanto la primera como los cambios. Queda pendiente
-implementarlo en el commit 1: solo PUBLISHED, `responseDeadline == null || now <= responseDeadline` y
+RF-4.7, implementado en el commit 1: el plazo se aplica a toda escritura de respuesta, tanto la primera como
+los cambios. Solo PUBLISHED, `responseDeadline == null || now <= responseDeadline` y
 `now < endsAtInstant`; los cambios requieren además `allowResponseChange`. El plazo se interpreta en la zona
 del evento. En PUBLISHED, fijar un plazo pasado equivale a cerrar las respuestas.
 

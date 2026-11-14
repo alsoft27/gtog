@@ -182,6 +182,15 @@ public class Event {
 		this.cancellationReason = reason;
 	}
 
+	public boolean acceptsResponses(Instant now) {
+		return status == EventStatus.PUBLISHED && now.isBefore(endsAtInstant())
+				&& (responseDeadline == null || !now.isAfter(responseDeadline.atZone(ZoneId.of(timeZone)).toInstant()));
+	}
+
+	public void requireAcceptingResponses(Instant now) {
+		if (!acceptsResponses(now)) { throw new ResponseNotAcceptedException(); }
+	}
+
 	public void changeResponseDeadline(LocalDateTime responseDeadline, Instant now) {
 		if (status != EventStatus.DRAFT && !(status == EventStatus.PUBLISHED && now.isBefore(startsAtInstant()))) {
 			throw new ResponseDeadlineNotEditableException();

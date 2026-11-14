@@ -109,7 +109,7 @@ anfitrión (RF-2.13); esta limitación debe ser visible en la interfaz para que 
 | RF-4.4 | Mínimo dos opciones, máximo cinco. Al menos una debe contar como asistencia.                                                                                                       |
 | RF-4.5 | Orden de las opciones definible por el anfitrión; ese orden se respeta en la página del invitado.                                                                                  |
 | RF-4.6 | Interruptor para permitir o no que el invitado deje un comentario junto con su respuesta.                                                                                          |
-| RF-4.7 | Interruptor para permitir o no que el invitado cambie su respuesta. El plazo se aplica a toda escritura, tanto la primera respuesta como los cambios: se acepta en el instante exacto del plazo y se rechaza después. Solo se responde en PUBLISHED y antes del fin del evento (en el fin exacto ya no). El anfitrión puede cambiar o quitar el plazo en DRAFT o en PUBLISHED antes del inicio (en el inicio exacto ya no); se interpreta en la zona del evento y no puede ser posterior al inicio. Un plazo pasado es válido y cierra las respuestas. La edición del plazo está implementada; la escritura de respuestas sigue pendiente de R8. |
+| RF-4.7 | Interruptor para permitir o no que el invitado cambie su respuesta. El plazo se aplica a toda escritura, tanto la primera respuesta como los cambios: se acepta en el instante exacto del plazo y se rechaza después. Solo se responde en PUBLISHED y antes del fin del evento (en el fin exacto ya no). El anfitrión puede cambiar o quitar el plazo en DRAFT o en PUBLISHED antes del inicio (en el inicio exacto ya no); se interpreta en la zona del evento y no puede ser posterior al inicio. Un plazo pasado es válido y cierra las respuestas. Implementado en R8, commits 0 y 1. |
 | RF-4.8 | Las opciones se pueden editar mientras el evento esté en borrador. Una vez publicado, solo se pueden renombrar y agregar; no eliminar opciones que ya tengan respuestas asociadas. **Discrepancia con el código.** `Event.replaceResponseOptions(...)` devuelve 409 ante *cualquier* cambio de opciones si el evento está publicado, sin distinguir entre renombrar, agregar o eliminar. El requisito de renombrar y agregar no está implementado. Ver D-7 en el plan, ampliado para reflejar el problema completo. |
 | RF-4.9 | El panel del anfitrión muestra el conteo por cada opción definida, más el total de invitados sin responder.                                                                        |
 
@@ -137,16 +137,25 @@ anfitrión (RF-2.13); esta limitación debe ser visible en la interfaz para que 
    la fecha. Ese registro se implementa en R7, también si se copió el enlace sin marcar envío.
 3. En un evento online recibe siempre metadatos sin secretos (plataforma, regla de visibilidad y horas). El
    backend solo incluye URL, sala, contraseña e instrucciones si el evento está PUBLISHED y se cumple la regla.
-   Hasta R8, ON_CONFIRMATION permanece oculto; confirmar significará elegir una opción que cuenta como
+   Hasta el commit 2 de R8, ON_CONFIRMATION permanece oculto; confirmar significará elegir una opción que cuenta como
    asistencia, no simplemente responder. La API no envía los secretos para que el frontend los oculte.
 4. Si el evento está CANCELLED, ve el estado, fecha y motivo de cancelación; si está FINISHED, ve su estado.
    Ambos devuelven 200 para conservar la utilidad de los enlaces ya repartidos, sin acceso online ni registro
    de nuevas aperturas. La transición a FINISHED sigue sin implementar (D-FINISHED).
-5. Elegir una opción, dejar un comentario permitido, recibir confirmación, descargar calendario y cambiar una
-   respuesta dentro de las condiciones del anfitrión corresponden a R8 y siguen pendientes. R7 entrega la
-   información para presentar la página, no registra respuestas.
+5. Envía `PUT /api/invitations/{token}/response`, sin sesión ni CSRF, con `responseOptionId`, `comment` y `email`
+   opcionales salvo la opción. La opción debe pertenecer al evento. Un comentario con contenido requiere
+   `allowComment` y admite hasta 500 caracteres; en blanco se trata como ausente y se guarda como null.
+   El correo, si viene, se valida y guarda, pero no se envía nada (D-EMAIL-NOT-SENT, hasta R10).
+6. Recibe 200 con la invitación y `myResponse` (opción, comentario, answeredAt y updatedAt, sin email).
+   GET también incluye esos datos, o los omite si no hay respuesta, y calcula `canChangeResponse` en el backend:
+   exige respuesta existente, permiso de cambio, PUBLISHED, plazo no vencido y evento aún no terminado.
+   Un nuevo PUT cambia la respuesta si se cumplen esas condiciones; de lo contrario devuelve 409.
+   El plazo rige también la primera respuesta. DRAFT conserva el 404 indistinguible del token desconocido;
+   CANCELLED y FINISHED rechazan escrituras con 409. La descarga de calendario sigue pendiente del commit 4 de R8.
 
-La respuesta pública y sus 404 llevan `Cache-Control: no-store`. El frontend deberá servir la página que
+La respuesta pública y sus errores llevan `Cache-Control: no-store` exacto y una instancia de error constante
+`/api/invitations`, sin token. Solo `/api/invitations/**` se excluye de CSRF: la credencial es el token de la
+ruta, no una cookie que el navegador envíe automáticamente. El frontend deberá servir la página que
 contiene el token en su URL con `Referrer-Policy: no-referrer`, también al mostrar un mapa embebido de Google.
 No hay límite de peticiones todavía; D-RATE-LIMIT permanece abierta.
 
