@@ -35,3 +35,4 @@ build/
 ### gtog ###
 .env
 application-local.properties
+/execution-logs/

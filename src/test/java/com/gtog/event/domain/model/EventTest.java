@@ -5,6 +5,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.Set;
 
 import org.junit.jupiter.api.Test;
 
@@ -213,7 +214,7 @@ class EventTest {
 
 		event.replaceResponseOptions(List.of(
 				new ResponseOptionEdit(existingId, "Asisto seguro", true),
-				new ResponseOptionEdit(null, "No asisto", false)));
+				new ResponseOptionEdit(null, "No asisto", false)), Set.of());
 
 		assertThat(event.getResponseOptions().get(0).id()).isEqualTo(existingId);
 		assertThat(event.getResponseOptions().get(0).label()).isEqualTo("Asisto seguro");
@@ -225,7 +226,7 @@ class EventTest {
 
 		event.replaceResponseOptions(List.of(
 				new ResponseOptionEdit(null, "Asisto", true),
-				new ResponseOptionEdit(null, "No asisto", false)));
+				new ResponseOptionEdit(null, "No asisto", false)), Set.of());
 
 		assertThat(event.getResponseOptions()).allSatisfy(option -> assertThat(option.id()).isNotNull());
 	}
@@ -236,7 +237,7 @@ class EventTest {
 
 		assertThatThrownBy(() -> event.replaceResponseOptions(List.of(
 				new ResponseOptionEdit("unknown-id", "Asisto", true),
-				new ResponseOptionEdit(null, "No asisto", false))))
+				new ResponseOptionEdit(null, "No asisto", false)), Set.of()))
 				.isInstanceOf(UnknownResponseOptionIdException.class);
 	}
 
@@ -245,7 +246,7 @@ class EventTest {
 		Event event = createEvent();
 
 		assertThatThrownBy(() -> event.replaceResponseOptions(
-				List.of(new ResponseOptionEdit(null, "Solo una", true))))
+				List.of(new ResponseOptionEdit(null, "Solo una", true)), Set.of()))
 				.isInstanceOf(InvalidResponseOptionCountException.class);
 	}
 
@@ -255,7 +256,7 @@ class EventTest {
 
 		event.replaceResponseOptions(List.of(
 				new ResponseOptionEdit(null, "Asisto", true),
-				new ResponseOptionEdit(null, "No asisto", false)));
+				new ResponseOptionEdit(null, "No asisto", false)), Set.of());
 
 		assertThat(event.isAllowComment()).isFalse();
 		assertThat(event.isAllowResponseChange()).isTrue();
@@ -263,7 +264,7 @@ class EventTest {
 	}
 
 	@Test
-	void doesNotAllowReplacingResponseOptionsWhenEventIsNotDraft() {
+	void doesNotAllowReplacingResponseOptionsWhenEventIsFinished() {
 		List<ResponseOption> responseOptions = List.of(ResponseOption.create("Asisto", true),
 				ResponseOption.create("No asisto", false));
 		Event event = Event.reconstituteBuilder()
@@ -275,7 +276,7 @@ class EventTest {
 				.endsAt(ENDS_AT)
 				.timeZone(TIME_ZONE)
 				.modality(Modality.IN_PERSON)
-				.status(EventStatus.PUBLISHED)
+				.status(EventStatus.FINISHED)
 				.responseOptions(responseOptions)
 				.allowComment(false)
 				.allowResponseChange(true)
@@ -284,7 +285,7 @@ class EventTest {
 
 		assertThatThrownBy(() -> event.replaceResponseOptions(List.of(
 				new ResponseOptionEdit(null, "Asisto", true),
-				new ResponseOptionEdit(null, "No asisto", false))))
+				new ResponseOptionEdit(null, "No asisto", false)), Set.of()))
 				.isInstanceOf(EventNotEditableException.class);
 	}
 

@@ -62,14 +62,12 @@ public class GuestService implements AddGuestUseCase, UpdateGuestUseCase, Delete
 	public void delete(DeleteGuestCommand command) {
 		Event event = ownedEvent(command.hostId(), command.eventId());
 		Guest guest = event.removeGuest(command.guestId());
-		// Extension preparada para R8. El adaptador de R6 siempre indica que no hay respuestas.
-		if (responses.hasResponse(event.getId(), guest.getToken())) {
-			if (!command.confirmDeleteResponse()) {
-				throw new GuestResponseDeletionConfirmationRequiredException();
-			}
-			responses.deleteResponse(event.getId(), guest.getToken());
+		if (responses.hasResponse(event.getId(), guest.getToken()) && !command.confirmDeleteResponse()) {
+			throw new GuestResponseDeletionConfirmationRequiredException();
 		}
 		guests.removeGuest(event.getId(), command.hostId(), event.getVersion(), guest.getId());
+		// Nunca perder una respuesta con el invitado vivo. Limpiar tambien si aparecio tras la consulta inicial.
+		responses.deleteResponse(event.getId(), guest.getToken());
 	}
 
 	@Override

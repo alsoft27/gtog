@@ -19,11 +19,12 @@ Estado a 14 de noviembre de 2026.
 | R6 — Invitados | `Guest` dentro de `event`, `guests[]` embebido, alta/edición/borrado/listado autenticados con ownership en aplicación. Normalización E.164 con libphonenumber 9.0.43; tokens de 32 bytes de `SecureRandom`, Base64 URL-safe sin relleno. Escrituras parciales con control e incremento de versión. `invitationPath` solo en alta y listado. D-3 saldada; cascada preparada para R8 sin crear `responses`. 71 tests nuevos. |
 | R7 — Página pública del invitado | `GET /api/invitations/{token}`, sin sesión ni CSRF; DTO público construido campo a campo, acceso online filtrado y Clock inyectado. DRAFT y desconocido devuelven el mismo 404; PUBLISHED, CANCELLED y FINISHED devuelven 200. Primera apertura atómica con $elemMatch y version +1; las revisitas OPENED no escriben. Cache-Control exacto `no-store` en éxito y 404. 31 tests nuevos. |
 | Preparación de R8 — Plazo editable (commit 0) | `PUT /api/events/{id}/response-deadline`, autenticado y con CSRF. Permite cambiar o quitar el plazo en DRAFT, y en PUBLISHED solo antes del inicio. Escritura parcial atómica con incremento de versión, compatible con aperturas concurrentes. 29 tests nuevos. R8 sigue pendiente. |
-| R8 — Registrar respuesta (commit 1) | `PUT /api/invitations/{token}/response`, público sin sesión ni CSRF. Colección `responses`, insert o upsert atómico según permiso de cambios. GET y PUT incluyen `myResponse` sin email y `canChangeResponse`. 54 tests nuevos. R8 queda parcialmente implementada: faltan los commits 3–4. |
+| R8 — Registrar respuesta (commit 1) | `PUT /api/invitations/{token}/response`, público sin sesión ni CSRF. Colección `responses`, insert o upsert atómico según permiso de cambios. GET y PUT incluyen `myResponse` sin email y `canChangeResponse`. 54 tests nuevos. R8 queda parcialmente implementada: falta el commit 4. |
 | R8 — Confirmación y enlace (commit 2) | D-CONFIRMED-LINK saldada: ON_CONFIRMATION usa la respuesta propia y countsAsAttendance. Opción inexistente o ausencia de respuesta equivale a no confirmado. GET y PUT comparten el filtro. 7 tests nuevos de integración a través del GET. |
+| R8 — Opciones publicadas y cascada (commit 3) | D-7 saldada: renombrar/agregar en PUBLISHED, sin eliminar ni cambiar countsAsAttendance de opciones con respuestas. Puerto de ids usados y cascada real de R6: primero retirar invitado y después limpiar respuesta. D-ORPHAN-OPTION documentada sin transacciones. 35 tests nuevos. |
 | Infraestructura | Java 25, Spring Boot 4.1, Maven por defecto, MongoDB Atlas, OpenAPI |
 
-**Verificación actual:** `mvn clean verify` pasa con **366 tests**, 0 fallos, 0 errores y 0 omitidos. El commit 0 de R8 añadió 29 y el commit 1 añadió 54. El commit 2 añade 7 de integración: respuesta afirmativa y negativa, cambios en ambos sentidos, opción inexistente, aislamiento de confirmaciones entre invitados y estados CANCELLED/FINISHED.
+**Verificación actual:** `mvn clean verify` pasa con **401 tests**, 0 fallos, 0 errores y 0 omitidos. El commit 0 de R8 añadió 29, el commit 1 añadió 54 y el commit 2 añadió 7. El commit 3 añade 35: 16 de dominio, 3 de aplicación y 16 de integración, incluidas opciones con respuestas y orden/fallos de cascada.
 
 **Lo que eso valida:** la arquitectura hexagonal funciona en la práctica, el mapeo entre `Event` y `EventDocument` es asumible, y el circuito completo de desarrollo está operativo. Además, `Event.create(...)`/`reconstitute(...)` cambiaron de firma en las tres rebanadas seguidas, así que desde R3 `Event` se construye con dos builders internos (`Event.builder()` para eventos nuevos, `Event.reconstituteBuilder()` para rehidratar) en vez de factory methods con parámetros posicionales — ver `docs/modelo-evento.md`.
 
@@ -40,7 +41,8 @@ Esto no es una lista de pendientes cualquiera: son cosas que ya están mal a pro
 | D-3 | **Índice único de `guests.token`** | Creado de forma idempotente en `MongoIndexInitializer`, con filtro parcial para tokens de tipo string. Permite eventos sin invitados. La unicidad dentro del mismo array se asegura en `Event` y con la escritura condicionada por versión. | **Saldada en R6.** |
 | D-5 | **Tests de integración contra Atlas** | Los tests necesitan red y son lentos | Aceptable mientras seas el único desarrollador |
 | D-6 | **Sin herramienta de migraciones** | No hay forma versionada de cambiar el esquema | Cuando haya datos reales |
-| D-7 | **Opciones de respuesta bloqueadas en eventos publicados** | RF-4.8 permite renombrar y agregar opciones tras publicar, prohibiendo solo eliminar las que tengan respuestas. El código actual es más restrictivo: `Event.replaceResponseOptions(...)` lanza `EventNotEditableException` (409) ante *cualquier* cambio si `status != DRAFT`, sin distinguir renombrar, agregar o eliminar. El dominio no conoce la colección `responses` todavía, así que tampoco puede saber qué ids tienen respuestas. El fix completo tiene dos partes: (1) permitir renombrar y agregar en `PUBLISHED`; (2) bloquear solo el borrado de opciones con respuestas. | Rebanada 8: `replaceResponseOptions(...)` recibirá el conjunto de ids con respuestas (calculado en la capa de aplicación) y pasará a funcionar en `PUBLISHED` para rename/add |
+| D-7 | **Opciones de respuesta bloqueadas en eventos publicados** | PUBLISHED permite renombrar y agregar; rechaza eliminar una opción con respuestas o cambiar su countsAsAttendance con dos excepciones de dominio propias (409). La aplicación consulta ids distintos del evento mediante un puerto y los pasa al dominio. Las demás validaciones permanecen. | **Saldada en R8, commit 3.** |
+| D-ORPHAN-OPTION | **Carrera entre responder y eliminar una opción** | Un invitado puede responder con X después de consultar los ids usados y antes de guardar la lista que la elimina. No se añaden transacciones. La lectura tolera la opción inexistente: conserva myResponse, pero no confirma asistencia ni muestra ON_CONFIRMATION. | Pendiente de planificación |
 | D-CONFIRMED-LINK | **Confirmación de asistencia provisional en R7** | `InvitationViewFactory.guestHasConfirmed(...)` usa la respuesta propia: solo confirma si la opción todavía existe y tiene `countsAsAttendance = true`. Sin respuesta, opción inexistente o "No asisto", false. El filtro se comparte en GET y PUT sin consultas adicionales. | **Saldada en R8, commit 2.** |
 | D-EMAIL-NOT-SENT | **Correo de respuesta sin envío** | El correo opcional se valida y se guarda únicamente en `responses`; no sale en `myResponse` ni se envía confirmación por correo. | R10 |
 | D-RATE-LIMIT | **Endpoint público sin límite de peticiones** | La entropía del token hace inviable adivinarlo, pero no protege frente a abuso o tráfico repetido sobre un enlace conocido. No hay rate limiting en R7. | Pendiente de planificación |
@@ -76,11 +78,12 @@ Los cuatro endpoints permiten gestionar contactos en `DRAFT` y `PUBLISHED`; `FIN
 las mutaciones con 409. El listado sigue disponible para el propietario. `POST` devuelve 201 con `Location`;
 `PUT`, 200; `DELETE`, 204; `GET`, 200. El anfitrión recibe 404 por un evento ajeno o un invitado inexistente.
 
-RF-2.6: el contrato `confirmDeleteResponse` está preparado en `GuestService` mediante
-`GuestResponseCleanupPort`. `NoGuestResponsesYetAdapter` representa expresamente que R6 no tiene respuestas;
-no crea ni consulta `responses`. Los tests con dobles comprueban el 409 sin confirmación y el orden de borrado
-con confirmación. En R8 hay que sustituir ese adaptador y resolver la concurrencia del borrado real con las
-respuestas y con un posible conflicto de versión; el punto de extensión no equivale a una cascada real ya implementada.
+RF-2.6: desde R8, commit 3, `GuestResponseCleanupPort` tiene adaptador real sobre `responses` y se elimina
+`NoGuestResponsesYetAdapter`. Si ya respondió requiere confirmDeleteResponse=true; sin confirmación, 409.
+Primero se retira el invitado y después se limpia su respuesta. Un conflicto de retirada conserva ambos;
+un fallo de limpieza deja una respuesta inalcanzable y devuelve 500 saneado. La limpieza se intenta siempre
+tras una retirada exitosa, para cubrir una respuesta llegada desde la consulta inicial. Una escritura que
+termine aún después puede quedar inalcanzable: no se añade transacción ni recuperación automática.
 
 RF-4.2 (conjuntos predefinidos de opciones): los presets *Asisto / No asisto*, *Asisto / No asisto / Tal vez* y *Confirmo / Declino / Pendiente* pueden vivir enteramente en el frontend como listas hardcodeadas que el cliente envía al crear el evento. El backend ya acepta cualquier combinación válida. No se necesita endpoint nuevo; confirmar con el equipo de frontend al integrar la pantalla de creación.
 
@@ -143,8 +146,14 @@ No se almacena un estado de confirmación nuevo ni se necesita otra consulta.
 El acceso al futuro muro social dependerá de estar invitado (token válido), no de responder ni confirmar;
 la confirmación solo gobierna la visibilidad del enlace de reunión. Decisión en `gtog-estado-y-decisiones.md`.
 
-Pendientes: commit 3 (D-7 y cascada real) y commit 4 (calendario).
-El adaptador provisional de limpieza de R6 sigue activo hasta el commit 3; todavía no consulta ni borra respuestas reales.
+**Commit 3 implementado: D-7 y cascada real.** `replaceResponseOptions(edits, answeredOptionIds)` permite
+DRAFT y PUBLISHED. En PUBLISHED conserva opciones con respuestas y su countsAsAttendance, permitiendo
+renombrar y agregar; las opciones sin respuestas se pueden quitar o cambiar. CANCELLED y FINISHED producen
+409. La aplicación obtiene los ids por un puerto; el dominio sigue sin conocer Mongo. La carrera con una
+respuesta en curso queda documentada como D-ORPHAN-OPTION, con lectura defensiva y sin transacciones.
+La cascada usa los puertos de R6 con el orden aprobado: retirar invitado y después limpiar respuesta real.
+
+Pendiente: commit 4 (calendario).
 
 **Preparación implementada (commit 0): plazo editable.** `PUT /api/events/{id}/response-deadline` recibe
 `{ "responseDeadline": LocalDateTime | null }` y devuelve 200 con `EventResponse`. Requiere sesión, CSRF y

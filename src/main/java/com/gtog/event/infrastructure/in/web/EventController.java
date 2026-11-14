@@ -265,8 +265,8 @@ public class EventController {
 	}
 
 	@Operation(summary = "Reemplaza las opciones de respuesta de un evento",
-			description = "Sustituye la lista completa de opciones de respuesta. Solo permitido mientras el evento "
-					+ "esta en DRAFT. Para conservar el id de una opcion existente, envialo de vuelta; una opcion "
+			description = "Sustituye la lista completa en DRAFT o PUBLISHED. En PUBLISHED no se puede eliminar una opcion "
+					+ "con respuestas ni cambiar su countsAsAttendance. Para conservar el id, envialo de vuelta; una opcion "
 					+ "sin id se crea como nueva. allowComment, allowResponseChange y responseDeadline se gestionan "
 					+ "a traves de PUT /api/events/{id}.")
 	@ApiResponses({
@@ -276,8 +276,8 @@ public class EventController {
 			@ApiResponse(responseCode = "404", description = "No existe ningun evento con ese id.",
 					content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
 							schema = @Schema(implementation = ProblemDetail.class))),
-			@ApiResponse(responseCode = "409", description = "El evento no esta en DRAFT y ya no admite cambios en "
-					+ "sus opciones de respuesta.",
+			@ApiResponse(responseCode = "409", description = "Evento cerrado, conflicto de version o intento de eliminar "
+					+ "una opcion con respuestas o cambiar su countsAsAttendance en PUBLISHED.",
 					content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
 							schema = @Schema(implementation = ProblemDetail.class))),
 			@ApiResponse(responseCode = "422", description = "La peticion viola una regla de negocio: numero de "

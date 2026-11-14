@@ -115,7 +115,12 @@ La votación entre fechas candidatas es una iteración posterior, aunque fuera e
 
 **Las respuestas van fuera del evento.** Si estuvieran embebidas, veinte invitados contestando a la vez escribirían sobre el mismo documento y se pisarían.
 
-**El estado `ANSWERED` no se almacena, se deriva** de que exista un documento de respuesta. Así ninguna operación cruza dos colecciones, y no hacen falta transacciones multidocumento ni réplica en local.
+**El estado `ANSWERED` no se almacena, se deriva** de que exista un documento de respuesta. Responder solo escribe en `responses`, sin actualizar un estado duplicado en el evento.
+
+**La cascada del invitado retira primero al invitado y después su respuesta** (R8, commit 3).
+Es una operación sobre dos colecciones sin transacción multidocumento. Si falla la retirada, la respuesta
+permanece con el invitado vivo; si falla la limpieza posterior, queda una respuesta inalcanzable por token.
+Se prioriza no perder una respuesta mientras su invitado todavía existe.
 
 **La unicidad se impone con índices, no con código.** Un invitado por token, una respuesta por invitado y evento, un correo por usuario. Las comprobaciones previas en la capa de aplicación fallan bajo concurrencia.
 
@@ -235,7 +240,8 @@ Esto no es un retraso, es dónde está el proyecto. Pero conviene tenerlo presen
 |---|---|
 | D-3 | El índice único de `guests.token` no existe porque `guests[]` no existe. Entra con R6 |
 | D-6 | Sin herramienta de migraciones de esquema |
-| D-7 | Las opciones están bloqueadas por completo en eventos publicados; la regla real solo prohíbe eliminar las que tengan respuestas |
+| D-7 | Saldada en R8, commit 3: PUBLISHED admite renombrar y agregar, pero no eliminar opciones con respuestas ni cambiar su countsAsAttendance |
+| D-ORPHAN-OPTION | Una respuesta concurrente puede referenciar una opción que el anfitrión acaba de eliminar. Lectura defensiva: opción inexistente no confirma asistencia. Sin transacciones |
 | D-FINISHED | Ningún mecanismo pasa un evento a `FINISHED` |
 | D-DELETE-DRAFT | No se puede eliminar un borrador |
 | D-SWAGGER-PUBLIC | La especificación OpenAPI es pública en todos los entornos |

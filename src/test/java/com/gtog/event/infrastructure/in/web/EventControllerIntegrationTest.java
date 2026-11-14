@@ -60,6 +60,8 @@ class EventControllerIntegrationTest {
 
 	@Autowired
 	private MockMvc mockMvc;
+	@Autowired
+	private org.springframework.data.mongodb.core.MongoTemplate mongoTemplate;
 
 	@Autowired
 	private EventMongoRepository eventMongoRepository;
@@ -70,6 +72,8 @@ class EventControllerIntegrationTest {
 	@BeforeEach
 	void cleanDatabase() {
 		eventMongoRepository.deleteAll();
+		mongoTemplate.remove(new org.springframework.data.mongodb.core.query.Query(),
+				com.gtog.event.infrastructure.out.persistence.GuestResponseDocument.class);
 		userMongoRepository.deleteAll();
 		UserDocument host = new UserDocument();
 		host.setId("host-id-1");
@@ -534,7 +538,7 @@ class EventControllerIntegrationTest {
 
 	@Test
 	@WithUserDetails(value = TEST_HOST_EMAIL, setupBefore = TestExecutionEvent.TEST_EXECUTION)
-	void replaceResponseOptionsReturns409WhenEventIsPublished() throws Exception {
+	void replaceResponseOptionsReturns200WhenPublishedOptionsHaveNoResponses() throws Exception {
 		String location = createEvent("Cumpleaños");
 		String eventId = location.substring(location.lastIndexOf('/') + 1);
 		publishEvent(eventId);
@@ -550,8 +554,7 @@ class EventControllerIntegrationTest {
 
 		mockMvc.perform(put("/api/events/" + eventId + "/response-options")
 				.with(csrf()).contentType(MediaType.APPLICATION_JSON).content(requestBody))
-				.andExpect(status().isConflict())
-				.andExpect(jsonPath("$.status").value(409));
+				.andExpect(status().isOk());
 	}
 
 	@Test

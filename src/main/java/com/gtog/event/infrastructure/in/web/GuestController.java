@@ -91,12 +91,14 @@ public class GuestController {
 				request.name(), request.email(), request.phone())));
 	}
 
-	@Operation(summary = "Elimina un invitado", description = "Permitido en DRAFT y PUBLISHED. El contrato de "
-			+ "confirmDeleteResponse queda preparado para R8; en R6 todavia no existen respuestas. Requiere CSRF.")
+	@Operation(summary = "Elimina un invitado", description = "Permitido en DRAFT y PUBLISHED. Una respuesta existente "
+			+ "requiere confirmDeleteResponse=true. Primero se retira el invitado y despues su respuesta. Requiere CSRF.")
 	@ApiResponses({
 			@ApiResponse(responseCode = "204", description = "Invitado eliminado", content = @Content),
 			@ApiResponse(responseCode = "403", description = "CSRF ausente o invalido", content = @Content),
 			@ApiResponse(responseCode = "409", description = "Evento cerrado, cambio concurrente o falta confirmacion de cascada",
+					content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+			@ApiResponse(responseCode = "500", description = "Fallo de persistencia; si falla la limpieza posterior, el invitado ya fue retirado",
 					content = @Content(schema = @Schema(implementation = ProblemDetail.class))) })
 	@DeleteMapping("/{guestId}")
 	public ResponseEntity<Void> delete(@PathVariable String id, @PathVariable String guestId,

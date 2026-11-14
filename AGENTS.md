@@ -61,6 +61,8 @@ La especificación está escrita en español y el código no. Usa esta tabla de 
 
 Se usa Maven por defecto, sin flags de configuración adicionales.
 
+Si necesitas guardar la salida de una ejecución para consultarla después, usa `execution-logs/` en la raíz del proyecto, excluida en `.gitignore`; no guardes esas salidas en `/tmp`.
+
 ```bash
 mvn clean verify
 mvn test
@@ -163,7 +165,10 @@ Separar las respuestas implica que un invitado al contestar tendría que escribi
 
 El panel del anfitrión lo resuelve con una agregación `$lookup` de `events` a `responses`, o con dos consultas unidas en la capa de aplicación. Cualquiera de las dos vale: elige una y sé consistente.
 
-La ganancia: **ninguna operación cruza dos colecciones**, así que no hacen falta transacciones multidocumento y MongoDB puede correr en local sin réplica.
+La ganancia: responder escribe solo en `responses`, sin sincronizar un estado duplicado en `events`.
+La excepción es el borrado en cascada de un invitado (R8): se retira de `events` antes de limpiar `responses`,
+sin transacción multidocumento. Un fallo de limpieza deja una respuesta inalcanzable, nunca una respuesta
+perdida con el invitado vivo.
 
 ### Concurrencia
 
@@ -192,7 +197,7 @@ Las ediciones del anfitrión sobre el cuerpo del evento sí pueden usar `save()`
 - Enums persistidos como cadenas, nunca como ordinal.
 - Marcas de tiempo en UTC. La zona horaria del evento es un campo aparte.
 - Teléfonos en formato **E.164**, normalizados al escribir.
-- **Sin integridad referencial nativa.** MongoDB no impone restricciones de clave foránea entre colecciones. Quien elimina un elemento de `events` es responsable de borrar en cascada lo que depende de él en `responses` y, cuando existan, en `wall_posts`. La cascada se orquesta en la capa de aplicación: el caso de uso llama al puerto correspondiente antes de persistir el borrado en `events`. Nunca la delegues al dominio ni confíes en que la base de datos la gestione.
+- **Sin integridad referencial nativa.** MongoDB no impone restricciones de clave foránea entre colecciones. Quien elimina un elemento de `events` es responsable de borrar en cascada lo que depende de él en `responses` y, cuando existan, en `wall_posts`. La cascada se orquesta en aplicación: para el invitado, exige confirmación si ya respondió, retíralo primero de `events` y solo después limpia su respuesta. Si falla la retirada, no borres la respuesta. Nunca delegues la cascada al dominio ni confíes en que la base de datos la gestione.
 - Si en algún momento crees que una operación necesita una transacción multidocumento, para y dímelo: significa que los límites entre colecciones están mal trazados.
 
 ---
@@ -226,7 +231,7 @@ public record CreateEventRequest(
 
 **Sin lógica de negocio en los controladores.** El controlador valida la entrada, llama al caso de uso y mapea el resultado.
 
-**La validación se reparte en dos sitios:** las anotaciones de Jakarta sobre el record de entrada cubren el formato (tipos, rangos, patrones); las reglas de negocio (mínimo dos opciones de respuesta, al menos una que cuente como asistencia, el evento debe estar en `DRAFT` para cambiar las opciones) viven en el dominio.
+**La validación se reparte en dos sitios:** las anotaciones de Jakarta sobre el record de entrada cubren el formato (tipos, rangos, patrones); las reglas de negocio (mínimo dos opciones de respuesta, al menos una que cuente como asistencia, restricciones de opciones en `PUBLISHED`) viven en el dominio.
 
 **Si la obligatoriedad de un campo es en sí una regla de negocio, no la captures con Jakarta.** Nada de `@NotBlank`/`@NotNull` en el DTO para ese campo: se valida en el dominio, con su propia excepción, y sale como 422. Si Jakarta la bloqueara antes, respondería 400 y la regla de negocio no llegaría nunca a ejecutarse — ni a poder probarse a través del controlador. Ejemplos ya en el código: `title` de `CreateEventRequest` (`BlankEventTitleException`), `label` de las opciones de respuesta (`BlankResponseOptionLabelException`), y los campos obligatorios de `Venue` y `OnlineAccess` (`MissingVenueFieldException`, `MissingOnlineAccessFieldException`). Por contraste, `timeZone` del evento lleva `@NotBlank` para exigir su presencia; el dominio comprueba que sea una zona válida con `ZoneId.of(...)`. `hostId` ya no forma parte de `CreateEventRequest` desde R5.
 
@@ -278,7 +283,7 @@ Estas reglas son el contrato final del producto, no necesariamente lo que el có
 
 3. **El envío por WhatsApp y Telegram no es automático.** El backend construye el enlace profundo y lo devuelve; el envío real lo hace el anfitrión desde su cliente y lo confirma a mano. No implementes ni propongas integración con la API de WhatsApp Business.
 
-4. **Las opciones de respuesta las define el anfitrión.** No hay enum fijo de respuestas. Entre dos y cinco opciones, ordenadas, cada una marcando si cuenta como asistencia — esta parte ya está implementada e impuesta por el dominio (R2). **Pendiente (D-7):** una vez publicado el evento, las opciones se deben poder renombrar y agregar, pero no eliminar si ya tienen respuestas. Hoy `replaceResponseOptions(...)` bloquea cualquier cambio en `PUBLISHED` con 409, sin distinguir entre renombrar, agregar o eliminar — el dominio no conoce la colección `responses` todavía. Ver D-7 en el plan, saldado en R8.
+4. **Las opciones de respuesta las define el anfitrión.** No hay enum fijo de respuestas. Entre dos y cinco opciones, ordenadas, con etiquetas únicas y no vacías y al menos una que cuente como asistencia. En DRAFT pueden cambiarse; en PUBLISHED se pueden renombrar y agregar, pero no eliminar una opción con respuestas ni cambiar su `countsAsAttendance` (409 con excepciones propias). La aplicación consulta los ids con respuestas y los pasa al dominio, que no conoce Mongo. CANCELLED y FINISHED bloquean los cambios. D-7 saldada en R8; la carrera entre responder y eliminar una opción queda en D-ORPHAN-OPTION, sin transacciones.
 
 5. **Un evento es presencial o en línea, nunca ambos.** La modalidad híbrida está fuera de alcance a propósito en esta iteración.
 

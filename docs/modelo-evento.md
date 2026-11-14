@@ -1,7 +1,7 @@
 # Modelo de datos: Evento
 
 Estado del modelo tras R1–R7: creación de eventos, consulta/listado (R1), opciones de respuesta (R2),
-ubicación/acceso en línea (R3), editar/publicar/cancelar (R4), seguridad/ownership (R5), invitados (R6), consulta pública (R7), plazo editable, registro de respuesta y enlace por confirmación (R8, commits 0–2). Las respuestas viven en `responses`, nunca embebidas en el evento. El muro social sigue pendiente.
+ubicación/acceso en línea (R3), editar/publicar/cancelar (R4), seguridad/ownership (R5), invitados (R6), consulta pública (R7), plazo editable, registro de respuesta, enlace por confirmación, opciones publicadas y cascada (R8, commits 0–3). Las respuestas viven en `responses`, nunca embebidas en el evento. Calendario y muro social siguen pendientes.
 
 ---
 
@@ -68,7 +68,9 @@ Consultar `canChangeResponse` reutiliza esta regla, sin duplicar comparaciones d
 | `url` de `OnlineAccess` debe ser `http`/`https` válida | `InvalidOnlineAccessUrlException` | 422 |
 | `hoursBefore` obligatorio si `linkVisibility` es `HOURS_BEFORE` | `MissingHoursBeforeException` | 422 |
 | `hoursBefore` debe ser `> 0` si aplica, y no debe enviarse si `linkVisibility` no es `HOURS_BEFORE` | `InvalidHoursBeforeException` | 422 |
-| Las opciones solo se pueden reemplazar mientras el evento está en `DRAFT` | `EventNotEditableException` | 409 |
+| Reemplazar opciones solo en DRAFT o PUBLISHED | `EventNotEditableException` | 409 |
+| En PUBLISHED no se puede eliminar una opción con respuestas | `ResponseOptionDeletionNotAllowedException` | 409 |
+| En PUBLISHED no se puede cambiar countsAsAttendance de una opción con respuestas | `ResponseOptionAttendanceChangeNotAllowedException` | 409 |
 | Reemplazar `venue` o `onlineAccess` exige compatibilidad con la modalidad del evento existente | `ModalityConflictException` | 409 |
 | El evento debe existir | `EventNotFoundException` | 404 |
 
@@ -128,27 +130,27 @@ El reemplazo de la lista distingue opción nueva de opción existente por la pre
 
 - **Sin `id`** → opción nueva; el dominio le genera un id.
 - **Con `id` que coincide con una opción actual del evento** → se conserva el id, se actualizan `label` y
-  `countsAsAttendance` (permite renombrar sin perder la referencia desde `responses`, pensado para cuando exista
-  esa colección).
+  `countsAsAttendance`, respetando la protección de opciones con respuestas en PUBLISHED. Permite renombrar
+  sin perder la referencia desde `responses`.
 - **Con `id` que no coincide con ninguna opción actual** → error, `UnknownResponseOptionIdException` (422). No se
   trata como opción nueva.
 
-### Pendiente: "se puede renombrar pero no eliminar" una opción con respuestas
+### Opciones con respuestas en PUBLISHED (R8, commit 3)
 
-La especificación (regla de negocio 4 de `AGENTS.md`) exige que, una vez publicado el evento, una opción de
-respuesta con respuestas asociadas se pueda renombrar pero no eliminar de la lista. **Todavía no está
-implementada**: `Event.replaceResponseOptions(...)` no distingue hoy entre "opción sin respuestas, se puede
-quitar libremente" y "opción con respuestas, no se puede quitar" — permite quitar cualquier opción que no venga
-en la lista de reemplazo, sin más.
+`Event.replaceResponseOptions(edits, answeredOptionIds)` recibe los ids con respuestas, calculados por
+`ReplaceResponseOptionsService` mediante `GuestResponseRepositoryPort.findAnsweredOptionIds(eventId)`.
+La consulta devuelve ids distintos únicamente del evento solicitado. El dominio no conoce la colección.
 
-El motivo es que el dominio de `Event` no conoce la colección `responses` (todavía no existe: es la rebanada
-R8 del plan). Sin esa información, `Event` no puede saber qué ids de sus propias opciones tienen respuestas.
+En DRAFT no hay restricciones por respuestas; en PUBLISHED se puede renombrar y agregar. No se puede quitar
+una opción con respuestas (`ResponseOptionDeletionNotAllowedException`, 409), ni cambiar su countsAsAttendance
+(`ResponseOptionAttendanceChangeNotAllowedException`, 409): hacerlo alteraría retroactivamente quién está
+confirmado y quién recibe el enlace. Las opciones sin respuestas sí pueden eliminarse o cambiar esa marca.
+CANCELLED y FINISHED producen 409. Siguen vigentes todas las validaciones de 2–5 opciones, asistencia y etiquetas.
+La lista del agregado solo cambia si pasa toda la validación; la persistencia conserva el bloqueo optimista.
 
-Cuando se implemente `responses`, `replaceResponseOptions(...)` tendrá que recibir además el conjunto de ids de
-opciones con al menos una respuesta (calculado en la capa de aplicación, consultando `responses`, y pasado como
-parámetro — el dominio sigue sin conocer la colección, solo el resultado de la pregunta). Con ese conjunto,
-`Event` podrá rechazar con una nueva excepción de dominio (422) cualquier reemplazo que omita un id perteneciente
-a ese conjunto.
+**D-ORPHAN-OPTION:** un invitado puede responder con X entre la consulta de ids usados y el guardado de una
+lista que elimina X. No se añaden transacciones. La lectura pública tolera esa referencia: la respuesta se
+conserva, pero una opción inexistente no confirma asistencia ni abre ON_CONFIRMATION.
 
 ---
 
@@ -261,7 +263,7 @@ dentro del mismo `guests[]`. Ver `docs/modelo-invitado.md`.
 | `CreateEventUseCase` | `CreateEventService` | Crea el evento en `DRAFT` con sus opciones (o los defaults) y lo persiste. |
 | `GetEventByIdUseCase` | `EventQueryService` | Devuelve el evento completo o lanza `EventNotFoundException`. |
 | `ListEventsByHostUseCase` | `EventQueryService` | Lista los eventos de un `hostId`, sin paginación. |
-| `ReplaceResponseOptionsUseCase` | `ReplaceResponseOptionsService` | Busca el evento, delega la sustitución de opciones (solo la lista, sin `allowComment`/`allowResponseChange`/`responseDeadline`) en el propio `Event` y lo guarda. |
+| `ReplaceResponseOptionsUseCase` | `ReplaceResponseOptionsService` | Comprueba propiedad; en PUBLISHED consulta los ids con respuestas mediante un puerto, los pasa al dominio junto con la lista y guarda con bloqueo optimista. No cambia allowComment/allowResponseChange/responseDeadline. |
 | `ReplaceVenueUseCase` | `EventLocationService` | Busca el evento, delega en `event.replaceVenue(...)` y lo guarda. |
 | `ReplaceOnlineAccessUseCase` | `EventLocationService` | Busca el evento, delega en `event.replaceOnlineAccess(...)` y lo guarda. |
 | `UpdateEventUseCase` | `UpdateEventService` | Busca el evento, delega en `event.edit(EventEdit)` y lo guarda. `allowComment`/`allowResponseChange`/`responseDeadline` se editan aquí, no en `replaceResponseOptions`. |
@@ -269,7 +271,7 @@ dentro del mismo `guests[]`. Ver `docs/modelo-invitado.md`.
 | `RecordGuestResponseUseCase` | `RecordGuestResponseService` | Resuelve la invitación por token, valida la respuesta y la inserta o actualiza atómicamente en `responses`, sin guardar el evento. Devuelve la vista pública con la respuesta propia. |
 | `PublishEventUseCase` | `PublishEventService` | Busca el evento, llama a `event.publish()` y lo guarda. |
 | `AddGuestUseCase` / `UpdateGuestUseCase` | `GuestService` | Valida propiedad y reglas del agregado; persiste únicamente el alta o los contactos editados. |
-| `DeleteGuestUseCase` | `GuestService` | Valida estado y propiedad; prepara la futura confirmación y cascada, y elimina el invitado con escritura parcial. |
+| `DeleteGuestUseCase` | `GuestService` | Valida estado, propiedad y confirmación si ya respondió; retira al invitado con escritura parcial y después limpia su respuesta real. |
 | `ListGuestUseCase` | `GuestService` | Devuelve los invitados al propietario, también en eventos cerrados. |
 | `CancelEventUseCase` | `CancelEventService` | Busca el evento, llama a `event.cancel(reason, Instant.now())` y lo guarda. |
 

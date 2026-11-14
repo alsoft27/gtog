@@ -5,6 +5,8 @@ import com.gtog.event.domain.model.GuestResponseException;
 import com.gtog.event.domain.model.GuestResponseStorageException;
 import com.gtog.event.domain.model.ResponseNotAcceptedException;
 import com.gtog.event.domain.model.ResponseChangeNotAllowedException;
+import com.gtog.event.domain.model.ResponseOptionDeletionNotAllowedException;
+import com.gtog.event.domain.model.ResponseOptionAttendanceChangeNotAllowedException;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import jakarta.servlet.http.HttpServletRequest;
 
@@ -118,8 +120,9 @@ public class GlobalExceptionHandler {
 		return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, exception.getMessage());
 	}
 
-	@ExceptionHandler(ResponseDeadlineNotEditableException.class)
-	public ProblemDetail handleResponseDeadlineNotEditable(ResponseDeadlineNotEditableException exception) {
+	@ExceptionHandler({ResponseDeadlineNotEditableException.class, ResponseOptionDeletionNotAllowedException.class,
+			ResponseOptionAttendanceChangeNotAllowedException.class})
+	public ProblemDetail handleEventConfigurationConflict(EventDomainException exception) {
 		return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, exception.getMessage());
 	}
 

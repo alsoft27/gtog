@@ -1,7 +1,7 @@
 # Modelo de datos: Invitado
 
-Estado tras R8, commits 0–2, 14 de noviembre de 2026. Gestión de invitados del anfitrión, consulta pública,
-registro de respuestas y enlace por confirmación. Quedan pendientes cascada real y calendario (commits 3–4).
+Estado tras R8, commits 0–3, 14 de noviembre de 2026. Gestión de invitados del anfitrión, consulta pública,
+registro de respuestas, enlace por confirmación, opciones publicadas y cascada real. Queda pendiente calendario (commit 4).
 
 La preparación de R8 (commit 0) añade el plazo editable por el anfitrión mediante
 `PUT /api/events/{id}/response-deadline`: DRAFT, o PUBLISHED estrictamente antes del inicio. null lo elimina;
@@ -190,25 +190,34 @@ El endpoint no registra tokens. No deben habilitarse trazas de URLs ni consultas
 Quedan anotadas D-RATE-LIMIT y D-REFERRER: sin límite de peticiones en R7, y el frontend debe servir su página
 con `Referrer-Policy: no-referrer` para evitar filtrar el token de la URL al cargar recursos externos.
 
-## Borrado y extensión para R8
-
-**Estado transitorio tras el commit 1:** `responses` ya existe, pero el adaptador provisional de R6 sigue
-activo hasta el commit 3. La confirmación y cascada todavía no operan sobre respuestas reales. En el commit 3
-se cambiará el orden: primero quitar el invitado del evento y solo después borrar la respuesta; si la limpieza
-falla, quedará una respuesta inalcanzable, nunca una respuesta perdida con el invitado vivo.
+## Borrado y cascada real (R8, commit 3)
 
 `GuestResponseCleanupPort` declara `hasResponse(eventId, guestToken)` y `deleteResponse(eventId, guestToken)`.
-El servicio rechaza con 409 un borrado con respuesta sin confirmación; con confirmación, invoca el borrado
-de la respuesta antes de persistir el borrado del invitado. Si la limpieza falla, no elimina al invitado.
+Lo implementa `GuestResponseRepositoryAdapter` sobre `responses`; se elimina `NoGuestResponsesYetAdapter`.
+La consulta y el borrado filtran por evento y token, sin afectar respuestas de otros invitados.
 
-En R6 **no existía la colección `responses`**. `NoGuestResponsesYetAdapter` devuelve siempre `false` al consultar
-y falla expresamente si se intenta borrar una respuesta. No consulta ni crea colecciones. Los tests con dobles
-comprueban las ramas futuras de confirmación, orden y fallo de cascada.
+`GuestService.delete(...)` comprueba propiedad y estado, y exige `confirmDeleteResponse=true` si ya existe
+respuesta; sin confirmación devuelve 409 y no modifica ninguno de los documentos. Retira primero al invitado
+mediante el puerto de actualización parcial con versión esperada y solo después borra su respuesta.
+Si la retirada falla, no llama a la limpieza y conserva invitado y respuesta. Si falla la limpieza, devuelve
+500 saneado: el invitado ya no existe y el token produce 404, aunque la respuesta quede en la colección.
+Se prioriza no perder una respuesta mientras su invitado sigue vivo.
 
-R8 debe sustituir ese bean por el adaptador real y cubrir las carreras entre responder, borrar y modificar la
-versión del evento. En particular, debe definir cómo completar o recuperar el borrado si la limpieza ya se
-hizo pero la escritura del evento encuentra un conflicto. R6 prepara el contrato, no implementa una cascada
-real sobre la colección de respuestas.
+La limpieza se intenta también si no había respuesta al consultar: puede haber llegado entre la consulta y
+la retirada. No es una transacción: una respuesta que ya estaba en curso puede terminar después de la limpieza
+y quedar inalcanzable. No se añade una colección, transacción ni tarea de recuperación automática.
+
+## Opciones con respuestas (R8, commit 3)
+
+El anfitrión puede renombrar o agregar opciones en PUBLISHED. No puede eliminar una opción con respuestas ni
+cambiar su countsAsAttendance: ambos producen 409 con excepciones propias. Así no se cambia retroactivamente
+la confirmación ni la visibilidad del enlace. El servicio consulta ids distintos del evento mediante
+`GuestResponseRepositoryPort.findAnsweredOptionIds(...)` y los pasa a `Event.replaceResponseOptions(...)`.
+En DRAFT no aplica esta protección; CANCELLED y FINISHED no permiten cambios. Ver `modelo-evento.md`.
+
+**D-ORPHAN-OPTION:** un invitado puede responder con X mientras el anfitrión la elimina, después de la consulta
+de ids con respuestas. No se resuelve con transacciones. La lectura pública conserva la respuesta propia,
+pero una opción inexistente no confirma asistencia ni abre el enlace ON_CONFIRMATION.
 
 ## Respuesta propia (R8, commit 1)
 
@@ -264,7 +273,7 @@ Fuera de PUBLISHED, el acceso sigue oculto aunque la respuesta propia cuente com
 
 ## Verificación
 
-`mvn clean verify`: **366 tests**, sin fallos, errores ni omitidos. R6 incorporó 71 casos y R7 incorporó 31:
+`mvn clean verify`: **401 tests**, sin fallos, errores ni omitidos. R6 incorporó 71 casos y R7 incorporó 31:
 4 de dominio, 9 de aplicación y 18 de integración contra Atlas (`gtog_test`). La preparación de R8 añade
 29: 8 de dominio, 4 de aplicación y 17 de integración, incluida apertura concurrente y cancelación con
 versión anterior al cambio del plazo.
@@ -277,6 +286,13 @@ sin causa, duplicados de otro índice en insert y upsert, preflight CORS y cabec
 El commit 2 añade 7 pruebas de integración a través del GET: confirmación afirmativa y negativa, cambios en
 ambos sentidos, opción inexistente sin error, aislamiento entre invitados y ocultación aun confirmado en
 CANCELLED y FINISHED. Se comprueba el cuerpo completo para detectar URL, contraseña, sala e instrucciones.
+
+El commit 3 añade 35: 16 de dominio, 3 de aplicación y 16 de integración. Incluyen cambios permitidos y
+prohibidos en PUBLISHED, reglas estructurales, DRAFT y estados cerrados, propiedad, ids usados por evento,
+confirmación de borrado, orden real de cascada y sus dos fallos, aislamiento entre respuestas y limpieza de
+una respuesta llegada después de la consulta inicial. Las pruebas anteriores de cascada de R6 se adaptan
+al nuevo orden aprobado. También se comprueba que repetir un id no permita cambiar la marca de asistencia
+de una opción con respuestas, y que estos conflictos produzcan 409 aunque invaliden el tamaño o la asistencia.
 
 R7 cubre privacidad comparando el cuerpo completo, fechas locales/UTC, los tres modos de visibilidad con Clock
 fijo y el umbral exacto, estados públicos y borrador, 404 indistinguibles, logs sin tokens, OPENED desde NOT_SENT

@@ -17,18 +17,22 @@ import com.gtog.event.domain.model.ResponseOption;
 import com.gtog.event.domain.model.ResponseOptionEdit;
 import com.gtog.event.domain.port.in.ReplaceResponseOptionsCommand;
 import com.gtog.event.domain.port.out.EventRepositoryPort;
+import com.gtog.event.domain.port.out.GuestResponseRepositoryPort;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 @ExtendWith(MockitoExtension.class)
 class ReplaceResponseOptionsServiceTest {
 
 	@Mock
 	private EventRepositoryPort eventRepositoryPort;
+	@Mock private GuestResponseRepositoryPort responses;
 
 	@Test
 	void replacesTheResponseOptionsOfAnExistingEventAndSavesIt() {
@@ -40,12 +44,37 @@ class ReplaceResponseOptionsServiceTest {
 				new ResponseOptionEdit(null, "Voy", true),
 				new ResponseOptionEdit(null, "No voy", false)));
 
-		ReplaceResponseOptionsService service = new ReplaceResponseOptionsService(eventRepositoryPort);
+		ReplaceResponseOptionsService service = new ReplaceResponseOptionsService(eventRepositoryPort, responses);
 		Event result = service.replaceResponseOptions(command);
 
 		assertThat(result).isSameAs(event);
 		assertThat(event.getResponseOptions()).extracting(ResponseOption::label).containsExactly("Voy", "No voy");
 		verify(eventRepositoryPort).save(event);
+		verifyNoInteractions(responses);
+	}
+
+	@Test
+	void passesTheAnsweredOptionIdsToTheDomainBeforeSavingAPublishedEvent() {
+		Event event = com.gtog.event.ResponseTestFixtures.responseEvent(EventStatus.PUBLISHED, true, true, null);
+		when(eventRepositoryPort.findById("event-id")).thenReturn(Optional.of(event));
+		when(responses.findAnsweredOptionIds("event-id")).thenReturn(java.util.Set.of("yes-id"));
+		var command = new ReplaceResponseOptionsCommand("host-1", "event-id", List.of(
+				new ResponseOptionEdit("no-id", "No", false), new ResponseOptionEdit(null, "Nuevo si", true)));
+		var service = new ReplaceResponseOptionsService(eventRepositoryPort, responses);
+		assertThatThrownBy(() -> service.replaceResponseOptions(command))
+				.isInstanceOf(com.gtog.event.domain.model.ResponseOptionDeletionNotAllowedException.class);
+		verify(responses).findAnsweredOptionIds("event-id");
+		verify(eventRepositoryPort, never()).save(any());
+	}
+
+	@Test
+	void checksOwnershipBeforeQueryingResponses() {
+		when(eventRepositoryPort.findById("event-1")).thenReturn(Optional.of(anEvent("event-1")));
+		var service = new ReplaceResponseOptionsService(eventRepositoryPort, responses);
+		assertThatThrownBy(() -> service.replaceResponseOptions(new ReplaceResponseOptionsCommand("other", "event-1", List.of())))
+				.isInstanceOf(EventNotFoundException.class);
+		verifyNoInteractions(responses);
+		verify(eventRepositoryPort, never()).save(any());
 	}
 
 	@Test
@@ -56,7 +85,7 @@ class ReplaceResponseOptionsServiceTest {
 				new ResponseOptionEdit(null, "Asisto", true),
 				new ResponseOptionEdit(null, "No asisto", false)));
 
-		ReplaceResponseOptionsService service = new ReplaceResponseOptionsService(eventRepositoryPort);
+		ReplaceResponseOptionsService service = new ReplaceResponseOptionsService(eventRepositoryPort, responses);
 
 		assertThatThrownBy(() -> service.replaceResponseOptions(command)).isInstanceOf(EventNotFoundException.class);
 	}

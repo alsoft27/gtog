@@ -77,6 +77,8 @@ class GuestControllerIntegrationTest {
 	@BeforeEach
 	void setUp() {
 		eventDocuments.deleteAll();
+		mongoTemplate.remove(new org.springframework.data.mongodb.core.query.Query(),
+				com.gtog.event.infrastructure.out.persistence.GuestResponseDocument.class);
 		users.deleteAll();
 		for (int i = 1; i <= 2; i++) {
 			UserDocument host = new UserDocument();

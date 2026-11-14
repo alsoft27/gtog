@@ -2,6 +2,7 @@ package com.gtog.event.infrastructure.out.persistence;
 
 import java.util.Optional;
 import java.util.List;
+import java.util.Set;
 import org.bson.BsonDocument;
 import org.bson.Document;
 import org.springframework.dao.DataAccessException;
@@ -18,9 +19,10 @@ import com.gtog.event.domain.model.GuestResponse;
 import com.gtog.event.domain.model.GuestResponseStorageException;
 import com.gtog.event.domain.model.ResponseChangeNotAllowedException;
 import com.gtog.event.domain.port.out.GuestResponseRepositoryPort;
+import com.gtog.event.domain.port.out.GuestResponseCleanupPort;
 
 @Component
-public class GuestResponseRepositoryAdapter implements GuestResponseRepositoryPort {
+public class GuestResponseRepositoryAdapter implements GuestResponseRepositoryPort, GuestResponseCleanupPort {
 	private final MongoTemplate mongo;
 
 	public GuestResponseRepositoryAdapter(MongoTemplate mongo) { this.mongo = mongo; }
@@ -89,6 +91,26 @@ public class GuestResponseRepositoryAdapter implements GuestResponseRepositoryPo
 
 	private Query key(String eventId, String token) {
 		return Query.query(Criteria.where("eventId").is(eventId).and("guestToken").is(token));
+	}
+
+	@Override
+	public Set<String> findAnsweredOptionIds(String eventId) {
+		try {
+			return Set.copyOf(mongo.findDistinct(Query.query(Criteria.where("eventId").is(eventId)),
+					"responseOptionId", GuestResponseDocument.class, String.class));
+		} catch (DataAccessException failure) { throw new GuestResponseStorageException(); }
+	}
+
+	@Override
+	public boolean hasResponse(String eventId, String guestToken) {
+		try { return mongo.exists(key(eventId, guestToken), GuestResponseDocument.class); }
+		catch (DataAccessException failure) { throw new GuestResponseStorageException(); }
+	}
+
+	@Override
+	public void deleteResponse(String eventId, String guestToken) {
+		try { mongo.remove(key(eventId, guestToken), GuestResponseDocument.class); }
+		catch (DataAccessException failure) { throw new GuestResponseStorageException(); }
 	}
 
 	// D-DUP-KEY: codigo y keyPattern estructurados; nunca buscar palabras en el mensaje E11000.

@@ -1,6 +1,6 @@
 package com.gtog.event.domain.port.out;
 
-// R8 sustituira el adaptador temporal: la respuesta sigue fuera de Guest y de Event.
+// La respuesta sigue fuera de Guest y de Event; la aplicacion orquesta su limpieza tras retirar al invitado.
 public interface GuestResponseCleanupPort {
 
 	boolean hasResponse(String eventId, String guestToken);

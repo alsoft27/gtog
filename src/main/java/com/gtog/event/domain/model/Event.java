@@ -8,6 +8,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 public class Event {
@@ -128,11 +129,21 @@ public class Event {
 		}
 	}
 
-	public void replaceResponseOptions(List<ResponseOptionEdit> edits) {
-		if (status != EventStatus.DRAFT) {
+	public void replaceResponseOptions(List<ResponseOptionEdit> edits, Set<String> answeredOptionIds) {
+		if (status != EventStatus.DRAFT && status != EventStatus.PUBLISHED) {
 			throw new EventNotEditableException(id);
 		}
 		List<ResponseOption> merged = edits.stream().map(this::resolveEdit).toList();
+		if (status == EventStatus.PUBLISHED) {
+			for (ResponseOption option : responseOptions) {
+				if (!answeredOptionIds.contains(option.id())) { continue; }
+				var replacements = merged.stream().filter(candidate -> candidate.id().equals(option.id())).toList();
+				if (replacements.isEmpty()) { throw new ResponseOptionDeletionNotAllowedException(); }
+				if (replacements.stream().anyMatch(candidate -> candidate.countsAsAttendance() != option.countsAsAttendance())) {
+					throw new ResponseOptionAttendanceChangeNotAllowedException();
+				}
+			}
+		}
 		validateResponseOptions(merged);
 		this.responseOptions = merged;
 	}

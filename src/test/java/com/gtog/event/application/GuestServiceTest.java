@@ -80,12 +80,12 @@ class GuestServiceTest {
 		when(events.findById("event-1")).thenReturn(Optional.of(event("event-1", EventStatus.DRAFT, 7L, first)));
 		service.delete(new DeleteGuestCommand("host-1", "event-1", first.getId(), false));
 		verify(guests).removeGuest("event-1", "host-1", 7L, first.getId());
-		verify(responses, never()).deleteResponse(anyString(), anyString());
+		verify(responses).deleteResponse("event-1", first.getToken());
 		verify(events, never()).save(any());
 	}
 
 	@Test
-	void requiresExplicitConfirmationWhenTheFutureResponsePortReportsAResponse() {
+	void requiresExplicitConfirmationWhenTheResponsePortReportsAResponse() {
 		Guest first = guest(1);
 		when(events.findById("event-1")).thenReturn(Optional.of(event("event-1", EventStatus.PUBLISHED, 7L, first)));
 		when(responses.hasResponse("event-1", first.getToken())).thenReturn(true);
@@ -96,25 +96,38 @@ class GuestServiceTest {
 	}
 
 	@Test
-	void deletesTheFutureResponseBeforeRemovingTheGuestWhenConfirmed() {
+	void removesTheGuestBeforeDeletingTheResponseWhenConfirmed() {
 		Guest first = guest(1);
 		when(events.findById("event-1")).thenReturn(Optional.of(event("event-1", EventStatus.PUBLISHED, 7L, first)));
 		when(responses.hasResponse("event-1", first.getToken())).thenReturn(true);
 		service.delete(new DeleteGuestCommand("host-1", "event-1", first.getId(), true));
 		var order = inOrder(responses, guests);
-		order.verify(responses).deleteResponse("event-1", first.getToken());
 		order.verify(guests).removeGuest("event-1", "host-1", 7L, first.getId());
+		order.verify(responses).deleteResponse("event-1", first.getToken());
 	}
 
 	@Test
-	void doesNotRemoveTheGuestIfTheFutureCascadeFails() {
+	void leavesTheGuestRemovedIfTheCascadeFails() {
 		Guest first = guest(1);
 		when(events.findById("event-1")).thenReturn(Optional.of(event("event-1", EventStatus.PUBLISHED, 7L, first)));
 		when(responses.hasResponse("event-1", first.getToken())).thenReturn(true);
 		doThrow(new IllegalStateException("failed")).when(responses).deleteResponse("event-1", first.getToken());
 		assertThatThrownBy(() -> service.delete(new DeleteGuestCommand("host-1", "event-1", first.getId(), true)))
 				.isInstanceOf(IllegalStateException.class);
-		verifyNoInteractions(guests);
+		var order = inOrder(guests, responses);
+		order.verify(guests).removeGuest("event-1", "host-1", 7L, first.getId());
+		order.verify(responses).deleteResponse("event-1", first.getToken());
+	}
+
+	@Test
+	void doesNotDeleteTheResponseIfRemovingTheGuestFails() {
+		Guest first = guest(1);
+		when(events.findById("event-1")).thenReturn(Optional.of(event("event-1", EventStatus.PUBLISHED, 7L, first)));
+		when(responses.hasResponse("event-1", first.getToken())).thenReturn(true);
+		doThrow(new EventConcurrentModificationException()).when(guests).removeGuest("event-1", "host-1", 7L, first.getId());
+		assertThatThrownBy(() -> service.delete(new DeleteGuestCommand("host-1", "event-1", first.getId(), true)))
+				.isInstanceOf(EventConcurrentModificationException.class);
+		verify(responses, never()).deleteResponse(anyString(), anyString());
 	}
 
 	@Test
