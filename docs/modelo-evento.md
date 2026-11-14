@@ -1,7 +1,7 @@
 # Modelo de datos: Evento
 
 Estado del modelo tras R1–R7: creación de eventos, consulta/listado (R1), opciones de respuesta (R2),
-ubicación/acceso en línea (R3), editar/publicar/cancelar (R4), seguridad/ownership (R5), invitados (R6), consulta pública (R7), plazo editable, registro de respuesta, enlace por confirmación, opciones publicadas y cascada (R8, commits 0–3). Las respuestas viven en `responses`, nunca embebidas en el evento. Calendario y muro social siguen pendientes.
+ubicación/acceso en línea (R3), editar/publicar/cancelar (R4), seguridad/ownership (R5), invitados (R6), consulta pública (R7), plazo editable, registro de respuesta, enlace por confirmación, opciones publicadas, cascada y calendario (R8, commits 0–4). Las respuestas viven en `responses`, nunca embebidas en el evento. El muro social sigue pendiente.
 
 ---
 
@@ -101,7 +101,7 @@ decidir si la transición es automática (por fecha) o manual (el anfitrión la 
 **Borrar un `DRAFT`** tampoco está implementado (D-DELETE-DRAFT). Cancelar un borrador sigue bloqueado por
 diseño. Desde R6 puede tener invitados; esa circunstancia no cambia la máquina de estados ni implementa el borrado.
 
-**Todas** heredan de `EventDomainException`, sin excepción: el dominio no sabe de códigos HTTP, solo expresa que
+Las excepciones de reglas de negocio del evento heredan de `EventDomainException`: el dominio no sabe de códigos HTTP, solo expresa que
 algo viola una regla suya. Es el `@RestControllerAdvice` (`GlobalExceptionHandler`, en `shared`) quien decide el
 código: un `@ExceptionHandler` genérico para `EventDomainException` → 422, y uno específico para
 `EventNotFoundException` → 404 y manejadores específicos para `EventNotEditableException`,
@@ -269,13 +269,14 @@ dentro del mismo `guests[]`. Ver `docs/modelo-invitado.md`.
 | `UpdateEventUseCase` | `UpdateEventService` | Busca el evento, delega en `event.edit(EventEdit)` y lo guarda. `allowComment`/`allowResponseChange`/`responseDeadline` se editan aquí, no en `replaceResponseOptions`. |
 | `ChangeResponseDeadlineUseCase` | `ChangeResponseDeadlineService` | Comprueba propiedad, valida plazo y estado con Clock, y actualiza solo el plazo mediante el puerto de escritura parcial. |
 | `RecordGuestResponseUseCase` | `RecordGuestResponseService` | Resuelve la invitación por token, valida la respuesta y la inserta o actualiza atómicamente en `responses`, sin guardar el evento. Devuelve la vista pública con la respuesta propia. |
+| `DownloadInvitationCalendarUseCase` | `DownloadInvitationCalendarService` | Resuelve la invitación, oculta DRAFT, rechaza CANCELLED, filtra la URL como en JSON y delega la generación en un puerto; sin escrituras de evento. |
 | `PublishEventUseCase` | `PublishEventService` | Busca el evento, llama a `event.publish()` y lo guarda. |
 | `AddGuestUseCase` / `UpdateGuestUseCase` | `GuestService` | Valida propiedad y reglas del agregado; persiste únicamente el alta o los contactos editados. |
 | `DeleteGuestUseCase` | `GuestService` | Valida estado, propiedad y confirmación si ya respondió; retira al invitado con escritura parcial y después limpia su respuesta real. |
 | `ListGuestUseCase` | `GuestService` | Devuelve los invitados al propietario, también en eventos cerrados. |
 | `CancelEventUseCase` | `CancelEventService` | Busca el evento, llama a `event.cancel(reason, Instant.now())` y lo guarda. |
 
-`EventRepositoryPort` (`port/out`): `save`, `findById`, `findByHostId`. Implementado por `EventRepositoryAdapter`
+`EventRepositoryPort` (`port/out`): `save`, `findById`, `findByHostId`, `findByGuestToken`. Implementado por `EventRepositoryAdapter`
 sobre `EventMongoRepository` (Spring Data).
 
 ---
@@ -308,6 +309,14 @@ Los cuatro endpoints de invitados también son autenticados; las escrituras requ
 en el alta y el listado de invitados, para RF-2.16. El DTO web `GuestResponse` describe contactos editados;
 no es una respuesta de asistencia ni un documento de `responses`.
 
+El calendario público `GET /api/invitations/{token}/calendar` devuelve 200 con archivo `.ics`, UTF-8, attachment
+y no-store exacto, sin sesión ni CSRF. DRAFT y desconocido comparten el 404 de R7; CANCELLED da 409 con
+ProblemDetail e instancia constante; FINISHED permite 200. No registra OPENED ni aumenta version.
+La proyección `InvitationCalendarData` contiene id del evento para UID, título, descripción, fechas locales,
+zona, venue, URL ya filtrada y el instante del Clock para DTSTAMP. `InvitationCalendarRendererPort` mantiene
+iCal4j fuera del dominio y la aplicación. No se envían invitados, contactos, token, respuesta propia,
+contraseña, sala ni instrucciones al renderizador. Ver `modelo-invitado.md` para formato y configuración.
+
 Documentado también en OpenAPI (`/v3/api-docs`, `/swagger-ui.html`), ver sección "Documentación de API" en
 `AGENTS.md`.
 
@@ -315,8 +324,7 @@ Documentado también en OpenAPI (`/v3/api-docs`, `/swagger-ui.html`), ver secci�
 
 ## Fuera de alcance por ahora
 
-- Transiciones a `SENT` y `OPENED`, envío por email/WhatsApp/Telegram.
-- Respuestas de asistencia (futura colección `responses`).
+- Transición a `SENT` y envío por email/WhatsApp/Telegram. OPENED está implementado desde R7.
 - `FINISHED`: no implementado (D-FINISHED).
 - Borrar un borrador: no implementado (D-DELETE-DRAFT).
 - Muro social, acompañantes, check-in: iteración 2 o posteriores.

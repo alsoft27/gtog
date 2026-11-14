@@ -153,7 +153,14 @@ anfitrión (RF-2.13); esta limitación debe ser visible en la interfaz para que 
    exige respuesta existente, permiso de cambio, PUBLISHED, plazo no vencido y evento aún no terminado.
    Un nuevo PUT cambia la respuesta si se cumplen esas condiciones; de lo contrario devuelve 409.
    El plazo rige también la primera respuesta. DRAFT conserva el 404 indistinguible del token desconocido;
-   CANCELLED y FINISHED rechazan escrituras con 409. La descarga de calendario sigue pendiente del commit 4 de R8.
+   CANCELLED y FINISHED rechazan escrituras con 409.
+7. Descarga `GET /api/invitations/{token}/calendar`, sin sesión ni CSRF, como archivo `event.ics`,
+   `text/calendar;charset=UTF-8` y attachment. Incluye título, descripción, inicio y fin con la zona del evento,
+   ubicación presencial y, si es online, la URL únicamente cuando el mismo filtro del JSON la permite.
+   No incluye contactos, invitados, respuesta propia, token, contraseña ni datos de sala. UID basado en el
+   evento, nunca en el token. CANCELLED devuelve 409 con ProblemDetail; FINISHED sigue permitiendo descargar
+   (200), y DRAFT/token desconocido conservan el mismo 404 de R7. La descarga no marca OPENED ni requiere
+   respuesta previa. Implementado en el commit 4 de R8; no se envía el archivo por correo todavía (R10).
 
 La respuesta pública y sus errores llevan `Cache-Control: no-store` exacto y una instancia de error constante
 `/api/invitations`, sin token. Solo `/api/invitations/**` se excluye de CSRF: la credencial es el token de la

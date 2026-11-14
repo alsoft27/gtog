@@ -227,6 +227,11 @@ public record CreateEventRequest(
 
 **Inyección por constructor, siempre.** Nunca `@Autowired` sobre campos.
 
+El calendario usa iCal4j 4.2.0 únicamente en `infrastructure/out/calendar`, detrás de un puerto. Su configuración
+vive en `src/main/resources/ical4j.properties`: `net.fortuna.ical4j.timezone.update.enabled=false` se carga antes
+del primer uso de la librería, sin actualizaciones remotas de zonas. El renderizador solo recibe datos públicos
+y la URL ya filtrada; UID basado en el evento, nunca en el token; DTSTAMP obtenido del Clock inyectado.
+
 **Los objetos de dominio no cruzan la frontera web.** Los controladores reciben y devuelven DTOs definidos en `infrastructure/in/web`. No serialices nunca un modelo de dominio ni un documento de Mongo a JSON.
 
 **Sin lógica de negocio en los controladores.** El controlador valida la entrada, llama al caso de uso y mapea el resultado.
@@ -277,7 +282,7 @@ El `@Bean OpenAPI` con el título, versión y descripción de la API vive en `sh
 
 Estas reglas son el contrato final del producto, no necesariamente lo que el código ya impone hoy: algunas dependen de rebanadas que todavía no existen. Cuando una regla tiene una parte pendiente, lo dice explícitamente — si esta sección afirmara algo que el código no cumple sin avisarlo, dejaría de servir para nada.
 
-1. **El enlace de la reunión en línea se filtra en el backend.** Si el invitado no cumple la regla de `LinkVisibility`, el campo se omite de la respuesta. Nunca lo envíes al cliente confiando en que Angular no lo pinte: viajaría en el JSON y sería legible desde las herramientas del navegador. La regla de dominio (`Event.visibleOnlineAccess(...)`, R3) se aplica en la vista pública de GET y PUT, exclusivamente para eventos `PUBLISHED`. Desde R8, `ON_CONFIRMATION` exige respuesta propia cuya opción tenga `countsAsAttendance = true`; sin respuesta o con opción inexistente, false. Responder "No asisto" no confirma asistencia. D-CONFIRMED-LINK saldada.
+1. **El enlace de la reunión en línea se filtra en el backend.** Si el invitado no cumple la regla de `LinkVisibility`, el campo se omite de la respuesta. Nunca lo envíes al cliente confiando en que Angular no lo pinte: viajaría en el JSON y sería legible desde las herramientas del navegador. La regla de dominio (`Event.visibleOnlineAccess(...)`, R3) se aplica en la vista pública de GET, PUT y calendario, exclusivamente para eventos `PUBLISHED`. Desde R8, `ON_CONFIRMATION` exige respuesta propia cuya opción tenga `countsAsAttendance = true`; sin respuesta o con opción inexistente, false. Responder "No asisto" no confirma asistencia. D-CONFIRMED-LINK saldada.
 
 2. **El token es la única credencial del invitado.** Criptográficamente aleatorio, largo, con índice único y revocable. Nunca derivado del identificador ni de datos del invitado.
 

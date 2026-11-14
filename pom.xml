@@ -47,6 +47,13 @@
 			<version>9.0.43</version>
 		</dependency>
 
+		<!-- Generacion de calendarios iCalendar -->
+		<dependency>
+			<groupId>org.mnode.ical4j</groupId>
+			<artifactId>ical4j</artifactId>
+			<version>4.2.0</version>
+		</dependency>
+
 		<!-- Envio de invitaciones por correo -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>

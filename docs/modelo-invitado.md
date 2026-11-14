@@ -1,7 +1,7 @@
 # Modelo de datos: Invitado
 
-Estado tras R8, commits 0–3, 14 de noviembre de 2026. Gestión de invitados del anfitrión, consulta pública,
-registro de respuestas, enlace por confirmación, opciones publicadas y cascada real. Queda pendiente calendario (commit 4).
+Estado tras R8 completa, commits 0–4, 14 de noviembre de 2026. Gestión de invitados del anfitrión, consulta pública,
+registro de respuestas, enlace por confirmación, opciones publicadas, cascada real y descarga de calendario.
 
 La preparación de R8 (commit 0) añade el plazo editable por el anfitrión mediante
 `PUT /api/events/{id}/response-deadline`: DRAFT, o PUBLISHED estrictamente antes del inicio. null lo elimina;
@@ -271,9 +271,42 @@ opción del evento, sin consultas adicionales. Cambiar de una opción que cuenta
 el enlace en ON_CONFIRMATION; el cambio inverso lo muestra. La confirmación de otro invitado no da acceso.
 Fuera de PUBLISHED, el acceso sigue oculto aunque la respuesta propia cuente como asistencia.
 
+## Calendario público (R8, commit 4)
+
+`GET /api/invitations/{token}/calendar` descarga `event.ics`, público sin sesión ni CSRF y sin exigir una
+respuesta previa. Devuelve `text/calendar;charset=UTF-8`, `Content-Disposition: attachment; filename="event.ics"`
+y `Cache-Control: no-store` exacto. No marca OPENED ni escribe el evento.
+
+| Estado | Resultado |
+|---|---|
+| Token desconocido / DRAFT | Mismo 404 y detalle que R7, instancia `/api/invitations`, no-store exacto |
+| PUBLISHED | 200 con calendario y enlace solo si es visible |
+| CANCELLED | 409 con ProblemDetail, instancia constante y no-store exacto; no se descarga un archivo |
+| FINISHED | 200; sin enlace online, porque visibleOnlineAccess exige PUBLISHED |
+
+`DownloadInvitationCalendarService` carga la respuesta propia y reutiliza `InvitationViewFactory` para el
+filtro del JSON. Solo pasa al puerto de renderizado una proyección `InvitationCalendarData`: id del evento,
+título, descripción, inicio/fin locales, zona, venue, URL visible y el instante del Clock. Nunca tokens,
+anfitrión, invitados, email, teléfono, comentario de respuesta, contraseña, sala ni instrucciones.
+ON_CONFIRMATION muestra el enlace solo con una opción que cuenta; cambiar a otra lo oculta. HOURS_BEFORE
+incluye el umbral exacto; ALWAYS puede mostrarlo antes de responder. Opción inexistente no confirma.
+
+El adaptador `ICal4jInvitationCalendarAdapter`, en `infrastructure/out/calendar`, usa iCal4j 4.2.0. Incluye
+VTIMEZONE y DTSTART/DTEND con TZID, UID estable `eventId@gtog` (igual para los invitados del mismo evento)
+y DTSTAMP del Clock. LOCATION combina nombre y dirección presencial, o la URL online visible, que también
+va en la propiedad URL. La descripción es la del evento, nunca el comentario de respuesta.
+iCal4j escapa los textos; el adaptador normaliza saltos y pliega a 75 octetos UTF-8 con CRLF y espacio de
+continuación, sin dividir caracteres multibyte (el FoldingWriter de la librería cuenta caracteres).
+
+La dependencia 4.2.0 se descargó desde Maven Central y se mostró dependency:tree antes del commit. Las
+actualizaciones remotas de zonas están desactivadas en `src/main/resources/ical4j.properties`, con
+`net.fortuna.ical4j.timezone.update.enabled=false`. Configurator lo lee al inicializarse antes de cualquier
+uso del registro, sin depender de Spring. Los tests comprueban la configuración, la validez del archivo,
+escapes, tildes/emojis, límite por octetos, lectura posterior y correspondencia de instantes al cambiar la hora.
+
 ## Verificación
 
-`mvn clean verify`: **401 tests**, sin fallos, errores ni omitidos. R6 incorporó 71 casos y R7 incorporó 31:
+`mvn clean verify`: **426 tests**, sin fallos, errores ni omitidos. R6 incorporó 71 casos y R7 incorporó 31:
 4 de dominio, 9 de aplicación y 18 de integración contra Atlas (`gtog_test`). La preparación de R8 añade
 29: 8 de dominio, 4 de aplicación y 17 de integración, incluida apertura concurrente y cancelación con
 versión anterior al cambio del plazo.
@@ -293,6 +326,11 @@ confirmación de borrado, orden real de cascada y sus dos fallos, aislamiento en
 una respuesta llegada después de la consulta inicial. Las pruebas anteriores de cascada de R6 se adaptan
 al nuevo orden aprobado. También se comprueba que repetir un id no permita cambiar la marca de asistencia
 de una opción con respuestas, y que estos conflictos produzcan 409 aunque invaliden el tamaño o la asistencia.
+
+El commit 4 añade 25: 5 de aplicación, 6 del adaptador iCalendar y 14 HTTP. Cubren descarga pública sin CSRF,
+privacidad sobre el cuerpo completo, los tres modos de visibilidad comparados con JSON, cambios de asistencia,
+opción inexistente, CANCELLED 409 / FINISHED 200 / 404 indistinguibles, cabeceras exactas incluso con Accept:
+text/calendar, ausencia de escritura OPENED, Clock, UID, zona/DST, configuración y formato RFC 5545.
 
 R7 cubre privacidad comparando el cuerpo completo, fechas locales/UTC, los tres modos de visibilidad con Clock
 fijo y el umbral exacto, estados públicos y borrador, 404 indistinguibles, logs sin tokens, OPENED desde NOT_SENT

@@ -7,6 +7,9 @@ import com.gtog.event.domain.model.ResponseNotAcceptedException;
 import com.gtog.event.domain.model.ResponseChangeNotAllowedException;
 import com.gtog.event.domain.model.ResponseOptionDeletionNotAllowedException;
 import com.gtog.event.domain.model.ResponseOptionAttendanceChangeNotAllowedException;
+import com.gtog.event.domain.model.InvitationCalendarNotAvailableException;
+import com.gtog.event.domain.model.InvitationCalendarGenerationException;
+import org.springframework.http.MediaType;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import jakarta.servlet.http.HttpServletRequest;
 
@@ -45,10 +48,17 @@ public class GlobalExceptionHandler {
 
 	@ExceptionHandler(InvitationNotFoundException.class)
 	public ResponseEntity<ProblemDetail> handleInvitationNotFound(InvitationNotFoundException exception) {
-		ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, exception.getMessage());
-		// Una instancia constante evita que Spring copie la URI de la peticion y filtre la credencial.
-		problem.setInstance(URI.create("/api/invitations"));
-		return ResponseEntity.status(HttpStatus.NOT_FOUND).cacheControl(CacheControl.noStore()).body(problem);
+		return invitationProblem(HttpStatus.NOT_FOUND, exception.getMessage());
+	}
+
+	@ExceptionHandler(InvitationCalendarNotAvailableException.class)
+	public ResponseEntity<ProblemDetail> handleCancelledCalendar(InvitationCalendarNotAvailableException exception) {
+		return invitationProblem(HttpStatus.CONFLICT, exception.getMessage());
+	}
+
+	@ExceptionHandler(InvitationCalendarGenerationException.class)
+	public ResponseEntity<ProblemDetail> handleCalendarGeneration(InvitationCalendarGenerationException exception) {
+		return invitationProblem(HttpStatus.INTERNAL_SERVER_ERROR, exception.getMessage());
 	}
 
 	@ExceptionHandler(GuestResponseException.class)
@@ -75,7 +85,8 @@ public class GlobalExceptionHandler {
 	private ResponseEntity<ProblemDetail> invitationProblem(HttpStatus status, String detail) {
 		ProblemDetail problem = ProblemDetail.forStatusAndDetail(status, detail);
 		problem.setInstance(URI.create("/api/invitations"));
-		return ResponseEntity.status(status).cacheControl(CacheControl.noStore()).body(problem);
+		return ResponseEntity.status(status).contentType(MediaType.APPLICATION_PROBLEM_JSON)
+				.cacheControl(CacheControl.noStore()).body(problem);
 	}
 
 	@ExceptionHandler(EventDomainException.class)

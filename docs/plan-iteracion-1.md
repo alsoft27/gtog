@@ -18,13 +18,14 @@ Estado a 14 de noviembre de 2026.
 | R5 — Usuario y seguridad | Registro, login, logout, Spring Security. `POST /api/auth/register` y `POST /api/auth/login`. Ownership check en todos los endpoints de evento: `hostId != event.hostId` → 404. `GET /api/events` lee el host del principal autenticado; `hostId` desaparece como parámetro de query. `/api/invitations/**` público. 174 tests en verde antes de R6, incluida la validación de zona horaria del usuario y su cobertura HTTP. |
 | R6 — Invitados | `Guest` dentro de `event`, `guests[]` embebido, alta/edición/borrado/listado autenticados con ownership en aplicación. Normalización E.164 con libphonenumber 9.0.43; tokens de 32 bytes de `SecureRandom`, Base64 URL-safe sin relleno. Escrituras parciales con control e incremento de versión. `invitationPath` solo en alta y listado. D-3 saldada; cascada preparada para R8 sin crear `responses`. 71 tests nuevos. |
 | R7 — Página pública del invitado | `GET /api/invitations/{token}`, sin sesión ni CSRF; DTO público construido campo a campo, acceso online filtrado y Clock inyectado. DRAFT y desconocido devuelven el mismo 404; PUBLISHED, CANCELLED y FINISHED devuelven 200. Primera apertura atómica con $elemMatch y version +1; las revisitas OPENED no escriben. Cache-Control exacto `no-store` en éxito y 404. 31 tests nuevos. |
-| Preparación de R8 — Plazo editable (commit 0) | `PUT /api/events/{id}/response-deadline`, autenticado y con CSRF. Permite cambiar o quitar el plazo en DRAFT, y en PUBLISHED solo antes del inicio. Escritura parcial atómica con incremento de versión, compatible con aperturas concurrentes. 29 tests nuevos. R8 sigue pendiente. |
-| R8 — Registrar respuesta (commit 1) | `PUT /api/invitations/{token}/response`, público sin sesión ni CSRF. Colección `responses`, insert o upsert atómico según permiso de cambios. GET y PUT incluyen `myResponse` sin email y `canChangeResponse`. 54 tests nuevos. R8 queda parcialmente implementada: falta el commit 4. |
+| Preparación de R8 — Plazo editable (commit 0) | `PUT /api/events/{id}/response-deadline`, autenticado y con CSRF. Permite cambiar o quitar el plazo en DRAFT, y en PUBLISHED solo antes del inicio. Escritura parcial atómica con incremento de versión, compatible con aperturas concurrentes. 29 tests nuevos. |
+| R8 — Registrar respuesta (commit 1) | `PUT /api/invitations/{token}/response`, público sin sesión ni CSRF. Colección `responses`, insert o upsert atómico según permiso de cambios. GET y PUT incluyen `myResponse` sin email y `canChangeResponse`. 54 tests nuevos. |
 | R8 — Confirmación y enlace (commit 2) | D-CONFIRMED-LINK saldada: ON_CONFIRMATION usa la respuesta propia y countsAsAttendance. Opción inexistente o ausencia de respuesta equivale a no confirmado. GET y PUT comparten el filtro. 7 tests nuevos de integración a través del GET. |
 | R8 — Opciones publicadas y cascada (commit 3) | D-7 saldada: renombrar/agregar en PUBLISHED, sin eliminar ni cambiar countsAsAttendance de opciones con respuestas. Puerto de ids usados y cascada real de R6: primero retirar invitado y después limpiar respuesta. D-ORPHAN-OPTION documentada sin transacciones. 35 tests nuevos. |
+| R8 — Calendario (commit 4) | `GET /api/invitations/{token}/calendar`, público, text/calendar UTF-8, attachment y no-store exacto. iCal4j 4.2.0, fechas locales con VTIMEZONE, UID del evento y URL filtrada como en JSON. CANCELLED → 409; FINISHED → 200; DRAFT y desconocido → mismo 404. 25 tests nuevos. R8 cerrada. |
 | Infraestructura | Java 25, Spring Boot 4.1, Maven por defecto, MongoDB Atlas, OpenAPI |
 
-**Verificación actual:** `mvn clean verify` pasa con **401 tests**, 0 fallos, 0 errores y 0 omitidos. El commit 0 de R8 añadió 29, el commit 1 añadió 54 y el commit 2 añadió 7. El commit 3 añade 35: 16 de dominio, 3 de aplicación y 16 de integración, incluidas opciones con respuestas y orden/fallos de cascada.
+**Verificación actual:** `mvn clean verify` pasa con **426 tests**, 0 fallos, 0 errores y 0 omitidos. R8 incorpora 150 casos: 29 del commit 0, 54 del 1, 7 del 2, 35 del 3 y 25 del 4 (5 de aplicación, 6 del adaptador y 14 HTTP). El ajuste separado a inyección por constructor no cambia el número de tests.
 
 **Lo que eso valida:** la arquitectura hexagonal funciona en la práctica, el mapeo entre `Event` y `EventDocument` es asumible, y el circuito completo de desarrollo está operativo. Además, `Event.create(...)`/`reconstitute(...)` cambiaron de firma en las tres rebanadas seguidas, así que desde R3 `Event` se construye con dos builders internos (`Event.builder()` para eventos nuevos, `Event.reconstituteBuilder()` para rehidratar) en vez de factory methods con parámetros posicionales — ver `docs/modelo-evento.md`.
 
@@ -118,7 +119,7 @@ El controlador y el handler 404 fijan exactamente `Cache-Control: no-store`. Los
 completo para no pasar accidentalmente con las cabeceras anti-caché predeterminadas de Spring Security.
 No se registran tokens; los tests comprueban también la salida de logs.
 
-**R8. Registrar respuesta**
+**R8. Registrar respuesta** ✓ Implementada, commits 0–4.
 `PUT /api/invitations/{token}/response`, recurso singular e idempotente, implementado en el commit 1.
 Crea `responses`, con índice único `(eventId, guestToken)` y otro sobre `eventId`, en el inicializador central.
 Sin permiso de cambios se inserta directamente: el duplicado del índice compuesto produce 409, sin consultar
@@ -153,7 +154,25 @@ renombrar y agregar; las opciones sin respuestas se pueden quitar o cambiar. CAN
 respuesta en curso queda documentada como D-ORPHAN-OPTION, con lectura defensiva y sin transacciones.
 La cascada usa los puertos de R6 con el orden aprobado: retirar invitado y después limpiar respuesta real.
 
-Pendiente: commit 4 (calendario).
+**Commit 4 implementado: calendario.** `GET /api/invitations/{token}/calendar` devuelve `event.ics` como
+`text/calendar;charset=UTF-8`, con `Content-Disposition: attachment` y `Cache-Control: no-store` exacto.
+No exige sesión, CSRF ni respuesta previa. No registra OPENED ni modifica el evento. Desconocido y DRAFT
+producen el mismo 404 de R7; CANCELLED produce 409 con ProblemDetail; FINISHED conserva la descarga 200.
+Los errores tienen instancia constante `/api/invitations` y no-store exacto incluso con Accept: text/calendar.
+
+`DownloadInvitationCalendarService` obtiene un instante del Clock y reutiliza `InvitationViewFactory` para
+aplicar exactamente `Event.visibleOnlineAccess(...)`. El renderizador recibe `InvitationCalendarData`,
+sin token, anfitrión, invitados, contactos ni respuesta propia: título, descripción, fechas locales y zona,
+venue y solo la URL visible. No recibe contraseña, sala ni instrucciones. UID basado en el id del evento;
+DTSTAMP basado en Clock. El archivo incluye VTIMEZONE, escapes de texto, CRLF y plegado a 75 octetos UTF-8
+sin cortar caracteres multibyte. Se prueba también el cambio de hora y la lectura posterior del archivo.
+
+**Dependencia fijada:** `org.mnode.ical4j:ical4j:4.2.0`, descargada desde Maven Central con dependency:get.
+El árbol real de dependency:tree se mostró antes del commit y quedó en `execution-logs/r8-commit4-dependency-tree.txt`.
+Su rama resuelta: slf4j-api 2.0.18, commons-codec 1.21.0, commons-lang3 3.20.0 y threeten-extra 1.8.0,
+respetando la gestión de versiones de Spring Boot. iCal4j solo se usa en el adaptador de salida.
+`src/main/resources/ical4j.properties` fija `net.fortuna.ical4j.timezone.update.enabled=false`; el Configurator
+de iCal4j lo carga al inicializarse, antes de usar el registro de zonas, también fuera del contexto Spring.
 
 **Preparación implementada (commit 0): plazo editable.** `PUT /api/events/{id}/response-deadline` recibe
 `{ "responseDeadline": LocalDateTime | null }` y devuelve 200 con `EventResponse`. Requiere sesión, CSRF y
@@ -173,7 +192,9 @@ los cambios. Solo PUBLISHED, `responseDeadline == null || now <= responseDeadlin
 `now < endsAtInstant`; los cambios requieren además `allowResponseChange`. El plazo se interpreta en la zona
 del evento. En PUBLISHED, fijar un plazo pasado equivale a cerrar las respuestas.
 
-RF descarga de calendario: `GET /api/invitations/{token}/calendar` devuelve un archivo `.ics` con los datos del evento. Se puede devolver como `text/calendar` directamente. Añadir aquí: el frontend solicita la descarga desde la pantalla de confirmación (flujo de respuesta, paso 4 del MVP §6).
+RF descarga de calendario implementada: el frontend solicita el archivo desde la página del invitado,
+por ejemplo después de responder (flujo del MVP §6). El email opcional se sigue guardando sin enviar nada:
+D-EMAIL-NOT-SENT permanece hasta R10. D-ORPHAN-OPTION también queda abierta; D-7 y D-CONFIRMED-LINK están saldadas.
 
 **R9. Panel del anfitrión**
 Contadores por opción de respuesta y listado de invitados con su estado. Es la primera vez que necesitas la agregación `$lookup` entre `events` y `responses`.

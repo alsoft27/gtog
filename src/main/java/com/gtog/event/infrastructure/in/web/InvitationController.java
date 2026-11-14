@@ -9,6 +9,11 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 
 import org.springframework.http.CacheControl;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import java.nio.charset.StandardCharsets;
+import com.gtog.event.domain.port.in.DownloadInvitationCalendarUseCase;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -29,10 +34,13 @@ public class InvitationController {
 
 	private final GetInvitationUseCase getInvitation;
 	private final RecordGuestResponseUseCase recordResponse;
+	private final DownloadInvitationCalendarUseCase downloadCalendar;
 
-	public InvitationController(GetInvitationUseCase getInvitation, RecordGuestResponseUseCase recordResponse) {
+	public InvitationController(GetInvitationUseCase getInvitation, RecordGuestResponseUseCase recordResponse,
+			DownloadInvitationCalendarUseCase downloadCalendar) {
 		this.getInvitation = getInvitation;
 		this.recordResponse = recordResponse;
+		this.downloadCalendar = downloadCalendar;
 	}
 
 	@Operation(summary = "Consulta una invitacion", description = "Sin sesion ni CSRF. Publicado, cancelado y finalizado "
@@ -62,5 +70,22 @@ public class InvitationController {
 	public ResponseEntity<InvitationResponse> respond(@PathVariable String token, @RequestBody RecordGuestResponseRequest request) {
 		return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(InvitationResponse.from(
 				recordResponse.recordResponse(new RecordGuestResponseCommand(token, request.responseOptionId(), request.comment(), request.email()))));
+	}
+
+	@Operation(summary = "Descarga el calendario del evento", description = "Publico, sin sesion ni CSRF. Archivo iCalendar "
+			+ "con la zona del evento y enlace online solo si es visible para el invitado. CANCELLED devuelve 409; FINISHED, 200. "
+			+ "Borrador y token desconocido producen el mismo 404. No registra una apertura. Cache-Control: no-store.")
+	@ApiResponses({
+		@ApiResponse(responseCode = "200", description = "Archivo event.ics",
+				content = @Content(mediaType = "text/calendar", schema = @Schema(type = "string", format = "binary"))),
+		@ApiResponse(responseCode = "404", description = "Invitacion no disponible",
+				content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class))),
+		@ApiResponse(responseCode = "409", description = "Evento cancelado",
+				content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class))) })
+	@GetMapping(value = "/{token}/calendar", produces = "text/calendar")
+	public ResponseEntity<byte[]> calendar(@PathVariable String token) {
+		return ResponseEntity.ok().contentType(new MediaType("text", "calendar", StandardCharsets.UTF_8))
+				.header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment().filename("event.ics").build().toString())
+				.cacheControl(CacheControl.noStore()).body(downloadCalendar.downloadCalendar(token));
 	}
 }
