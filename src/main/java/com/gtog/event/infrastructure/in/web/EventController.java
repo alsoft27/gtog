@@ -143,16 +143,14 @@ public class EventController {
 	}
 
 	@Operation(summary = "Lista los eventos de un anfitrion",
-			description = "Devuelve una proyeccion ligera de cada evento del anfitrion indicado, sin paginacion. "
-					+ "El parametro hostId es temporal: hoy es obligatorio porque no existe todavia el usuario "
-					+ "autenticado, y desaparecera cuando el anfitrion se identifique por su sesion.")
+			description = "Devuelve una proyeccion ligera de los eventos del anfitrion autenticado, sin paginacion. "
+					+ "El anfitrion se obtiene de la sesion; no se acepta hostId como parametro de consulta.")
 	@ApiResponses({
 			@ApiResponse(responseCode = "200", description = "Listado de eventos del anfitrion, puede ser vacio.",
 					content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
 							array = @ArraySchema(schema = @Schema(implementation = EventSummaryResponse.class)))),
-			@ApiResponse(responseCode = "400", description = "Falta el parametro obligatorio hostId.",
-					content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
-							schema = @Schema(implementation = ProblemDetail.class))) })
+			@ApiResponse(responseCode = "401", description = "No hay una sesion autenticada.",
+					content = @Content) })
 	@GetMapping
 	public List<EventSummaryResponse> listEvents(@AuthenticationPrincipal AuthenticatedUser principal) {
 		return listEventsByHostUseCase.listEventsByHost(principal.getUserId()).stream()

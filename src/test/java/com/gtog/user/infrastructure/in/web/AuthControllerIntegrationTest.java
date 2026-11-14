@@ -27,8 +27,11 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -81,13 +84,37 @@ class AuthControllerIntegrationTest {
 				}
 				""";
 
-		mockMvc.perform(post("/api/auth/register").with(csrf())
+		MvcResult result = mockMvc.perform(post("/api/auth/register").with(csrf())
 				.contentType(MediaType.APPLICATION_JSON).content(body))
 				.andExpect(status().isCreated())
+				.andExpect(header().exists("Location"))
 				.andExpect(jsonPath("$.id").isNotEmpty())
 				.andExpect(jsonPath("$.name").value("Ana García"))
 				.andExpect(jsonPath("$.email").value("ana@example.com"))
-				.andExpect(jsonPath("$.timeZone").value("Europe/Madrid"));
+				.andExpect(jsonPath("$.timeZone").value("Europe/Madrid"))
+				.andReturn();
+
+		String registeredId = userMongoRepository.findByEmail("ana@example.com").orElseThrow().getId();
+		assertThat(result.getResponse().getHeader("Location")).isEqualTo("/api/users/" + registeredId);
+	}
+
+	@Test
+	void rejectsRegistrationWithInvalidTimeZone() throws Exception {
+		String body = """
+				{
+				  "name": "Test User",
+				  "email": "new@example.com",
+				  "rawPassword": "password12",
+				  "timeZone": "Europe/Unknown"
+				}
+				""";
+
+		mockMvc.perform(post("/api/auth/register").with(csrf())
+				.contentType(MediaType.APPLICATION_JSON).content(body))
+				.andExpect(status().isUnprocessableEntity())
+				.andExpect(jsonPath("$.status").value(422))
+				.andExpect(jsonPath("$.detail").value("Invalid IANA time zone: Europe/Unknown"));
+		assertThat(userMongoRepository.findByEmail("new@example.com")).isEmpty();
 	}
 
 	@Test

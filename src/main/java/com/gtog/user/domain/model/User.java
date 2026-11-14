@@ -1,5 +1,7 @@
 package com.gtog.user.domain.model;
 
+import java.time.DateTimeException;
+import java.time.ZoneId;
 import java.util.UUID;
 import java.util.regex.Pattern;
 
@@ -32,6 +34,11 @@ public class User {
 		}
 		if (timeZone == null || timeZone.isBlank()) {
 			throw new BlankTimeZoneException();
+		}
+		try {
+			ZoneId.of(timeZone);
+		} catch (DateTimeException e) {
+			throw new InvalidUserTimeZoneException(timeZone);
 		}
 		return new User(UUID.randomUUID().toString(), name, normalized, password, timeZone);
 	}

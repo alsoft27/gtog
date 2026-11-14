@@ -60,13 +60,15 @@ la zona.
 | `hoursBefore` obligatorio si `linkVisibility` es `HOURS_BEFORE` | `MissingHoursBeforeException` | 422 |
 | `hoursBefore` debe ser `> 0` si aplica, y no debe enviarse si `linkVisibility` no es `HOURS_BEFORE` | `InvalidHoursBeforeException` | 422 |
 | Las opciones solo se pueden reemplazar mientras el evento está en `DRAFT` | `EventNotEditableException` | 409 |
+| Reemplazar `venue` o `onlineAccess` exige compatibilidad con la modalidad del evento existente | `ModalityConflictException` | 409 |
 | El evento debe existir | `EventNotFoundException` | 404 |
 
-Las 4 reglas de modalidad (`Missing`/`Unexpected` × `Venue`/`OnlineAccess`) se reutilizan tal cual entre la
-creación del evento y los `PUT /api/events/{id}/venue` y `PUT /api/events/{id}/online-access`: "modalidad `ONLINE`
-con `venue` presente" es el mismo error semántico se dé en el `POST` inicial o al intentar fijar una ubicación
-después — por eso es 422 en ambos casos, no 409. El 409 se reserva estrictamente para los conflictos de estado:
-`EventNotEditableException`, `EventNotPublishableException`, `EventNotCancellableException`.
+Las 4 reglas de modalidad (`Missing`/`Unexpected` × `Venue`/`OnlineAccess`) validan la creación del evento y
+producen 422. En cambio, `PUT /api/events/{id}/venue` sobre un evento `ONLINE` y
+`PUT /api/events/{id}/online-access` sobre uno `IN_PERSON` lanzan `ModalityConflictException` y producen **409**:
+el cuerpo es válido, pero no es compatible con el estado del recurso existente. Los campos inválidos del
+bloque siguen produciendo 422. Los demás conflictos de estado son `EventNotEditableException`,
+`EventNotPublishableException` y `EventNotCancellableException`.
 
 ### Máquina de estados
 
@@ -91,8 +93,9 @@ diseño: un borrador no tiene invitados y cancelarlo solo ensuciaría el listado
 **Todas** heredan de `EventDomainException`, sin excepción: el dominio no sabe de códigos HTTP, solo expresa que
 algo viola una regla suya. Es el `@RestControllerAdvice` (`GlobalExceptionHandler`, en `shared`) quien decide el
 código: un `@ExceptionHandler` genérico para `EventDomainException` → 422, y uno específico para
-`EventNotFoundException` → 404 y otro para `EventNotEditableException` → 409, que Spring resuelve por
-especificidad de tipo antes que caer en el genérico.
+`EventNotFoundException` → 404 y manejadores específicos para `EventNotEditableException`,
+`EventNotPublishableException`, `EventNotCancellableException` y `ModalityConflictException` → 409, que Spring
+resuelve por especificidad de tipo antes que caer en el genérico.
 
 ---
 
@@ -123,7 +126,7 @@ El reemplazo de la lista distingue opción nueva de opción existente por la pre
 
 ### Pendiente: "se puede renombrar pero no eliminar" una opción con respuestas
 
-La especificación (regla de negocio 4 de `CLAUDE.md`) exige que, una vez publicado el evento, una opción de
+La especificación (regla de negocio 4 de `AGENTS.md`) exige que, una vez publicado el evento, una opción de
 respuesta con respuestas asociadas se pueda renombrar pero no eliminar de la lista. **Todavía no está
 implementada**: `Event.replaceResponseOptions(...)` no distingue hoy entre "opción sin respuestas, se puede
 quitar libremente" y "opción con respuestas, no se puede quitar" — permite quitar cualquier opción que no venga
@@ -239,11 +242,11 @@ sobre `EventMongoRepository` (Spring Data).
 | `POST` | `/api/events/{id}/publish` | — | `200` (`EventResponse` completo), `404`, `409` (no `DRAFT`), `422` (falta venue/onlineAccess o < 2 opciones) |
 | `POST` | `/api/events/{id}/cancel` | `CancelEventRequest` (`reason` opcional) | `200` (`EventResponse` completo con `cancelledAt`), `404`, `409` (no `PUBLISHED`) |
 | `PUT` | `/api/events/{id}/response-options` | `ReplaceResponseOptionsRequest` (solo la lista de opciones) | `200` (`EventResponse` completo), `404`, `409`, `422` |
-| `PUT` | `/api/events/{id}/venue` | `VenueRequest` | `200` (`EventResponse` completo), `404`, `409` (no `DRAFT`), `422` (falta campo obligatorio o el evento es `ONLINE`) |
-| `PUT` | `/api/events/{id}/online-access` | `OnlineAccessRequest` | `200` (`EventResponse` completo), `404`, `409` (no `DRAFT`), `422` (falta campo obligatorio, url inválida, `hoursBefore` incoherente, o el evento es `IN_PERSON`) |
+| `PUT` | `/api/events/{id}/venue` | `VenueRequest` | `200` (`EventResponse` completo), `404`, `409` (no `DRAFT` o el evento es `ONLINE`), `422` (falta campo obligatorio) |
+| `PUT` | `/api/events/{id}/online-access` | `OnlineAccessRequest` | `200` (`EventResponse` completo), `404`, `409` (no `DRAFT` o el evento es `IN_PERSON`), `422` (falta campo obligatorio, url inválida o `hoursBefore` incoherente) |
 
 Documentado también en OpenAPI (`/v3/api-docs`, `/swagger-ui.html`), ver sección "Documentación de API" en
-`CLAUDE.md`.
+`AGENTS.md`.
 
 ---
 

@@ -30,6 +30,7 @@ Dos factory methods:
 | El email debe ser único en el sistema | `EmailAlreadyRegisteredException` | 409 |
 | La contraseña en claro debe tener ≥ 8 caracteres | `PasswordTooShortException` | 422 |
 | La zona horaria es obligatoria (no nula ni en blanco) | `BlankTimeZoneException` | 422 |
+| La zona horaria debe ser válida según `ZoneId.of(...)` | `InvalidUserTimeZoneException` | 422 |
 
 Todas las excepciones de dominio heredan de `UserDomainException`. El `@RestControllerAdvice`
 (`GlobalExceptionHandler`) mapea `UserDomainException` → 422 y `EmailAlreadyRegisteredException` → 409
@@ -102,7 +103,7 @@ de la autenticación de Spring Security.
 
 | Método | Ruta | Body | Respuesta |
 |---|---|---|---|
-| `POST` | `/api/auth/register` | `RegisterUserRequest` (`name`, `email`, `rawPassword`, `timeZone`) | `201` + `AuthUserResponse` (`id`, `name`, `email`, `timeZone`), `409` (email duplicado), `422` (regla de dominio) |
+| `POST` | `/api/auth/register` | `RegisterUserRequest` (`name`, `email`, `rawPassword`, `timeZone`) | `201` + `Location: /api/users/{id}` + `AuthUserResponse` (`id`, `name`, `email`, `timeZone`), `409` (email duplicado), `422` (regla de dominio) |
 | `POST` | `/api/auth/login` | `LoginRequest` (`email`, `password`) | `200` + `AuthUserResponse`, `401` (credenciales incorrectas) |
 | `POST` | `/api/auth/logout` | — | `204` |
 

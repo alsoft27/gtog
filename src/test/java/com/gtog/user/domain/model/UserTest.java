@@ -88,6 +88,13 @@ class UserTest {
 	}
 
 	@Test
+	void rejectsInvalidTimeZone() {
+		assertThatThrownBy(() -> User.register("Ana", "user@example.com", VALID_PASSWORD, "Europe/Unknown"))
+				.isInstanceOf(InvalidUserTimeZoneException.class)
+				.hasMessage("Invalid IANA time zone: Europe/Unknown");
+	}
+
+	@Test
 	void reconstitutePreservesAllFields() {
 		Password password = Password.fromHash("stored-hash");
 		User user = User.reconstitute("fixed-id", "Bob", "bob@example.com", password, "America/New_York");

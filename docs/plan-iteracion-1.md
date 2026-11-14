@@ -1,6 +1,6 @@
 # gtog — Plan de la iteración 1
 
-Estado a 20 de agosto de 2026.
+Estado a 13 de noviembre de 2026.
 
 ---
 
@@ -11,12 +11,12 @@ Estado a 20 de agosto de 2026.
 | Rebanada | Estado |
 |---|---|
 | Crear evento en `DRAFT` | `POST /api/events` funcionando de punta a punta, con dominio, puertos, adaptador Mongo, controlador y tests |
-| R1 — Consultar y listar eventos | `GET /api/events/{id}` (`EventResponse` completo, `EventNotFoundException` → 404) y `GET /api/events?hostId=` (proyección `EventSummaryResponse`, sin paginación, `hostId` obligatorio y temporal) |
+| R1 — Consultar y listar eventos | `GET /api/events/{id}` (`EventResponse` completo, `EventNotFoundException` → 404) y `GET /api/events` (proyección `EventSummaryResponse`, sin paginación; desde R5 el anfitrión se obtiene de la sesión, sin parámetro `hostId`) |
 | R2 — Opciones de respuesta | `ResponseOption` embebido en `Event`, 2 a 5, defaults ("Asisto"/"No asisto") si no se especifican, `PUT /api/events/{id}/response-options` con identidad por `id` al editar (se conserva si coincide, se rechaza con 422 si no pertenece al evento) |
 | R3 — Ubicación y acceso en línea | `Venue` y `OnlineAccess` (el backend no llama a la API de Google), `LinkVisibility`, invariante de modalidad (`IN_PERSON`⇄`venue`, `ONLINE`⇄`onlineAccess`), `PUT /api/events/{id}/venue` y `PUT /api/events/{id}/online-access`, `Event.visibleOnlineAccess(guestHasConfirmed, now)` ya implementado (solo probado a nivel de dominio, sin invitados todavía) |
-| R4 — Editar, publicar y cancelar | Máquina de estados: `publish()` solo desde `DRAFT` (precondiciones: venue/onlineAccess según modalidad, ≥2 opciones → `IncompleteEventForPublishException` 422), `cancel(reason, now)` solo desde `PUBLISHED` → `CANCELLED` con `cancelledAt` (irreversible). `edit()` con todos los campos básicos más `allowComment`/`allowResponseChange`/`responseDeadline` (sacados de `replaceResponseOptions`): si la modalidad cambia, el bloque de ubicación correspondiente es obligatorio. `PUT /api/events/{id}`, `POST /api/events/{id}/publish`, `POST /api/events/{id}/cancel`. 61 tests de dominio, 37 de integración, todos en verde. |
-| R5 — Usuario y seguridad | Registro, login, logout, Spring Security. `POST /api/auth/register` y `POST /api/auth/login`. Ownership check en todos los endpoints de evento: `hostId != event.hostId` → 404. `GET /api/events` lee el host del principal autenticado; `hostId` desaparece como parámetro de query. `/api/invitations/**` público. 172 tests en verde. |
-| Infraestructura | Java 25, Spring Boot 4.1, Maven aislado, MongoDB Atlas, OpenAPI |
+| R4 — Editar, publicar y cancelar | Máquina de estados: `publish()` solo desde `DRAFT` (precondiciones: venue/onlineAccess según modalidad, ≥2 opciones → `IncompleteEventForPublishException` 422), `cancel(reason, now)` solo desde `PUBLISHED` → `CANCELLED` con `cancelledAt` (irreversible). `edit()` con todos los campos básicos más `allowComment`/`allowResponseChange`/`responseDeadline` (sacados de `replaceResponseOptions`): si la modalidad cambia, el bloque de ubicación correspondiente es obligatorio. `PUT /api/events/{id}`, `POST /api/events/{id}/publish`, `POST /api/events/{id}/cancel`. Cobertura actual del evento: 84 tests de dominio y 35 de integración, todos en verde. |
+| R5 — Usuario y seguridad | Registro, login, logout, Spring Security. `POST /api/auth/register` y `POST /api/auth/login`. Ownership check en todos los endpoints de evento: `hostId != event.hostId` → 404. `GET /api/events` lee el host del principal autenticado; `hostId` desaparece como parámetro de query. `/api/invitations/**` público. 174 tests en verde tras añadir la validación de zona horaria del usuario y su cobertura HTTP. |
+| Infraestructura | Java 25, Spring Boot 4.1, Maven por defecto, MongoDB Atlas, OpenAPI |
 
 **Lo que eso valida:** la arquitectura hexagonal funciona en la práctica, el mapeo entre `Event` y `EventDocument` es asumible, y el circuito completo de desarrollo está operativo. Además, `Event.create(...)`/`reconstitute(...)` cambiaron de firma en las tres rebanadas seguidas, así que desde R3 `Event` se construye con dos builders internos (`Event.builder()` para eventos nuevos, `Event.reconstituteBuilder()` para rehidratar) en vez de factory methods con parámetros posicionales — ver `docs/modelo-evento.md`.
 
@@ -38,6 +38,7 @@ Esto no es una lista de pendientes cualquiera: son cosas que ya están mal a pro
 | D-DELETE-DRAFT | **Borrar un `DRAFT` sin implementar** | Un borrador no se puede cancelar (`cancel()` solo desde `PUBLISHED`). No existe `DELETE /api/events/{id}`. | Rebanada posterior |
 | D-SWAGGER-PUBLIC | **OpenAPI y Swagger UI sin autenticación** | Cualquiera puede ver la documentación completa de la API sin autenticarse. Hoy es conveniente para desarrollo; antes de producción hay que decidir si protegerlo o dejarlo público. | Antes del despliegue a producción |
 | D-SECURE-COOKIE | **Cookie de sesión sin `Secure` en desarrollo** | La cookie `JSESSIONID` se envía también por HTTP. En producción detrás de HTTPS con `server.ssl.*` o proxy con `server.forward-headers-strategy=native`, Spring Boot activa el flag automáticamente. Verificar antes del primer despliegue. | Antes del despliegue a producción |
+| D-ERROR-FORMAT | **401 de los filtros de seguridad sin `ProblemDetail`** | El advice devuelve `ProblemDetail`, pero el rechazo por falta de autenticación se produce en los filtros y no garantiza el mismo formato. La unificación queda pendiente; no cambiar los filtros en esta corrección. | Pendiente de planificación |
 | D-DUP-KEY | **`DuplicateKeyException` mapeada por texto, no por código de error** | `UserRepositoryAdapter` inspecciona `e.getMessage().contains("email")` para distinguir el índice violado. Si el mensaje cambia (driver, Atlas, nombre de índice), la excepción se propaga como 500 en lugar de 409. | Cuando haya un segundo índice único en `users` o cuando el texto del mensaje cambie |
 
 **D-4, saldada.** Decía "health indicator de Mongo desactivado", y no era así: estaba activo y en `DOWN`. El indicador por defecto de Actuator recorre **todas** las bases que el `MongoClient` ve vía `listDatabaseNames()` — no solo `local`, también `admin`, `config`, la de la propia app — y ejecuta `hello` en cada una; en Atlas el usuario de la aplicación no tiene permiso sobre `local`, así que el chequeo entero caía con `DOWN` aunque `gtog_dev`/`gtog_test` respondieran sin problema. Comprobado arrancando la app. Sustituido por `MongoDatabaseHealthIndicator` (en `shared/config`), que hace `ping` solo contra la base configurada de la aplicación; el indicador por defecto se desactiva con `management.health.mongodb.enabled=false` en ambos `application*.properties` para que no convivan. Verificado de nuevo: `GET /actuator/health` → `"mongo":{"details":{"database":"gtog_dev","ping":1},"status":"UP"}`.
@@ -78,7 +79,7 @@ RF descarga de calendario: `GET /api/invitations/{token}/calendar` devuelve un a
 **R9. Panel del anfitrión**
 Contadores por opción de respuesta y listado de invitados con su estado. Es la primera vez que necesitas la agregación `$lookup` entre `events` y `responses`.
 
-RF-1.5 (contadores en el listado): `EventSummaryResponse` hoy solo tiene `id`, `title`, `startsAt`, `modality` y `status`. Aquí se le añaden los contadores de respuesta (`totalGuests`, `answered`, `pending`, por opción de respuesta), calculados con la misma agregación del panel. El listado de eventos `GET /api/events?hostId=` empieza a tener sentido para el anfitrión solo cuando muestra estos datos.
+RF-1.5 (contadores en el listado): `EventSummaryResponse` hoy solo tiene `id`, `title`, `startsAt`, `modality` y `status`. Aquí se le añaden los contadores de respuesta (`totalGuests`, `answered`, `pending`, por opción de respuesta), calculados con la misma agregación del panel. El listado de eventos `GET /api/events`, del anfitrión autenticado, empieza a tener sentido para el anfitrión solo cuando muestra estos datos.
 
 ### Bloque D — Envío de invitaciones
 
@@ -105,15 +106,14 @@ RF-1.2 y RF-1.3. Dependen del proveedor de correo decidido en R10. Implementar d
 
 ---
 
-## 4. La decisión que hay que tomar ahora
+## 4. Decisión resuelta — Spring Security en R5
 
-**¿Cuándo vuelve Spring Security?**
+**Spring Security ya se incorporó en R5**, antes de comenzar R6. El anfitrión se identifica por su sesión;
+`hostId` ya no se recibe en el cuerpo de creación ni como parámetro del listado. Los casos de uso comprueban
+la propiedad del evento y devuelven 404 al acceder a uno ajeno. `/api/invitations/**` queda público para R7.
 
-Lo puse en R5, entre el bloque del evento y el del invitado, y no al final. La razón: a partir de R6 todo lo que construyas depende del modelo de autorización. La página del invitado necesita que `/api/invitations/**` sea público mientras el resto no lo es, y el panel necesita saber quién es el anfitrión que consulta. Si construyes eso sin seguridad y la añades después, tocas todos los controladores otra vez.
-
-La alternativa es dejarla para el final y aceptar la reescritura. Es defendible si prefieres validar antes el flujo completo del producto, que es lo que de verdad hace distinta a gtog.
-
-**Mi recomendación es R5 donde está.** Retrasarla más significa que el `hostId` de texto se propaga a cuatro o cinco endpoints antes de desaparecer.
+Se mantiene el orden decidido: construir invitados, página pública y panel sobre el modelo de autorización
+ya implementado evita rehacer los controladores al añadir seguridad más adelante.
 
 ---
 

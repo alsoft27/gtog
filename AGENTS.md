@@ -6,6 +6,16 @@ La especificación funcional está en `docs/mvp-alcance-iteracion-1.md`. **Léel
 
 ---
 
+## Cómo trabajamos
+
+- Antes de escribir código, presenta un plan y espera mi aprobación.
+- Trabajamos por rebanadas verticales: dominio, puerto, adaptador, controlador y test, funcionando de punta a punta antes de pasar a la siguiente.
+- Lee `docs/plan-iteracion-1.md` para conocer el estado y la deuda, y `docs/modelo-evento.md` y `docs/modelo-usuario.md` para el detalle de los agregados.
+- Las decisiones y sus razones están en `docs/gtog-estado-y-decisiones.md`. Si propones contradecir alguna, léela primero y explica por qué hay que revisarla. No la cambies sin avisar.
+- Si estas instrucciones, los documentos y el código divergen, avísame; no decidas por tu cuenta cuál gana. La revisión inicial está en `docs/revision-inicial-2026-11-13.md`; es un diagnóstico histórico; las decisiones posteriores aprobadas se reflejan en estas instrucciones y en los documentos del proyecto.
+
+---
+
 ## Stack
 
 | | |
@@ -15,7 +25,7 @@ La especificación funcional está en `docs/mvp-alcance-iteracion-1.md`. **Léel
 | Arquitectura | Hexagonal (puertos y adaptadores) |
 | Base de datos | MongoDB Atlas |
 | Migraciones | Ninguna por ahora, ver más abajo |
-| Tests | JUnit 5 |
+| Tests | JUnit Jupiter 6 (transitivo de Spring Boot 4) |
 
 Paquete raíz: `com.gtog`. Artefacto: `gtog`.
 
@@ -49,15 +59,13 @@ La especificación está escrita en español y el código no. Usa esta tabla de 
 
 ## Comandos
 
-Este proyecto usa un **repositorio Maven local aislado**. Nunca ejecutes `mvn` sin el flag `-s`, o romperás el aislamiento.
+Se usa Maven por defecto, sin flags de configuración adicionales.
 
 ```bash
-mvn -s /Users/a.barrios.rodriguez/Desktop/code/alsoft27/maven/settings.xml clean verify
-mvn -s /Users/a.barrios.rodriguez/Desktop/code/alsoft27/maven/settings.xml test
-mvn -s /Users/a.barrios.rodriguez/Desktop/code/alsoft27/maven/settings.xml spring-boot:run
+mvn clean verify
+mvn test
+mvn spring-boot:run
 ```
-
-El repositorio `~/.m2/eci-repo` pertenece a otros proyectos. No lo consultes ni escribas en él. El único repositorio de este proyecto es el que indica el `settings.xml` de los comandos anteriores.
 
 La base de datos es **MongoDB Atlas**, no local. Hace falta la variable de entorno `MONGODB_URI` (la cadena de conexión de Atlas, sin nombre de base) en el entorno antes de arrancar la aplicación o de lanzar los tests de integración. Nunca la pongas en un archivo versionado: lleva credenciales.
 
@@ -83,11 +91,12 @@ com.gtog
 │   └── infrastructure/
 │       ├── in/web/             controladores + DTOs de request y response
 │       └── out/persistence/    documentos de Mongo, adaptadores y mappers
-├── guest/
 ├── invitation/                 envío de correo, enlaces profundos de WhatsApp y Telegram
 ├── user/
 └── shared/                     excepciones, ProblemDetail, configuración transversal
 ```
+
+Los invitados viven dentro del hexágono `event`: no tienen vida independiente del evento y comparten agregado y documento. No crees un hexágono `guest` separado en R6.
 
 Las cinco reglas que hacen que esto sea hexagonal de verdad y no tres carpetas con nombres bonitos:
 
@@ -194,12 +203,22 @@ Las ediciones del anfitrión sobre el cuerpo del evento sí pueden usar `save()`
 
 ```java
 public record CreateEventRequest(
-    @NotBlank String hostId,
     String title,
-    @NotNull Instant startsAt,
-    @NotNull Modality modality
+    String description,
+    @NotNull LocalDateTime startsAt,
+    @NotNull LocalDateTime endsAt,
+    @NotBlank String timeZone,
+    @NotNull Modality modality,
+    List<@Valid CreateResponseOptionRequest> responseOptions,
+    Boolean allowComment,
+    Boolean allowResponseChange,
+    LocalDateTime responseDeadline,
+    VenueRequest venue,
+    OnlineAccessRequest onlineAccess
 ) {}
 ```
+
+`hostId` se obtiene del principal autenticado, nunca del cuerpo. Las fechas del evento son horas locales (`LocalDateTime`) más `timeZone`; el instante se calcula al consultar. Los instantes de auditoría siguen en UTC.
 
 **Inyección por constructor, siempre.** Nunca `@Autowired` sobre campos.
 
@@ -209,7 +228,7 @@ public record CreateEventRequest(
 
 **La validación se reparte en dos sitios:** las anotaciones de Jakarta sobre el record de entrada cubren el formato (tipos, rangos, patrones); las reglas de negocio (mínimo dos opciones de respuesta, al menos una que cuente como asistencia, el evento debe estar en `DRAFT` para cambiar las opciones) viven en el dominio.
 
-**Si la obligatoriedad de un campo es en sí una regla de negocio, no la captures con Jakarta.** Nada de `@NotBlank`/`@NotNull` en el DTO para ese campo: se valida en el dominio, con su propia excepción, y sale como 422. Si Jakarta la bloqueara antes, respondería 400 y la regla de negocio no llegaría nunca a ejecutarse — ni a poder probarse a través del controlador. Ejemplos ya en el código: `title` de `CreateEventRequest` (`BlankEventTitleException`), `label` de las opciones de respuesta (`BlankResponseOptionLabelException`), y los campos obligatorios de `Venue` y `OnlineAccess` (`MissingVenueFieldException`, `MissingOnlineAccessFieldException`). Por contraste, `hostId` sigue llevando `@NotBlank`: hoy es un campo suelto sin más significado de negocio que "tiene que venir algo".
+**Si la obligatoriedad de un campo es en sí una regla de negocio, no la captures con Jakarta.** Nada de `@NotBlank`/`@NotNull` en el DTO para ese campo: se valida en el dominio, con su propia excepción, y sale como 422. Si Jakarta la bloqueara antes, respondería 400 y la regla de negocio no llegaría nunca a ejecutarse — ni a poder probarse a través del controlador. Ejemplos ya en el código: `title` de `CreateEventRequest` (`BlankEventTitleException`), `label` de las opciones de respuesta (`BlankResponseOptionLabelException`), y los campos obligatorios de `Venue` y `OnlineAccess` (`MissingVenueFieldException`, `MissingOnlineAccessFieldException`). Por contraste, `timeZone` del evento lleva `@NotBlank` para exigir su presencia; el dominio comprueba que sea una zona válida con `ZoneId.of(...)`. `hostId` ya no forma parte de `CreateEventRequest` desde R5.
 
 ---
 
@@ -219,6 +238,8 @@ public record CreateEventRequest(
 - Los endpoints públicos del invitado van bajo `/api/invitations/{token}`, separados del resto para que la regla de seguridad se vea en la propia ruta.
 - Códigos: `201` al crear con cabecera `Location`, `204` al borrar, `409` en conflicto de estado, `422` cuando una regla de negocio rechaza la petición.
 - Errores con **`ProblemDetail`** (RFC 7807), gestionados por un único `@RestControllerAdvice` en `shared`. No inventes un formato de error propio.
+
+**CSRF en login y registro: deliberado.** Tanto `POST /api/auth/login` como `POST /api/auth/register` requieren un token CSRF válido, enviado en `X-XSRF-TOKEN`. No los excluyas de la protección: excluir el login permitiría que un atacante autenticase a la víctima en la cuenta del atacante (login-CSRF). Esta decisión prevalece sobre la propuesta anterior de excluirlos en `docs/plan-r5-usuario-seguridad.md`.
 
 **Enums**
 

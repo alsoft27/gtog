@@ -120,7 +120,7 @@ anfitrión (RF-2.13); esta limitación debe ser visible en la interfaz para que 
 **Crear y publicar un evento**
 
 1. Datos básicos: título, descripción, fecha, hora de inicio y fin.
-2. Modalidad y ubicación (presencial con mapa, en línea con enlace, o ambas).
+2. Modalidad y ubicación (presencial con mapa o en línea con enlace).
 3. Opciones de respuesta: elegir conjunto predefinido o construir uno propio.
 4. Invitados: agregarlos uno a uno.
 5. Revisión: vista previa de la página que verá el invitado.
@@ -145,7 +145,7 @@ reenvía a los pendientes.
 
 **Base de datos: MongoDB.** Cuatro colecciones, separadas según su patrón de escritura y su crecimiento. Los nombres de
 colecciones y campos van en inglés, igual que el código; la tabla de equivalencias con la terminología de este documento
-está en el `CLAUDE.md` del repositorio.
+está en el `AGENTS.md` del repositorio.
 
 ```
 users
@@ -219,7 +219,7 @@ wall_posts                     // iteración 2, referencia el evento
   relacional.
 - **Arquitectura hexagonal** en el backend, con el modelo de dominio libre de anotaciones de framework y separado de los
   documentos de persistencia.
-- **El nombre del producto es gtog.** El artefacto del backend es `gtog-api`, con paquete raíz `com.gtog`.
+- **El nombre del producto es gtog.** El artefacto del backend es `gtog`, con paquete raíz `com.gtog`.
 - **Todo el código, las rutas de la API y los identificadores en inglés.** Esta especificación y los comentarios del
   código siguen en español.
 

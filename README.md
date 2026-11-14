@@ -17,7 +17,7 @@ Este repositorio es solo el backend. La especificación funcional completa vive 
 | Arquitectura | Hexagonal (puertos y adaptadores) |
 | Base de datos | MongoDB Atlas |
 | Documentación de API | springdoc-openapi / Swagger UI |
-| Tests | JUnit 5 |
+| Tests | JUnit Jupiter 6 (transitivo de Spring Boot 4) |
 
 ---
 
@@ -25,7 +25,7 @@ Este repositorio es solo el backend. La especificación funcional completa vive 
 
 - JDK 25.
 - Una base de datos en **MongoDB Atlas** (no hace falta Mongo local ni Docker).
-- El `settings.xml` del repositorio Maven aislado de este proyecto (no es el `~/.m2` global).
+- Maven con su configuración por defecto.
 
 ---
 
@@ -44,13 +44,13 @@ Este repositorio es solo el backend. La especificación funcional completa vive 
 2. Arranca la aplicación:
 
    ```bash
-   mvn -s <ruta-al-settings.xml-aislado> spring-boot:run
+   mvn spring-boot:run
    ```
 
 3. Compila y pasa toda la suite:
 
    ```bash
-   mvn -s <ruta-al-settings.xml-aislado> clean verify
+   mvn clean verify
    ```
 
 Con la aplicación arrancada:
@@ -78,7 +78,8 @@ com.gtog
 │   └── infrastructure/
 │       ├── in/web/        controladores REST y DTOs
 │       └── out/persistence/  documentos de Mongo y adaptadores
-├── guest/ · invitation/ · user/   (siguientes iteraciones)
+├── user/                  registro y autenticación por sesión (R5)
+├── invitation/            envío de invitaciones (pendiente)
 └── shared/                excepciones, configuración transversal (índices, salud, OpenAPI)
 ```
 
@@ -95,4 +96,4 @@ distintas del modelo de dominio, traducidas por mappers.
 | [`docs/definicion-funcional-app-eventos.md`](docs/definicion-funcional-app-eventos.md) | Definición funcional completa de la aplicación |
 | [`docs/plan-iteracion-1.md`](docs/plan-iteracion-1.md) | Estado del plan: qué está cerrado, deuda técnica abierta, rebanadas pendientes |
 | [`docs/modelo-evento.md`](docs/modelo-evento.md) | Modelo de datos del evento: campos, reglas de negocio, excepciones, endpoints |
-| [`CLAUDE.md`](CLAUDE.md) | Convenciones de arquitectura, código y flujo de trabajo del proyecto |
+| [`AGENTS.md`](AGENTS.md) | Convenciones de arquitectura, código y flujo de trabajo del proyecto |
