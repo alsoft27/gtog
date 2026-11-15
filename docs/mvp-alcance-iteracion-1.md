@@ -36,7 +36,7 @@ adicionales, check-in, cuentas de empresa, recordatorios automáticos, aplicaci�
 | RF-1.2 | Verificación de correo antes de crear el primer evento.                                                                                                                                        |
 | RF-1.3 | Recuperación de contraseña.                                                                                                                                                                    |
 | RF-1.4 | Perfil mínimo: nombre visible, correo, zona horaria.                                                                                                                                           |
-| RF-1.5 | Listado de los eventos del usuario con su estado y contadores totalGuests, answered, pending y attending, sin byOption. Pendiente del commit 2 de R9; el panel individual ya está implementado. Ambos reutilizarán el mismo cálculo puro basado en invitados vivos, sin contar respuestas huérfanas. |
+| RF-1.5 | Listado de los eventos del usuario con su estado y contadores totalGuests, answered, pending y attending, sin byOption. Implementado en el commit 2 de R9. Listado y panel reutilizan el mismo cálculo puro basado en invitados vivos, sin contar respuestas huérfanas. Una sola consulta de respuestas para todos los eventos del anfitrión, sin paginación (D-LIST-SCALE). |
 | RF-1.6 | Diseño responsivo. El anfitrión trabaja en escritorio; el invitado abrirá su enlace desde el teléfono en la mayoría de los casos, así que la página de respuesta se diseña primero para móvil. |
 
 **Estados del evento en esta iteración:** `Borrador → Publicado`, más `Cancelado` (solo desde Publicado). Sin fase de votación todavía. `FINISHED` no está implementado — ni automático por fecha ni acción manual del anfitrión (ver D-FINISHED en el plan). Tampoco existe `DELETE` para borradores: `cancel()` solo funciona desde `PUBLISHED`, y no hay `DELETE /api/events/{id}` (ver D-DELETE-DRAFT en el plan).
@@ -180,6 +180,12 @@ El cálculo recorre guests[] y asocia respuestas por evento/token. Una respuesta
 Una respuesta con opción desconocida sí cuenta como answered, pero no en attending ni en una opción;
 su fila lleva optionKnown=false y label=null. Si la opción existe, optionKnown=true; sin respuesta, response
 y optionKnown son null. La lectura de respuestas es agrupada por eventId in [...], sin $lookup.
+
+`GET /api/events` añade totalGuests, answered, pending y attending a la proyección del listado, sin byOption
+ni filas de invitados. Sus cifras coinciden con totals del panel para el mismo evento. La aplicación lee los
+eventos del anfitrión y sus respuestas en una sola consulta adicional para todos sus ids; si no hay eventos,
+no consulta respuestas. No se añade una cabecera de caché propia al listado. El cálculo en memoria sobre
+todos los eventos y respuestas, sin paginación, queda como D-LIST-SCALE.
 
 El filtrado de presentación y reenvío sigue pendiente: R10 reenviará a todos los invitados que no respondieron,
 también si ya abrieron la invitación. La respuesta manual del anfitrión queda fuera del MVP.

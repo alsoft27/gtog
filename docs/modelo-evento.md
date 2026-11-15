@@ -1,7 +1,7 @@
 # Modelo de datos: Evento
 
-Estado del modelo tras R1–R7: creación de eventos, consulta/listado (R1), opciones de respuesta (R2),
-ubicación/acceso en línea (R3), editar/publicar/cancelar (R4), seguridad/ownership (R5), invitados (R6), consulta pública (R7), plazo editable, registro de respuesta, enlace por confirmación, opciones publicadas, cascada y calendario (R8, commits 0–4). Las respuestas viven en `responses`, nunca embebidas en el evento. El muro social sigue pendiente.
+Estado del modelo tras R1–R9: creación de eventos, consulta/listado (R1), opciones de respuesta (R2),
+ubicación/acceso en línea (R3), editar/publicar/cancelar (R4), seguridad/ownership (R5), invitados (R6), consulta pública (R7), plazo editable, registro de respuesta, enlace por confirmación, opciones publicadas, cascada y calendario (R8, commits 0–4), panel y contadores en el listado (R9). Las respuestas viven en `responses`, nunca embebidas en el evento. El muro social sigue pendiente.
 
 ---
 
@@ -263,7 +263,7 @@ dentro del mismo `guests[]`. Ver `docs/modelo-invitado.md`.
 | `CreateEventUseCase` | `CreateEventService` | Crea el evento en `DRAFT` con sus opciones (o los defaults) y lo persiste. |
 | `GetEventByIdUseCase` | `EventQueryService` | Devuelve el evento completo o lanza `EventNotFoundException`. |
 | `GetEventDashboardUseCase` | `GetEventDashboardService` | Comprueba propiedad, lee respuestas por un puerto en una consulta y calcula EventAttendanceSummary sin escrituras. |
-| `ListEventsByHostUseCase` | `EventQueryService` | Lista los eventos de un `hostId`, sin paginación. |
+| `ListEventsByHostUseCase` | `EventQueryService` | Lista proyecciones EventSummary (evento y totales), sin paginación. Lee una sola vez las respuestas de todos los eventos del anfitrión y reutiliza el cálculo del panel. |
 | `ReplaceResponseOptionsUseCase` | `ReplaceResponseOptionsService` | Comprueba propiedad; en PUBLISHED consulta los ids con respuestas mediante un puerto, los pasa al dominio junto con la lista y guarda con bloqueo optimista. No cambia allowComment/allowResponseChange/responseDeadline. |
 | `ReplaceVenueUseCase` | `EventLocationService` | Busca el evento, delega en `event.replaceVenue(...)` y lo guarda. |
 | `ReplaceOnlineAccessUseCase` | `EventLocationService` | Busca el evento, delega en `event.replaceOnlineAccess(...)` y lo guarda. |
@@ -289,7 +289,7 @@ sobre `EventMongoRepository` (Spring Data).
 | `POST` | `/api/events` | `CreateEventRequest` | `201` + `Location`, `400`, `422` |
 | `GET` | `/api/events/{id}` | — | `200` (`EventResponse` completo), `404` |
 | `GET` | `/api/events/{id}/dashboard` | — (sesión del propietario) | `200` (`EventDashboardResponse`) con no-store exacto; `401`, `404` |
-| `GET` | `/api/events` | — (el host se lee del principal autenticado) | `200` (lista de `EventSummaryResponse`: `id`, `title`, `startsAt`, `modality`, `status`), `401` si no hay sesión |
+| `GET` | `/api/events` | — (el host se lee del principal autenticado) | `200` (lista de `EventSummaryResponse`: `id`, `title`, `startsAt`, `modality`, `status`, `totalGuests`, `answered`, `pending`, `attending`), `401` si no hay sesión |
 | `PUT` | `/api/events/{id}` | `UpdateEventRequest` (título, fechas, zona horaria, modalidad, venue/onlineAccess opcionales, `allowComment`, `allowResponseChange`, `responseDeadline`) | `200` (`EventResponse` completo), `404`, `409` (no `DRAFT`), `422` |
 | `PUT` | `/api/events/{id}/response-deadline` | `{ "responseDeadline": LocalDateTime o null }`, sesión y CSRF | `200` (`EventResponse`), `401`, `403`, `404` (inexistente o ajeno), `409` (estado, inicio alcanzado o carrera), `422` (plazo posterior al inicio) |
 | `POST` | `/api/events/{id}/publish` | — | `200` (`EventResponse` completo), `404`, `409` (no `DRAFT`), `422` (falta venue/onlineAccess o < 2 opciones) |
@@ -324,7 +324,7 @@ Documentado también en OpenAPI (`/v3/api-docs`, `/swagger-ui.html`), ver secci�
 
 ---
 
-## Panel del anfitrión (R9, commit 1)
+## Panel del anfitrión y contadores del listado (R9)
 
 `EventAttendanceSummary.calculate(event, responses)` es una función pura del dominio: construye un índice
 de respuestas del evento por token y recorre guests[] en orden de alta. Los documentos huérfanos no aportan
@@ -341,7 +341,17 @@ contadores ni filas. El resultado inmutable contiene totals, byOption y guests; 
 `GuestResponseRepositoryPort.findByEventIds(Set<String>)` permite leer respuestas de varios eventos mediante
 una sola consulta Mongo `eventId in [...]`, usando el índice de eventId existente; un conjunto vacío devuelve
 lista vacía sin consultar Mongo. El panel usa ese puerto con el id de su evento después de comprobar propiedad.
-Son dos lecturas unidas en aplicación, sin $lookup; la ampliación del listado queda para el commit 2.
+Son dos lecturas unidas en aplicación, sin $lookup.
+
+Desde el commit 2, `EventQueryService.listEventsByHost(...)` lee los eventos del anfitrión, reúne sus ids y
+llama una sola vez a ese mismo puerto. Agrupa las respuestas por eventId en memoria y pasa cada grupo a
+`EventAttendanceSummary.calculate(...)`, igual que el panel. Devuelve `EventSummary`, un record de dominio
+con el evento y sus Totals. No se consulta responses si no hay eventos ni se hace una consulta por evento.
+`EventSummaryResponse` mapea campo a campo id, title, startsAt, modality, status y totalGuests, answered,
+pending y attending; no expone byOption, invitados, respuestas ni contactos. Los documentos huérfanos y las
+opciones desconocidas siguen exactamente las mismas reglas que el panel. Ambas lecturas conservan los
+documentos y version. El listado no añade una política de caché propia. La ausencia de paginación y el
+cálculo en memoria sobre todos los eventos y sus respuestas se documentan como D-LIST-SCALE.
 
 `EventDashboardResponse` se construye campo a campo en web. Sus filas exponen id, name, email y phoneE164 del
 contacto, deliveryChannel, invitationStatus e invitationPath como GET /guests, más answered, response y

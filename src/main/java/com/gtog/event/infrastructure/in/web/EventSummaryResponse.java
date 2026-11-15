@@ -4,8 +4,8 @@ import java.time.LocalDateTime;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 
-import com.gtog.event.domain.model.Event;
 import com.gtog.event.domain.model.EventStatus;
+import com.gtog.event.domain.model.EventSummary;
 import com.gtog.event.domain.model.Modality;
 
 public record EventSummaryResponse(
@@ -23,14 +23,32 @@ public record EventSummaryResponse(
 		Modality modality,
 
 		@Schema(description = "Estado del evento", example = "DRAFT")
-		EventStatus status) {
+		EventStatus status,
 
-	public static EventSummaryResponse from(Event event) {
+		@Schema(description = "Total de invitados actuales del evento", example = "3")
+		int totalGuests,
+
+		@Schema(description = "Invitados que han respondido, incluso con una opción ya inexistente", example = "2")
+		int answered,
+
+		@Schema(description = "Invitados que todavía no han respondido", example = "1")
+		int pending,
+
+		@Schema(description = "Invitados cuya opción actual cuenta como asistencia", example = "1")
+		int attending) {
+
+	public static EventSummaryResponse from(EventSummary summary) {
+		var event = summary.event();
+		var totals = summary.totals();
 		return new EventSummaryResponse(
 				event.getId(),
 				event.getTitle(),
 				event.getStartsAt(),
 				event.getModality(),
-				event.getStatus());
+				event.getStatus(),
+				totals.guests(),
+				totals.answered(),
+				totals.pending(),
+				totals.attending());
 	}
 }

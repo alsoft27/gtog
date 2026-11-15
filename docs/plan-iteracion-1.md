@@ -23,10 +23,11 @@ Estado a 15 de noviembre de 2026. Decisión de correo documentada; sin implement
 | R8 — Confirmación y enlace (commit 2) | D-CONFIRMED-LINK saldada: ON_CONFIRMATION usa la respuesta propia y countsAsAttendance. Opción inexistente o ausencia de respuesta equivale a no confirmado. GET y PUT comparten el filtro. 7 tests nuevos de integración a través del GET. |
 | R8 — Opciones publicadas y cascada (commit 3) | D-7 saldada: renombrar/agregar en PUBLISHED, sin eliminar ni cambiar countsAsAttendance de opciones con respuestas. Puerto de ids usados y cascada real de R6: primero retirar invitado y después limpiar respuesta. D-ORPHAN-OPTION documentada sin transacciones. 35 tests nuevos. |
 | R8 — Calendario (commit 4) | `GET /api/invitations/{token}/calendar`, público, text/calendar UTF-8, attachment y no-store exacto. iCal4j 4.2.0, fechas locales con VTIMEZONE, UID del evento y URL filtrada como en JSON. CANCELLED → 409; FINISHED → 200; DRAFT y desconocido → mismo 404. 25 tests nuevos. R8 cerrada. |
-| R9 — Panel de un evento (commit 1) | `GET /api/events/{id}/dashboard`, autenticado y con propiedad comprobada en aplicación. Dos lecturas unidas en aplicación, sin $lookup; cálculo puro EventAttendanceSummary basado en guests[]. Huérfanos ignorados, optionKnown trivalente y email de respuesta excluido. No escribe; solo su 200 fija no-store exacto. 27 tests nuevos. Falta el commit 2: contadores del listado. |
+| R9 — Panel de un evento (commit 1) | `GET /api/events/{id}/dashboard`, autenticado y con propiedad comprobada en aplicación. Dos lecturas unidas en aplicación, sin $lookup; cálculo puro EventAttendanceSummary basado en guests[]. Huérfanos ignorados, optionKnown trivalente y email de respuesta excluido. No escribe; solo su 200 fija no-store exacto. 27 tests nuevos. |
+| R9 — Contadores del listado (commit 2) | `EventSummaryResponse` añade totalGuests, answered, pending y attending, sin byOption. Mismo cálculo que el panel, con una única consulta de respuestas para todos los eventos del anfitrión, sin consultas por evento. Lectura sin cambios en documentos, version ni caché. 11 tests nuevos. R9 cerrada; siguiente rebanada: R10. |
 | Infraestructura | Java 25, Spring Boot 4.1, Maven por defecto, MongoDB Atlas, OpenAPI |
 
-**Verificación actual:** `mvn clean verify` pasa con **453 tests**, 0 fallos, 0 errores y 0 omitidos. R8 incorporó 150 casos; R9, commit 1, añade 27: 7 de dominio, 6 de aplicación y 14 de integración. El ajuste separado a inyección por constructor no cambia el número de tests.
+**Verificación actual:** `mvn clean verify` pasa con **464 tests**, 0 fallos, 0 errores y 0 omitidos. R8 incorporó 150 casos; R9 añade 38: 27 en el commit 1 (7 de dominio, 6 de aplicación y 14 de integración) y 11 en el commit 2 (2 de aplicación y 9 de integración). El ajuste separado a inyección por constructor no cambia el número de tests.
 
 **Lo que eso valida:** la arquitectura hexagonal funciona en la práctica, el mapeo entre `Event` y `EventDocument` es asumible, y el circuito completo de desarrollo está operativo. Además, `Event.create(...)`/`reconstitute(...)` cambiaron de firma en las tres rebanadas seguidas, así que desde R3 `Event` se construye con dos builders internos (`Event.builder()` para eventos nuevos, `Event.reconstituteBuilder()` para rehidratar) en vez de factory methods con parámetros posicionales — ver `docs/modelo-evento.md`.
 
@@ -45,7 +46,7 @@ Esto no es una lista de pendientes cualquiera: son cosas que ya están mal a pro
 | D-6 | **Sin herramienta de migraciones** | No hay forma versionada de cambiar el esquema | Cuando haya datos reales |
 | D-7 | **Opciones de respuesta bloqueadas en eventos publicados** | PUBLISHED permite renombrar y agregar; rechaza eliminar una opción con respuestas o cambiar su countsAsAttendance con dos excepciones de dominio propias (409). La aplicación consulta ids distintos del evento mediante un puerto y los pasa al dominio. Las demás validaciones permanecen. | **Saldada en R8, commit 3.** |
 | D-ORPHAN-OPTION | **Carrera entre responder y eliminar una opción** | Un invitado puede responder con X después de consultar los ids usados y antes de guardar la lista que la elimina. No se añaden transacciones. La lectura tolera la opción inexistente: conserva myResponse, pero no confirma asistencia ni muestra ON_CONFIRMATION. | Pendiente de planificación |
-| D-LIST-SCALE | **Listado sin paginar con cálculo en memoria** | El commit 2 de R9 calculará contadores sobre todos los eventos del anfitrión y sus respuestas en memoria, con dos lecturas y sin paginación. Se acepta esta limitación; en el commit 1 el listado todavía no calcula contadores. | Antes de necesitar paginación o grandes volúmenes |
+| D-LIST-SCALE | **Listado sin paginar con cálculo en memoria** | Desde el commit 2 de R9, el listado calcula contadores sobre todos los eventos del anfitrión y sus respuestas en memoria, con dos lecturas y sin paginación. Se acepta esta limitación; una sola consulta de respuestas evita N+1, pero no limita el volumen cargado. | Antes de necesitar paginación o grandes volúmenes |
 | D-CONFIRMED-LINK | **Confirmación de asistencia provisional en R7** | `InvitationViewFactory.guestHasConfirmed(...)` usa la respuesta propia: solo confirma si la opción todavía existe y tiene `countsAsAttendance = true`. Sin respuesta, opción inexistente o "No asisto", false. El filtro se comparte en GET y PUT sin consultas adicionales. | **Saldada en R8, commit 2.** |
 | D-EMAIL-NOT-SENT | **Correo de respuesta sin envío** | El correo opcional se valida y se guarda únicamente en `responses`; no sale en `myResponse` ni se envía confirmación por correo. | R10 |
 | D-RATE-LIMIT | **Endpoint público sin límite de peticiones** | La entropía del token hace inviable adivinarlo, pero no protege frente a abuso o tráfico repetido sobre un enlace conocido. No hay rate limiting en R7. | Pendiente de planificación |
@@ -221,11 +222,17 @@ trivalente, orden, propiedad y documentos sin cambios. El cuerpo completo excluy
 tokens ajenos; cada token propio aparece exactamente una vez y dentro de invitationPath, sin claves token
 ni guestToken.
 
-**Commit 2 pendiente — RF-1.5:** `EventSummaryResponse` conserva por ahora id, title, startsAt, modality y
-status. Añadirá totalGuests, answered, pending y attending (sin byOption), reutilizando el mismo cálculo,
-con una lectura de eventos y una sola consulta de respuestas para todos sus ids. Sin consultas por evento.
-Los contadores deberán coincidir con totals del panel. No se añadirá no-store al listado. D-LIST-SCALE
-documenta la limitación de volumen en memoria y ausencia de paginación.
+**Commit 2 implementado — RF-1.5:** `EventSummaryResponse` conserva id, title, startsAt, modality y status y
+añade totalGuests, answered, pending y attending (sin byOption), reutilizando el mismo cálculo del dominio.
+`EventQueryService` lee los eventos, consulta una sola vez las respuestas para todos sus ids y las agrupa
+por eventId en memoria antes del cálculo. Sin consultas por evento; con listado vacío no consulta respuestas.
+Los tests comparan los contadores con totals del panel e incluyen huérfanos sembrados directamente, opciones
+desconocidas y varios eventos. Un spy del puerto comprueba la consulta única con los ids del anfitrión.
+Las lecturas en todos los estados no modifican documentos ni version. El listado conserva las cabeceras de
+Spring Security, sin no-store propio; solo el 200 del panel fija ese valor exacto. OpenAPI documenta los cuatro
+contadores. D-LIST-SCALE documenta la limitación de volumen en memoria y ausencia de paginación.
+
+**R9 cerrada. Siguiente punto: R10, envío por correo.**
 
 Registrar manualmente respuestas recibidas por otro medio queda fuera del MVP. Si se incorpora después,
 GuestResponse ganará un campo source; su ausencia significará invitado, sin migración. No se añade ese campo
