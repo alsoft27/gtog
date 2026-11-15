@@ -23,9 +23,10 @@ Estado a 15 de noviembre de 2026. Decisión de correo documentada; sin implement
 | R8 — Confirmación y enlace (commit 2) | D-CONFIRMED-LINK saldada: ON_CONFIRMATION usa la respuesta propia y countsAsAttendance. Opción inexistente o ausencia de respuesta equivale a no confirmado. GET y PUT comparten el filtro. 7 tests nuevos de integración a través del GET. |
 | R8 — Opciones publicadas y cascada (commit 3) | D-7 saldada: renombrar/agregar en PUBLISHED, sin eliminar ni cambiar countsAsAttendance de opciones con respuestas. Puerto de ids usados y cascada real de R6: primero retirar invitado y después limpiar respuesta. D-ORPHAN-OPTION documentada sin transacciones. 35 tests nuevos. |
 | R8 — Calendario (commit 4) | `GET /api/invitations/{token}/calendar`, público, text/calendar UTF-8, attachment y no-store exacto. iCal4j 4.2.0, fechas locales con VTIMEZONE, UID del evento y URL filtrada como en JSON. CANCELLED → 409; FINISHED → 200; DRAFT y desconocido → mismo 404. 25 tests nuevos. R8 cerrada. |
+| R9 — Panel de un evento (commit 1) | `GET /api/events/{id}/dashboard`, autenticado y con propiedad comprobada en aplicación. Dos lecturas unidas en aplicación, sin $lookup; cálculo puro EventAttendanceSummary basado en guests[]. Huérfanos ignorados, optionKnown trivalente y email de respuesta excluido. No escribe; solo su 200 fija no-store exacto. 27 tests nuevos. Falta el commit 2: contadores del listado. |
 | Infraestructura | Java 25, Spring Boot 4.1, Maven por defecto, MongoDB Atlas, OpenAPI |
 
-**Verificación actual:** `mvn clean verify` pasa con **426 tests**, 0 fallos, 0 errores y 0 omitidos. R8 incorpora 150 casos: 29 del commit 0, 54 del 1, 7 del 2, 35 del 3 y 25 del 4 (5 de aplicación, 6 del adaptador y 14 HTTP). El ajuste separado a inyección por constructor no cambia el número de tests.
+**Verificación actual:** `mvn clean verify` pasa con **453 tests**, 0 fallos, 0 errores y 0 omitidos. R8 incorporó 150 casos; R9, commit 1, añade 27: 7 de dominio, 6 de aplicación y 14 de integración. El ajuste separado a inyección por constructor no cambia el número de tests.
 
 **Lo que eso valida:** la arquitectura hexagonal funciona en la práctica, el mapeo entre `Event` y `EventDocument` es asumible, y el circuito completo de desarrollo está operativo. Además, `Event.create(...)`/`reconstitute(...)` cambiaron de firma en las tres rebanadas seguidas, así que desde R3 `Event` se construye con dos builders internos (`Event.builder()` para eventos nuevos, `Event.reconstituteBuilder()` para rehidratar) en vez de factory methods con parámetros posicionales — ver `docs/modelo-evento.md`.
 
@@ -44,6 +45,7 @@ Esto no es una lista de pendientes cualquiera: son cosas que ya están mal a pro
 | D-6 | **Sin herramienta de migraciones** | No hay forma versionada de cambiar el esquema | Cuando haya datos reales |
 | D-7 | **Opciones de respuesta bloqueadas en eventos publicados** | PUBLISHED permite renombrar y agregar; rechaza eliminar una opción con respuestas o cambiar su countsAsAttendance con dos excepciones de dominio propias (409). La aplicación consulta ids distintos del evento mediante un puerto y los pasa al dominio. Las demás validaciones permanecen. | **Saldada en R8, commit 3.** |
 | D-ORPHAN-OPTION | **Carrera entre responder y eliminar una opción** | Un invitado puede responder con X después de consultar los ids usados y antes de guardar la lista que la elimina. No se añaden transacciones. La lectura tolera la opción inexistente: conserva myResponse, pero no confirma asistencia ni muestra ON_CONFIRMATION. | Pendiente de planificación |
+| D-LIST-SCALE | **Listado sin paginar con cálculo en memoria** | El commit 2 de R9 calculará contadores sobre todos los eventos del anfitrión y sus respuestas en memoria, con dos lecturas y sin paginación. Se acepta esta limitación; en el commit 1 el listado todavía no calcula contadores. | Antes de necesitar paginación o grandes volúmenes |
 | D-CONFIRMED-LINK | **Confirmación de asistencia provisional en R7** | `InvitationViewFactory.guestHasConfirmed(...)` usa la respuesta propia: solo confirma si la opción todavía existe y tiene `countsAsAttendance = true`. Sin respuesta, opción inexistente o "No asisto", false. El filtro se comparte en GET y PUT sin consultas adicionales. | **Saldada en R8, commit 2.** |
 | D-EMAIL-NOT-SENT | **Correo de respuesta sin envío** | El correo opcional se valida y se guarda únicamente en `responses`; no sale en `myResponse` ni se envía confirmación por correo. | R10 |
 | D-RATE-LIMIT | **Endpoint público sin límite de peticiones** | La entropía del token hace inviable adivinarlo, pero no protege frente a abuso o tráfico repetido sobre un enlace conocido. No hay rate limiting en R7. | Pendiente de planificación |
@@ -197,9 +199,37 @@ por ejemplo después de responder (flujo del MVP §6). El email opcional se sigu
 D-EMAIL-NOT-SENT permanece hasta R10. D-ORPHAN-OPTION también queda abierta; D-7 y D-CONFIRMED-LINK están saldadas.
 
 **R9. Panel del anfitrión**
-Contadores por opción de respuesta y listado de invitados con su estado. Es la primera vez que necesitas la agregación `$lookup` entre `events` y `responses`.
+**Commit 1 implementado:** `GET /api/events/{id}/dashboard`. El caso de uso comprueba propiedad (404 si es
+ajeno o inexistente), lee el evento y llama una vez a `GuestResponseRepositoryPort.findByEventIds(...)`.
+El adaptador hace una consulta `eventId in [...]` con el índice existente; no hay $lookup. El dominio recibe
+evento y lista de respuestas en `EventAttendanceSummary.calculate(...)`, una función pura sin Spring.
 
-RF-1.5 (contadores en el listado): `EventSummaryResponse` hoy solo tiene `id`, `title`, `startsAt`, `modality` y `status`. Aquí se le añaden los contadores de respuesta (`totalGuests`, `answered`, `pending`, por opción de respuesta), calculados con la misma agregación del panel. El listado de eventos `GET /api/events`, del anfitrión autenticado, empieza a tener sentido para el anfitrión solo cuando muestra estos datos.
+Los contadores parten de guests[], en orden de alta, y buscan respuestas por evento y token. Una respuesta
+sin invitado vivo no cuenta. `totals` contiene guests, answered, pending y attending; `byOption` mantiene el
+orden de opciones e incluye ceros. Attending solo cuenta opciones actuales con countsAsAttendance=true.
+Una opción desaparecida cuenta como respondida, sin sumar en opciones ni asistencia: optionKnown=false y
+label=null. Opción existente con respuesta: true. Sin respuesta: response=null y optionKnown=null.
+
+Las filas contienen id, name, email y phoneE164 del contacto, deliveryChannel, invitationStatus e
+invitationPath como GET /guests; añaden answered, response y optionKnown. No exponen token suelto, guestToken
+ni el email de la respuesta. El 200 del panel fija exactamente `Cache-Control: no-store`; no se aplica al
+listado ni se cambia la caché de errores o el manejador global de EventNotFoundException. Disponible en todos
+los estados, sin escrituras ni incrementos de version.
+
+Las pruebas incluyen mezcla de asistencia/rechazo/pendiente, huérfanos sembrados directamente, optionKnown
+trivalente, orden, propiedad y documentos sin cambios. El cuerpo completo excluye emails de respuesta y
+tokens ajenos; cada token propio aparece exactamente una vez y dentro de invitationPath, sin claves token
+ni guestToken.
+
+**Commit 2 pendiente — RF-1.5:** `EventSummaryResponse` conserva por ahora id, title, startsAt, modality y
+status. Añadirá totalGuests, answered, pending y attending (sin byOption), reutilizando el mismo cálculo,
+con una lectura de eventos y una sola consulta de respuestas para todos sus ids. Sin consultas por evento.
+Los contadores deberán coincidir con totals del panel. No se añadirá no-store al listado. D-LIST-SCALE
+documenta la limitación de volumen en memoria y ausencia de paginación.
+
+Registrar manualmente respuestas recibidas por otro medio queda fuera del MVP. Si se incorpora después,
+GuestResponse ganará un campo source; su ausencia significará invitado, sin migración. No se añade ese campo
+ni un endpoint de respuesta manual en R9.
 
 ### Bloque D — Envío de invitaciones
 
@@ -221,6 +251,8 @@ Condiciones aprobadas para R10:
 - Si el envío falla, no se marca `SENT`; se informa del resultado por invitado, también en envíos en bloque.
 - La URL base del frontend usada para construir el enlace de invitación va en una propiedad configurable.
 - El registro de envío debe preservar OPENED: marcar SENT no puede hacerlo retroceder, igual que en R11.
+- Un envío de cita por invitado y dirección, con tope por invitado y contenido fijo sin comentario. El valor
+  concreto del tope sigue pendiente; no se implementa ahora.
 
 Comportamientos que aún hay que concretar antes de implementar R10:
 
@@ -232,9 +264,8 @@ Comportamientos que aún hay que concretar antes de implementar R10:
   destinatario y si adjuntan el calendario o enlazan a su descarga.
 - Contrato de la plantilla: asunto, variables admitidas y valores por defecto; remitente visible y Reply-To.
 
-Además, RF-2.17 requiere aclaración: el requisito habla de reenviar a quien no respondió, pero el filtro
-actual del plan también excluye OPENED. Un invitado que abrió y no respondió satisface solo la primera
-condición; no se resuelve esta divergencia por cuenta propia.
+RF-2.17 queda aclarado: el reenvío a pendientes incluye a todos los invitados que no han respondido, con
+independencia de NOT_SENT, SENT u OPENED. La respuesta se deriva consultando responses para invitados vivos.
 
 RF-2.14 (envío en bloque por correo): el endpoint de envío debe aceptar un listado de tokens además del individual, o exponer un endpoint `POST /api/events/{id}/invitations/send` que tome una lista.
 
@@ -242,7 +273,8 @@ RF-2.15 (plantilla editable): la plantilla vive como campo `messageTemplate` en 
 
 RF-2.16 (copiar enlace individual): R6 devuelve `invitationPath: /r/{token}` exclusivamente en el alta y el listado de invitados. El frontend completa la ruta con su origen para copiar el enlace. No se expone un campo `token` suelto ni se añade a `EventResponse`; el `PUT` tampoco devuelve el enlace.
 
-RF-2.17 (reenvío): el reenvío a quien no ha respondido es un filtro sobre la lista de invitados con `invitationStatus != OPENED && ANSWERED derivado == false`; el endpoint de envío en bloque de correo cubre este caso si acepta una lista de tokens.
+RF-2.17 (reenvío): seleccionar invitados con `ANSWERED derivado == false`, sea cual sea su invitationStatus;
+el endpoint de envío en bloque de correo cubre este caso si acepta una lista de tokens.
 
 **R11. Enlaces de WhatsApp y Telegram**
 El backend construye el enlace profundo y lo devuelve; el envío lo hace el anfitrión. R11 implementará `SENT` con actualización posicional atómica e incremento de version. `OPENED` ya está implementado en R7: marcar `SENT` nunca puede sobrescribir un `OPENED` ni hacerlo retroceder.
@@ -274,7 +306,7 @@ ya implementado evita rehacer los controladores al añadir seguridad más adelan
 
 | Decisión | Bloquea | Urgencia |
 |---|---|---|
-| **¿Puede el anfitrión registrar a mano la respuesta de un invitado?** | R8, R9 | Baja, pero decide el modelo |
+| ~~**Registrar a mano una respuesta recibida por otro medio**~~ | ~~R8, R9~~ | **Resuelta:** fuera del MVP; futura ampliación con source, ausencia = invitado, sin migración. |
 | ~~**Formato del token**: longitud y alfabeto~~ | ~~R6~~ | **Resuelta e implementada en R6:** 32 bytes de `SecureRandom`, Base64 URL-safe sin relleno, 43 caracteres; independiente de ids y datos personales. |
 | ~~**¿Qué pasa con `venue`/`onlineAccess` al cambiar de modalidad en R4?**~~ | ~~R4~~ | **Resuelta en R4:** si la modalidad cambia, el cliente debe aportar el bloque de la nueva modalidad; el de la anterior se descarta. Si no lo aporta, `ModalityChangedWithoutLocationException` (422). |
 

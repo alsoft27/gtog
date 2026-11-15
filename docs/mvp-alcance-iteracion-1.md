@@ -36,7 +36,7 @@ adicionales, check-in, cuentas de empresa, recordatorios automáticos, aplicaci�
 | RF-1.2 | Verificación de correo antes de crear el primer evento.                                                                                                                                        |
 | RF-1.3 | Recuperación de contraseña.                                                                                                                                                                    |
 | RF-1.4 | Perfil mínimo: nombre visible, correo, zona horaria.                                                                                                                                           |
-| RF-1.5 | Listado de los eventos del usuario con su estado y contadores de respuesta.                                                                                                                    |
+| RF-1.5 | Listado de los eventos del usuario con su estado y contadores totalGuests, answered, pending y attending, sin byOption. Pendiente del commit 2 de R9; el panel individual ya está implementado. Ambos reutilizarán el mismo cálculo puro basado en invitados vivos, sin contar respuestas huérfanas. |
 | RF-1.6 | Diseño responsivo. El anfitrión trabaja en escritorio; el invitado abrirá su enlace desde el teléfono en la mayoría de los casos, así que la página de respuesta se diseña primero para móvil. |
 
 **Estados del evento en esta iteración:** `Borrador → Publicado`, más `Cancelado` (solo desde Publicado). Sin fase de votación todavía. `FINISHED` no está implementado — ni automático por fecha ni acción manual del anfitrión (ver D-FINISHED en el plan). Tampoco existe `DELETE` para borradores: `cancel()` solo funciona desde `PUBLISHED`, y no hay `DELETE /api/events/{id}` (ver D-DELETE-DRAFT en el plan).
@@ -170,8 +170,19 @@ No hay límite de peticiones todavía; D-RATE-LIMIT permanece abierta.
 
 **Gestionar respuestas**
 
-El anfitrión ve la lista de invitados con canal usado, estado de invitación, respuesta y comentario; filtra por estado y
-reenvía a los pendientes.
+El anfitrión consulta `GET /api/events/{id}/dashboard`: totales guests, answered, pending y attending; contadores
+por opción en su orden; y filas de invitados en orden de alta con contacto, canal, estado de invitación,
+invitationPath como en GET /guests y su respuesta (opción, etiqueta, comentario y fechas). El email que el
+invitado deja en la respuesta no se expone. Solo el 200 del panel lleva Cache-Control: no-store exacto.
+Propiedad comprobada en aplicación, evento ajeno → 404; no escribe ni modifica version.
+
+El cálculo recorre guests[] y asocia respuestas por evento/token. Una respuesta sin invitado no cuenta.
+Una respuesta con opción desconocida sí cuenta como answered, pero no en attending ni en una opción;
+su fila lleva optionKnown=false y label=null. Si la opción existe, optionKnown=true; sin respuesta, response
+y optionKnown son null. La lectura de respuestas es agrupada por eventId in [...], sin $lookup.
+
+El filtrado de presentación y reenvío sigue pendiente: R10 reenviará a todos los invitados que no respondieron,
+también si ya abrieron la invitación. La respuesta manual del anfitrión queda fuera del MVP.
 
 ---
 
@@ -259,9 +270,9 @@ wall_posts                     // iteración 2, referencia el evento
 
 ## 9. Pendientes por resolver antes de codificar
 
-Las preguntas sobre zona horaria, clave de Google Maps e idioma están resueltas. Lo que sigue abierto:
+Zona horaria, clave de Google Maps e idioma están resueltos. El proveedor de correo también: Mailjet por
+SMTP con el starter existente, sin dependencias nuevas. Registrar respuestas manuales queda fuera del MVP;
+si se incorpora después, GuestResponse tendrá source y su ausencia significará invitado, sin migración.
 
-1. **Proveedor de correo:** SendGrid, Amazon SES o SMTP propio. Afecta la entregabilidad y el costo, y bloquea RF-1.2, RF-1.3 y RF-2.10. Urgencia alta: ver §5 del plan.
-2. **¿Puede el anfitrión registrar a mano la respuesta de un invitado que contestó por otro medio?** Es barato de implementar y muy usado en la práctica. Ver §5 del plan.
-
-Para el detalle y la urgencia de cada decisión, ver `docs/plan-iteracion-1.md`, §5.
+Los comportamientos de envío que aún hay que concretar están en R10 de `docs/plan-iteracion-1.md`, incluida
+la cifra del tope por invitado para envíos de cita. Primero se cierra R9 y después se implementa R10.

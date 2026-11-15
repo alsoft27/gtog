@@ -262,6 +262,7 @@ dentro del mismo `guests[]`. Ver `docs/modelo-invitado.md`.
 |---|---|---|
 | `CreateEventUseCase` | `CreateEventService` | Crea el evento en `DRAFT` con sus opciones (o los defaults) y lo persiste. |
 | `GetEventByIdUseCase` | `EventQueryService` | Devuelve el evento completo o lanza `EventNotFoundException`. |
+| `GetEventDashboardUseCase` | `GetEventDashboardService` | Comprueba propiedad, lee respuestas por un puerto en una consulta y calcula EventAttendanceSummary sin escrituras. |
 | `ListEventsByHostUseCase` | `EventQueryService` | Lista los eventos de un `hostId`, sin paginación. |
 | `ReplaceResponseOptionsUseCase` | `ReplaceResponseOptionsService` | Comprueba propiedad; en PUBLISHED consulta los ids con respuestas mediante un puerto, los pasa al dominio junto con la lista y guarda con bloqueo optimista. No cambia allowComment/allowResponseChange/responseDeadline. |
 | `ReplaceVenueUseCase` | `EventLocationService` | Busca el evento, delega en `event.replaceVenue(...)` y lo guarda. |
@@ -287,6 +288,7 @@ sobre `EventMongoRepository` (Spring Data).
 |---|---|---|---|
 | `POST` | `/api/events` | `CreateEventRequest` | `201` + `Location`, `400`, `422` |
 | `GET` | `/api/events/{id}` | — | `200` (`EventResponse` completo), `404` |
+| `GET` | `/api/events/{id}/dashboard` | — (sesión del propietario) | `200` (`EventDashboardResponse`) con no-store exacto; `401`, `404` |
 | `GET` | `/api/events` | — (el host se lee del principal autenticado) | `200` (lista de `EventSummaryResponse`: `id`, `title`, `startsAt`, `modality`, `status`), `401` si no hay sesión |
 | `PUT` | `/api/events/{id}` | `UpdateEventRequest` (título, fechas, zona horaria, modalidad, venue/onlineAccess opcionales, `allowComment`, `allowResponseChange`, `responseDeadline`) | `200` (`EventResponse` completo), `404`, `409` (no `DRAFT`), `422` |
 | `PUT` | `/api/events/{id}/response-deadline` | `{ "responseDeadline": LocalDateTime o null }`, sesión y CSRF | `200` (`EventResponse`), `401`, `403`, `404` (inexistente o ajeno), `409` (estado, inicio alcanzado o carrera), `422` (plazo posterior al inicio) |
@@ -321,6 +323,36 @@ Documentado también en OpenAPI (`/v3/api-docs`, `/swagger-ui.html`), ver secci�
 `AGENTS.md`.
 
 ---
+
+## Panel del anfitrión (R9, commit 1)
+
+`EventAttendanceSummary.calculate(event, responses)` es una función pura del dominio: construye un índice
+de respuestas del evento por token y recorre guests[] en orden de alta. Los documentos huérfanos no aportan
+contadores ni filas. El resultado inmutable contiene totals, byOption y guests; no modifica Event ni version.
+
+- Totals: guests, answered, pending=guests-answered y attending. Solo cuentan asistencia las respuestas cuya
+  opción actual tiene countsAsAttendance=true.
+- ByOption: optionId, label, countsAsAttendance y count, en el orden de responseOptions, incluidos los ceros.
+- Filas: contacto del Guest y respuesta seleccionada sin email. Una opción desconocida cuenta como answered,
+  sin asistencia ni contador por opción; conserva responseOptionId, comentario y fechas con label=null.
+- OptionKnown es Boolean: true si hay respuesta y opción actual; false si hay respuesta y opción ausente;
+  null si no hay respuesta, en cuyo caso response también es null.
+
+`GuestResponseRepositoryPort.findByEventIds(Set<String>)` permite leer respuestas de varios eventos mediante
+una sola consulta Mongo `eventId in [...]`, usando el índice de eventId existente; un conjunto vacío devuelve
+lista vacía sin consultar Mongo. El panel usa ese puerto con el id de su evento después de comprobar propiedad.
+Son dos lecturas unidas en aplicación, sin $lookup; la ampliación del listado queda para el commit 2.
+
+`EventDashboardResponse` se construye campo a campo en web. Sus filas exponen id, name, email y phoneE164 del
+contacto, deliveryChannel, invitationStatus e invitationPath como GET /guests, más answered, response y
+optionKnown. No hay claves token o guestToken; el token aparece solo dentro de invitationPath. El email
+guardado en GuestResponse nunca se incorpora al DTO. La respuesta seleccionada lleva responseOptionId,
+label, comment, answeredAt y updatedAt. No se serializa el dominio ni el documento Mongo.
+
+El panel está disponible en cualquier estado para el propietario. Solo su 200 fija exactamente
+Cache-Control: no-store; ni el listado ni los errores se cambian. EventNotFoundException conserva su manejador
+global. Los tests comprueban cuerpo completo, unicidad del token en invitationPath, ausencia de tokens ajenos
+y emails de respuesta, huérfanos y documentos sin cambios tras la lectura.
 
 ## Fuera de alcance por ahora
 

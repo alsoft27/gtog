@@ -94,6 +94,15 @@ public class GuestResponseRepositoryAdapter implements GuestResponseRepositoryPo
 	}
 
 	@Override
+	public List<GuestResponse> findByEventIds(Set<String> eventIds) {
+		if (eventIds.isEmpty()) { return List.of(); }
+		try {
+			return mongo.find(Query.query(Criteria.where("eventId").in(eventIds)), GuestResponseDocument.class)
+					.stream().map(this::toDomain).toList();
+		} catch (DataAccessException failure) { throw new GuestResponseStorageException(); }
+	}
+
+	@Override
 	public Set<String> findAnsweredOptionIds(String eventId) {
 		try {
 			return Set.copyOf(mongo.findDistinct(Query.query(Criteria.where("eventId").is(eventId)),
