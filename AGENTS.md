@@ -1,5 +1,7 @@
 # gtog
 
+Antes de implementar, lee docs/mvp-alcance-iteracion-1.md y el modelo del agregado que toques.
+
 Backend de **gtog**, una aplicación de organización de eventos. El anfitrión crea un evento, invita por correo, WhatsApp o Telegram, y cada invitado responde desde un enlace único **sin crear cuenta**.
 
 La especificación funcional está en `docs/mvp-alcance-iteracion-1.md`. **Léela antes de implementar cualquier funcionalidad nueva.** Si algo de este archivo contradice la especificación, gana la especificación y avísame del conflicto.
@@ -61,7 +63,9 @@ La especificación está escrita en español y el código no. Usa esta tabla de 
 
 Se usa Maven por defecto, sin flags de configuración adicionales.
 
-Si necesitas guardar la salida de una ejecución para consultarla después, usa `execution-logs/` en la raíz del proyecto, excluida en `.gitignore`; no guardes esas salidas en `/tmp`.
+Las salidas de comandos que necesites guardar van a `execution-logs/` en la raíz del proyecto, ignorada por Git; nunca a `/tmp` ni a `$TMPDIR`.
+
+No imprimas ni vuelques variables de entorno: no ejecutes `env`, `printenv` ni `set` para inspeccionarlas. `MONGODB_URI`, `MAILJET_API_KEY` y `MAILJET_SECRET_KEY` llevan credenciales; nunca muestres sus valores ni los guardes en ficheros o logs.
 
 ```bash
 mvn clean verify
@@ -301,7 +305,7 @@ Estas reglas son el contrato final del producto, no necesariamente lo que el có
 ## Tests
 
 - Dominio y casos de uso: tests unitarios planos, sin contexto de Spring. Deben ser rápidos, y la arquitectura hexagonal es justamente lo que lo permite: si un test de caso de uso necesita Spring, las dependencias están mal.
-- Adaptadores y flujos completos: tests de integración con `@SpringBootTest @ActiveProfiles("test")` contra MongoDB Atlas (base `gtog_test`). La conexión está en `src/test/resources/application-test.properties`. Hace falta `MONGODB_URI` en el entorno antes de lanzar los tests (ver sección Comandos). Nada de Mongo embebido ni Testcontainers.
+- Adaptadores y flujos completos: tests de integración con `@SpringBootTest @ActiveProfiles("test")` contra MongoDB Atlas (base `gtog_test`). La conexión está en `src/test/resources/application-test.properties`. Hace falta `MONGODB_URI` en el entorno antes de lanzar los tests (ver sección Comandos). Nada de Mongo embebido.
 - También en los tests de integración, inyecta los beans por constructor en campos `final`, con `@TestConstructor(autowireMode = ALL)`, sin `@Autowired` en campos. `@MockitoBean` y `@MockitoSpyBean` se mantienen para declarar los dobles del contexto.
 - Los tests de integración limpian las colecciones que usan antes de cada test (`@BeforeEach`) para no depender del orden de ejecución.
 - Nombres descriptivos en inglés: `doesNotAllowDeletingOptionWithAttachedResponses()`.
@@ -311,9 +315,10 @@ Estas reglas son el contrato final del producto, no necesariamente lo que el có
 
 ## Git
 
-- Ramas: `feat/nombre-corto`, `fix/nombre-corto`.
+- Se trabaja directamente sobre `main` hasta completar la primera versión del backend (R1–R12), por decisión del usuario. Al cerrarla se vuelve a ramas `feat/nombre-corto` y `fix/nombre-corto`.
 - Commits convencionales en inglés: `feat(guest): generate unique token on guest creation`.
-- No hagas commit sin que `clean verify` pase.
+- No hagas commit sin que `mvn clean verify` pase en verde antes de cada uno.
+- Sin push salvo petición expresa del usuario.
 - Nunca subas `.env`, credenciales ni la clave de Google Maps.
 
 ---
@@ -325,4 +330,5 @@ Estas reglas son el contrato final del producto, no necesariamente lo que el có
 - **No pongas anotaciones de framework en `domain/`.** Es la forma más fácil de destruir la arquitectura sin darse cuenta.
 - **No generes todas las colecciones y casos de uso de golpe.** Trabajamos por rebanada vertical: dominio, puerto, adaptador, controlador y test, funcionando de punta a punta antes de pasar a la siguiente.
 - **No te fíes de los ejemplos de Spring Boot 3.x.** La rama 4.x movió paquetes y configuración. Si algo no compila como dice el ejemplo que estés siguiendo, suele ser por eso.
+  Casos concretos ya encontrados: `@AutoConfigureMockMvc` pasó a `org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc`; el prefijo de Mongo es `spring.mongodb.*` (no `spring.data.mongodb.*`); el indicador de salud Mongo se desactiva con `management.health.mongodb.enabled` (valor `false` para desactivarlo).
 - **No adivines la especificación.** Si falta un detalle en `docs/`, pregúntame en lugar de inventar un comportamiento razonable.

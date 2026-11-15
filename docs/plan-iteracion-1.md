@@ -1,6 +1,6 @@
 # gtog — Plan de la iteración 1
 
-Estado a 14 de noviembre de 2026.
+Estado a 15 de noviembre de 2026. Decisión de correo documentada; sin implementación de R10 todavía.
 
 ---
 
@@ -204,7 +204,37 @@ RF-1.5 (contadores en el listado): `EventSummaryResponse` hoy solo tiene `id`, `
 ### Bloque D — Envío de invitaciones
 
 **R10. Envío por correo**
-Plantilla con las variables del evento y el enlace único. Requiere decidir proveedor (ver §5 — urgencia alta, bloquea esta rebanada).
+Plantilla con las variables del evento y el enlace único. **Proveedor decidido: Mailjet por SMTP**, usando
+`spring-boot-starter-mail`, ya presente en el POM; sin dependencias nuevas. R10 y R12 quedan desbloqueadas
+en cuanto a la elección de proveedor. **Orden inmediato: R9 y después R10.** Esta decisión no implementa
+el envío ni salda todavía D-EMAIL-NOT-SENT.
+
+Condiciones aprobadas para R10:
+
+- Credenciales únicamente en las variables de entorno `MAILJET_API_KEY` y `MAILJET_SECRET_KEY`, nunca en
+  ficheros. No imprimirlas ni volcarlas a logs, tampoco en los tests.
+- `EmailSenderPort` con adaptador SMTP en producción y adaptador falso en tests. Ningún test envía correo real.
+- Mensajes en texto plano. Neutralizar los saltos de línea en asunto y nombres para impedir inyección de cabeceras.
+- STARTTLS obligatorio en el puerto 587 o SSL implícito en el 465, sin degradación a transporte sin cifrar.
+- Dominio y remitente validados en Mailjet, con SPF y DKIM, como requisito previo al envío real.
+- `SENT` por correo significa aceptado por el proveedor, no entregado al destinatario.
+- Si el envío falla, no se marca `SENT`; se informa del resultado por invitado, también en envíos en bloque.
+- La URL base del frontend usada para construir el enlace de invitación va en una propiedad configurable.
+- El registro de envío debe preservar OPENED: marcar SENT no puede hacerlo retroceder, igual que en R11.
+
+Comportamientos que aún hay que concretar antes de implementar R10:
+
+- Ejecución síncrona o en segundo plano; límites de lote y contrato de resultados parciales por invitado.
+- Política de reintentos y reenvíos, envíos concurrentes y prevención de duplicados; tratamiento de la
+  aceptación SMTP seguida de un fallo al persistir SENT. No asumir transacciones entre SMTP y Mongo.
+- Estados del evento que admiten envío y política para invitados que ya respondieron o ya recibieron un envío.
+- Qué correos de confirmación de respuesta incluye R10 para saldar D-EMAIL-NOT-SENT, cuándo se disparan,
+  destinatario y si adjuntan el calendario o enlazan a su descarga.
+- Contrato de la plantilla: asunto, variables admitidas y valores por defecto; remitente visible y Reply-To.
+
+Además, RF-2.17 requiere aclaración: el requisito habla de reenviar a quien no respondió, pero el filtro
+actual del plan también excluye OPENED. Un invitado que abrió y no respondió satisface solo la primera
+condición; no se resuelve esta divergencia por cuenta propia.
 
 RF-2.14 (envío en bloque por correo): el endpoint de envío debe aceptar un listado de tokens además del individual, o exponer un endpoint `POST /api/events/{id}/invitations/send` que tome una lista.
 
@@ -222,7 +252,10 @@ RF-2.14 (envío en bloque por WhatsApp/Telegram): el endpoint puede devolver una
 ### Bloque E — Identidad completa
 
 **R12. Verificación de correo y recuperación de contraseña**
-RF-1.2 y RF-1.3. Dependen del proveedor de correo decidido en R10. Implementar después de R10, no antes. Endpoints: `POST /api/auth/verify-email` (confirma el token del correo de verificación), `POST /api/auth/resend-verification`, `POST /api/auth/forgot-password`, `POST /api/auth/reset-password`.
+RF-1.2 y RF-1.3. **Proveedor resuelto: Mailjet por SMTP; R12 desbloqueada por esa decisión**, sin dependencias
+nuevas. Implementar después de R10 para reutilizar el transporte y el puerto de correo, no antes.
+Endpoints: `POST /api/auth/verify-email` (confirma el token del correo de verificación),
+`POST /api/auth/resend-verification`, `POST /api/auth/forgot-password`, `POST /api/auth/reset-password`.
 
 ---
 
@@ -241,7 +274,6 @@ ya implementado evita rehacer los controladores al añadir seguridad más adelan
 
 | Decisión | Bloquea | Urgencia |
 |---|---|---|
-| **Proveedor de correo** (SES, SendGrid, SMTP) | R5 (RF-1.2, RF-1.3 excluidos hasta decidir), R10 (RF-2.10), R12 (RF-1.2, RF-1.3) | **Alta** |
 | **¿Puede el anfitrión registrar a mano la respuesta de un invitado?** | R8, R9 | Baja, pero decide el modelo |
 | ~~**Formato del token**: longitud y alfabeto~~ | ~~R6~~ | **Resuelta e implementada en R6:** 32 bytes de `SecureRandom`, Base64 URL-safe sin relleno, 43 caracteres; independiente de ids y datos personales. |
 | ~~**¿Qué pasa con `venue`/`onlineAccess` al cambiar de modalidad en R4?**~~ | ~~R4~~ | **Resuelta en R4:** si la modalidad cambia, el cliente debe aportar el bloque de la nueva modalidad; el de la anterior se descarta. Si no lo aporta, `ModalityChangedWithoutLocationException` (422). |
