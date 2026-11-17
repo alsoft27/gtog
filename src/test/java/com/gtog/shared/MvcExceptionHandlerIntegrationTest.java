@@ -76,38 +76,43 @@ class MvcExceptionHandlerIntegrationTest {
 	}
 
 	@Test
-	void malformedPublicJsonKeepsItsSanitized400() throws Exception {
+	void malformedPublicJsonKeepsItsSanitized400(CapturedOutput output) throws Exception {
 		String path = INVITATION + "/response";
 		var response = send("PUT", path, "{\"responseOptionId\":\"yes-id\"", Map.of(HttpHeaders.CONTENT_TYPE, "application/json"));
 		assertProblem(response, 400, path, "/api/invitations");
 		assertThat(JsonPath.parse(response.body()).read("$.detail", String.class)).isEqualTo("Invalid request body");
+		assertThat(output.getAll()).doesNotContain(TOKEN);
 	}
 
 	@Test
-	void unsupportedPublicContentTypeReturns415InsteadOf401() throws Exception {
+	void unsupportedPublicContentTypeReturns415InsteadOf401(CapturedOutput output) throws Exception {
 		String path = INVITATION + "/response";
 		assertProblem(send("PUT", path, "{}", Map.of(HttpHeaders.CONTENT_TYPE, "text/plain")), 415, path, "/api/invitations");
+		assertThat(output.getAll()).doesNotContain(TOKEN);
 	}
 
 	@Test
-	void unsupportedPublicMethodReturns405AndPreservesAllow() throws Exception {
+	void unsupportedPublicMethodReturns405AndPreservesAllow(CapturedOutput output) throws Exception {
 		String path = INVITATION + "/response";
 		var response = send("DELETE", path, "", Map.of());
 		assertProblem(response, 405, path, "/api/invitations");
 		assertThat(String.join(",", response.headers().allValues(HttpHeaders.ALLOW)).split(",\\s*")).contains("PUT");
+		assertThat(output.getAll()).doesNotContain(TOKEN);
 	}
 
 	@Test
-	void anIncompatibleAcceptReturnsASanitized406() throws Exception {
+	void anIncompatibleAcceptReturnsASanitized406(CapturedOutput output) throws Exception {
 		String path = INVITATION + "/calendar";
 		assertProblem(send("GET", path, "", Map.of(HttpHeaders.ACCEPT, "application/xml")), 406, path, "/api/invitations");
+		assertThat(output.getAll()).doesNotContain(TOKEN);
 	}
 
 	@ParameterizedTest
 	@ValueSource(strings = { "/api/invitations", "/api/invitations/%s/x" })
-	void anUnknownPublicRouteReturns404InsteadOf401(String template) throws Exception {
+	void anUnknownPublicRouteReturns404InsteadOf401(String template, CapturedOutput output) throws Exception {
 		String path = template.formatted(TOKEN);
 		assertProblem(send("GET", path, "", Map.of()), 404, path, "/api/invitations");
+		assertThat(output.getAll()).doesNotContain(TOKEN);
 	}
 
 	@Test
@@ -124,7 +129,7 @@ class MvcExceptionHandlerIntegrationTest {
 
 	@ParameterizedTest
 	@ValueSource(ints = { 400, 404, 405, 406, 415, 500, 503 })
-	void frameworkErrorBodiesAreRebuiltWithoutRequestPropertiesForEverySupportedStatus(int status) throws Exception {
+	void frameworkErrorBodiesAreRebuiltWithoutRequestPropertiesForEverySupportedStatus(int status, CapturedOutput output) throws Exception {
 		var untrusted = ProblemDetail.forStatusAndDetail(HttpStatus.valueOf(status), "PRIVATE_DETAIL " + TOKEN);
 		untrusted.setTitle("PRIVATE_TITLE " + TOKEN);
 		untrusted.setType(URI.create("https://private.example.com/" + TOKEN));
@@ -136,6 +141,7 @@ class MvcExceptionHandlerIntegrationTest {
 		var response = send("GET", INVITATION, "", Map.of());
 		assertProblem(response, status, INVITATION, "/api/invitations");
 		assertThat(response.body()).doesNotContain("PRIVATE_DETAIL", "PRIVATE_TITLE", "private.example.com");
+		assertThat(output.getAll()).doesNotContain(TOKEN);
 	}
 
 	@Test
@@ -156,13 +162,14 @@ class MvcExceptionHandlerIntegrationTest {
 	}
 
 	@Test
-	void domainExceptionsStillUseTheirExistingAdvice() throws Exception {
+	void domainExceptionsStillUseTheirExistingAdvice(CapturedOutput output) throws Exception {
 		String unknown = "A".repeat(43);
 		String path = "/api/invitations/" + unknown;
 		var response = send("GET", path, "", Map.of());
 		assertProblem(response, 404, path, "/api/invitations");
 		assertThat(response.body()).doesNotContain(unknown);
 		assertThat(JsonPath.parse(response.body()).read("$.detail", String.class)).isEqualTo("Invitation not found");
+		assertThat(output.getAll()).doesNotContain(TOKEN, unknown);
 	}
 
 	private void assertProblem(HttpResponse<String> response, int status, String path, String instance) {

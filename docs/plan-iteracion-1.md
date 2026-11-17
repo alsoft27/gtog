@@ -77,6 +77,15 @@ un anónimo. Quedan fuera de esta corrección. No se aplica dispatcherTypeMatche
 por defecto de Boot podría incluir path con el token de la invitación. El filtro de emisión de cookie CSRF
 y la comparación del valor crudo no se han cambiado.
 
+**Límite conocido de logs:** si se sube a DEBUG el nivel de `org.springframework.web` o se activa
+`spring.mvc.log-resolved-exception`, la ruta de invitación con su token puede aparecer en los logs del
+framework. Las pruebas de privacidad usan la configuración normal y comprueban la salida capturada
+completa con OutputCaptureExtension, sin filtrar por logger, para los errores de las rutas públicas.
+
+**Medición del fallback:** desactivando temporalmente solo el handler de último recurso para Exception,
+el test HTTP real de RuntimeException en una ruta pública devolvió **401**. La medición se ejecutó aislada;
+el handler y la aserción de 500 se restauraron después. No se versiona la alteración temporal.
+
 **D-4, saldada.** Decía "health indicator de Mongo desactivado", y no era así: estaba activo y en `DOWN`. El indicador por defecto de Actuator recorre **todas** las bases que el `MongoClient` ve vía `listDatabaseNames()` — no solo `local`, también `admin`, `config`, la de la propia app — y ejecuta `hello` en cada una; en Atlas el usuario de la aplicación no tiene permiso sobre `local`, así que el chequeo entero caía con `DOWN` aunque `gtog_dev`/`gtog_test` respondieran sin problema. Comprobado arrancando la app. Sustituido por `MongoDatabaseHealthIndicator` (en `shared/config`), que hace `ping` solo contra la base configurada de la aplicación; el indicador por defecto se desactiva con `management.health.mongodb.enabled=false` en ambos `application*.properties` para que no convivan. Verificado de nuevo: `GET /actuator/health` → `"mongo":{"details":{"database":"gtog_dev","ping":1},"status":"UP"}`.
 
 ---
