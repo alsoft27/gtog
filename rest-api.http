@@ -1,30 +1,54 @@
-# Prueba funcional sencilla: evento presencial e invitados (R1–R6).
-# Arranca tu el backend. Ejecuta desde la peticion 01 en orden, con las flechas verdes,
-# o con Run All Requests del HTTP Client. No requiere un environment de IntelliJ.
-# Cada ejecucion completa registra una cuenta de prueba nueva; guarda datos en gtog_dev.
+# Recorrido funcional R1–R9: evento, invitados, respuesta publica y panel (no exhaustivo).
+# Arranca tu el backend. Ejecuta 01–33 en orden con las flechas verdes del HTTP Client.
+# Solo si todas las pruebas anteriores pasan, ejecuta el bloque opcional 34–37.
+# Run All Requests tambien ejecuta el bloque opcional; no lo uses para omitir esa revision.
+# No requiere un environment de IntelliJ. Las letras a/b/c son llamadas del mismo paso.
+# Cada ejecucion completa registra dos cuentas nuevas y guarda datos en gtog_dev.
 # Las variables gtogSmoke* se rellenan al recibir las respuestas, sin copiar ids a mano.
-# Al terminar queda un evento publicado con un invitado. No se envian invitaciones.
+# Al terminar queda un evento CANCELLED con Ana y su respuesta; el primero cierra sesion.
+# El bloque opcional deja ademas un evento ONLINE publicado del segundo anfitrion.
+# No se envian invitaciones ni correos; el email de respuesta solo se guarda.
 #
 # CSRF: para este cliente de prueba se envia la misma cadena en XSRF-TOKEN y X-XSRF-TOKEN.
 # Esto es compatible con la configuracion actual y no prueba el bootstrap CSRF del frontend.
 # Se desactiva el cookie jar por peticion y se envia la sesion explicitamente para evitar
 # interferencias con otras pruebas abiertas en IntelliJ. No imprimir ni versionar sesiones.
 # Registro y login estan incluidos como preparacion del recorrido.
+# Los logs de 01, 02 y 18 observan Set-Cookie sin imprimir sus valores ni exigir rotacion.
+# Observado: la cookie XSRF-TOKEN se emite en la respuesta rechazada por CSRF, no en el GET previo.
+#
+# Lo que este archivo no verifica:
+# - Bootstrap real de CSRF del frontend y renovacion segura tras login: usamos @csrf manual.
+# - Politicas del navegador (CORS, SameSite, Secure, HttpOnly), Referer y Referrer-Policy.
+# - Interfaz, mapa, conversion de zona del invitado e importacion real del .ics en su agenda.
+# - Concurrencia, indices, numero de consultas, version o limpieza de respuestas huerfanas.
+# - Todos los limites de dominio: plazo/fin exactos, DRAFT/FINISHED y otros modos de visibilidad.
+# Esas comprobaciones requieren navegador, tests dedicados o inspeccion de persistencia.
 
 @baseUrl = http://localhost:8080
 @password = SmokeTest2026!
 @csrf = gtog-local-smoke-csrf
-@startsAt = 2027-01-20T18:00:00
-@endsAt = 2027-01-20T20:00:00
 
 ### 01 — Registrar anfitrion de prueba
 # @no-cookie-jar
 < {%
     const suffix = Date.now().toString();
     client.global.set("gtogSmokeEmail", "host-smoke-" + suffix + "@example.com");
-    ["gtogSmokeSession", "gtogSmokeEventId", "gtogSmokeGuest1", "gtogSmokeGuest2", "gtogSmokeInvitationPath1"].forEach(function (name) {
+    ["gtogSmokeSession", "gtogSmokeEventId", "gtogSmokeGuest1", "gtogSmokeGuest2", "gtogSmokeInvitationPath1",
+        "gtogSmokeStartsAt", "gtogSmokeEndsAt", "gtogSmokeHostId", "gtogSmokeOptionYes", "gtogSmokeOptionNo",
+        "gtogSmokeToken1", "gtogSmokeUnknownToken", "gtogSmokeDashboardTotals", "gtogSmokeEmail2",
+        "gtogSmokeSession2", "gtogSmokeOnlineEventId", "gtogSmokeOnlineOptionYes", "gtogSmokeOnlineOptionNo",
+        "gtogSmokeOnlineToken"].forEach(function (name) {
         client.global.clear(name);
     });
+    // Siete dias naturales desde hoy, sin convertir la fecha local a UTC.
+    const eventDate = new Date();
+    eventDate.setDate(eventDate.getDate() + 7);
+    const date = eventDate.getFullYear() + "-" + String(eventDate.getMonth() + 1).padStart(2, "0")
+        + "-" + String(eventDate.getDate()).padStart(2, "0");
+    client.global.set("gtogSmokeStartsAt", date + "T18:00:00");
+    client.global.set("gtogSmokeEndsAt", date + "T20:00:00");
+    client.global.set("gtogSmokeUnknownToken", "A".repeat(43));
 %}
 POST {{baseUrl}}/api/auth/register
 Accept: application/json
@@ -40,6 +64,7 @@ Content-Type: application/json
 }
 
 > {%
+    client.log("01 cookie XSRF-TOKEN en respuesta: " + (response.cookiesByName("XSRF-TOKEN").length > 0 ? "sí" : "no"));
     client.test("01 returns 201", function () {
         client.assert(response.status === 201, "Unexpected HTTP status: " + response.status);
     });
@@ -65,6 +90,10 @@ Content-Type: application/json
 }
 
 > {%
+    const xsrfCookie = response.cookiesByName("XSRF-TOKEN")[0];
+    const sentCsrf = request.headers.findByName("X-XSRF-TOKEN").value();
+    client.log("02 cookie XSRF-TOKEN en respuesta: " + (xsrfCookie ? "sí" : "no")
+        + "; valor distinto del enviado: " + (xsrfCookie ? (xsrfCookie.value !== sentCsrf ? "sí" : "no") : "no comparable (sin cookie)"));
     client.test("02 returns 200", function () {
         client.assert(response.status === 200, "Unexpected HTTP status: " + response.status);
     });
@@ -85,8 +114,8 @@ Content-Type: application/json
 {
   "title": "Evento de prueba simple",
   "description": "Creación y gestión de invitados",
-  "startsAt": "{{startsAt}}",
-  "endsAt": "{{endsAt}}",
+  "startsAt": "{{gtogSmokeStartsAt}}",
+  "endsAt": "{{gtogSmokeEndsAt}}",
   "timeZone": "Europe/Madrid",
   "modality": "IN_PERSON",
   "venue": {
@@ -141,8 +170,8 @@ Content-Type: application/json
 {
   "title": "Evento de prueba actualizado",
   "description": "Descripción modificada durante la prueba",
-  "startsAt": "{{startsAt}}",
-  "endsAt": "{{endsAt}}",
+  "startsAt": "{{gtogSmokeStartsAt}}",
+  "endsAt": "{{gtogSmokeEndsAt}}",
   "timeZone": "Europe/Madrid",
   "modality": "IN_PERSON"
 }
@@ -392,5 +421,557 @@ Cookie: XSRF-TOKEN={{csrf}}; JSESSIONID={{gtogSmokeSession}}
         client.assert(response.body.length === 1, "Publication changed the guest list");
         client.assert(response.body[0].id === client.global.get("gtogSmokeGuest1"), "Publication lost the guest");
         client.assert(response.body[0].invitationPath === client.global.get("gtogSmokeInvitationPath1"), "Publication changed the invitation link");
+    });
+%}
+
+# A. Seguridad: estas peticiones no envian sesion ni cookies.
+
+### 17 — Listado sin autenticar
+# @no-cookie-jar
+GET {{baseUrl}}/api/events
+Accept: application/json
+
+> {%
+    client.test("17 requires authentication", function () {
+        client.assert(response.status === 401, "Expected 401 without session or cookies");
+    });
+%}
+
+### 18 — Salud publica y observacion de cookie CSRF
+# @no-cookie-jar
+GET {{baseUrl}}/actuator/health
+Accept: application/json
+
+> {%
+    client.log("18 cookie XSRF-TOKEN en respuesta: " + (response.cookiesByName("XSRF-TOKEN").length > 0 ? "sí" : "no"));
+    client.test("18 health is public", function () {
+        client.assert(response.status === 200, "Expected public health endpoint to return 200");
+    });
+    // La presencia o ausencia de la cookie es una observacion, no una asercion.
+%}
+
+### 19 — Registro sin cookie ni cabecera CSRF
+# @no-cookie-jar
+POST {{baseUrl}}/api/auth/register
+Accept: application/json
+Content-Type: application/json
+
+{
+  "name": "Registro sin CSRF",
+  "email": "blocked-{{gtogSmokeEmail}}",
+  "rawPassword": "{{password}}",
+  "timeZone": "Europe/Madrid"
+}
+
+> {%
+    // Un rechazo CSRF anonimo se muestra como 401: /api/auth/** es publico y la autorizacion no interviene.
+    client.test("19 registration still requires CSRF", function () {
+        client.assert(response.status === 401, "Expected 401 without CSRF cookie and header");
+        client.assert(response.status < 200 || response.status >= 300, "Registration must not succeed without CSRF");
+    });
+%}
+
+### 19b — Comprobar que el registro rechazado no creo la cuenta
+# @no-cookie-jar
+POST {{baseUrl}}/api/auth/login
+Accept: application/json
+Cookie: XSRF-TOKEN={{csrf}}
+X-XSRF-TOKEN: {{csrf}}
+Content-Type: application/json
+
+{
+  "email": "blocked-{{gtogSmokeEmail}}",
+  "password": "{{password}}"
+}
+
+> {%
+    // Este login lleva CSRF valido: su 401 debe corresponder a credenciales inexistentes.
+    client.test("19b the rejected registration did not create an account", function () {
+        client.assert(response.status === 401, "Blocked registration unexpectedly created an account");
+    });
+%}
+
+# B. Preparacion privada en 20; 21–26 son publicas, sin sesion, Cookie ni X-XSRF-TOKEN.
+
+### 20 — Obtener opciones y preparar credencial del invitado
+# @no-cookie-jar
+GET {{baseUrl}}/api/events/{{gtogSmokeEventId}}
+Accept: application/json
+Cookie: XSRF-TOKEN={{csrf}}; JSESSIONID={{gtogSmokeSession}}
+
+> {%
+    client.test("20 returns the hosts event", function () {
+        client.assert(response.status === 200, "Expected 200 for the owner");
+    });
+    client.assert(response.status === 200, "Cannot prepare guest response options");
+    const yes = response.body.responseOptions.find(option => option.countsAsAttendance === true);
+    const no = response.body.responseOptions.find(option => option.countsAsAttendance === false);
+    client.assert(!!yes && !!no, "Expected attendance and non-attendance options");
+    const path = client.global.get("gtogSmokeInvitationPath1");
+    client.assert(/^\/r\/[A-Za-z0-9_-]{43}$/.test(path), "Invalid stored invitation path");
+    client.assert(!!response.body.hostId, "Missing host id for privacy checks");
+    client.global.set("gtogSmokeOptionYes", yes.id);
+    client.global.set("gtogSmokeOptionNo", no.id);
+    client.global.set("gtogSmokeHostId", response.body.hostId);
+    client.global.set("gtogSmokeToken1", path.replace(/^\/r\//, ""));
+%}
+
+### 21 — Pagina publica sin contactos ni identidad del anfitrion
+# @no-cookie-jar
+GET {{baseUrl}}/api/invitations/{{gtogSmokeToken1}}
+Accept: application/json
+
+> {%
+    client.test("21 returns a private public projection", function () {
+        client.assert(response.status === 200, "Expected 200 without session or CSRF");
+        client.assert(response.headers.valueOf("Cache-Control") === "no-store", "Expected exact no-store");
+        client.assert(response.body.guest.name === "Ana María", "Unexpected guest name");
+        const keys = Object.keys(response.body.guest);
+        client.assert(keys.length === 1 && keys[0] === "name", "Guest must expose only name");
+        const body = JSON.stringify(response.body);
+        ["ana@example.com", "ana.maria@example.com", "+34612345678", "+34 612 345 678",
+            client.global.get("gtogSmokeEmail"), client.global.get("gtogSmokeHostId")].forEach(function (secret) {
+            client.assert(body.indexOf(secret) === -1, "Public body exposes a contact or the host id");
+        });
+        client.assert(body.indexOf("countsAsAttendance") === -1, "Public options must not expose attendance flags");
+    });
+%}
+
+### 22 — Responder Asisto sin sesion ni CSRF
+# @no-cookie-jar
+PUT {{baseUrl}}/api/invitations/{{gtogSmokeToken1}}/response
+Accept: application/json
+Content-Type: application/json
+
+{
+  "responseOptionId": "{{gtogSmokeOptionYes}}",
+  "email": "respuesta-privada@example.com"
+}
+
+> {%
+    client.test("22 accepts a public response without exposing its email", function () {
+        client.assert(response.status === 200, "Expected 200 without session or CSRF");
+        client.assert(!!response.body.myResponse, "Missing myResponse");
+        client.assert(response.body.myResponse.responseOptionId === client.global.get("gtogSmokeOptionYes"), "Unexpected response option");
+        client.assert(!("email" in response.body.myResponse), "myResponse must not expose email");
+        client.assert(JSON.stringify(response.body.myResponse).indexOf("respuesta-privada@example.com") === -1, "myResponse exposes private email");
+        client.assert(JSON.stringify(response.body).indexOf("respuesta-privada@example.com") === -1, "Public body exposes private email");
+        client.assert(response.headers.valueOf("Cache-Control") === "no-store", "Expected exact no-store");
+    });
+%}
+
+### 23 — Consultar respuesta guardada y permiso de cambio
+# @no-cookie-jar
+GET {{baseUrl}}/api/invitations/{{gtogSmokeToken1}}
+Accept: application/json
+
+> {%
+    client.test("23 persists the answer and allows changing it", function () {
+        client.assert(response.status === 200, "Expected 200");
+        client.assert(!!response.body.myResponse, "Missing persisted response");
+        client.assert(response.body.myResponse.responseOptionId === client.global.get("gtogSmokeOptionYes"), "Answer was not persisted");
+        client.assert(response.body.canChangeResponse === true, "Response should be changeable before the event");
+    });
+%}
+
+### 24 — Descargar calendario publico
+# @no-cookie-jar
+GET {{baseUrl}}/api/invitations/{{gtogSmokeToken1}}/calendar
+Accept: text/calendar
+
+> {%
+    client.test("24 downloads a calendar without invitation credentials", function () {
+        client.assert(response.status === 200, "Expected 200");
+        client.assert(response.contentType.mimeType === "text/calendar", "Expected text/calendar");
+        const calendar = response.body;
+        client.assert(typeof calendar === "string" && calendar.indexOf("BEGIN:VCALENDAR") === 0, "Invalid calendar opening");
+        client.assert(calendar.indexOf("Evento de prueba actualizado") !== -1, "Calendar is missing event title");
+        client.assert(calendar.indexOf(client.global.get("gtogSmokeToken1")) === -1, "Calendar exposes invitation token");
+        client.assert(response.headers.valueOf("Cache-Control") === "no-store", "Expected exact no-store");
+    });
+%}
+
+### 25 — Cambiar respuesta a No asisto
+# @no-cookie-jar
+PUT {{baseUrl}}/api/invitations/{{gtogSmokeToken1}}/response
+Accept: application/json
+Content-Type: application/json
+
+{
+  "responseOptionId": "{{gtogSmokeOptionNo}}",
+  "email": "respuesta-privada@example.com"
+}
+
+> {%
+    // Conservamos el correo privado para comprobar su exclusion en el panel del paso 27.
+    client.test("25 changes the answer to non-attendance", function () {
+        client.assert(response.status === 200, "Expected 200");
+        client.assert(response.body.myResponse.responseOptionId === client.global.get("gtogSmokeOptionNo"), "Answer was not changed");
+    });
+%}
+
+### 26a — Invitacion con token desconocido de 43 caracteres
+# @no-cookie-jar
+GET {{baseUrl}}/api/invitations/{{gtogSmokeUnknownToken}}
+Accept: application/json
+
+> {%
+    client.test("26a unknown invitation returns 404", function () {
+        client.assert(client.global.get("gtogSmokeUnknownToken").length === 43, "Invalid test token length");
+        client.assert(response.status === 404, "Expected 404");
+        client.assert(response.body.instance === "/api/invitations", "ProblemDetail must not expose token");
+    });
+%}
+
+### 26b — Calendario con el mismo token desconocido
+# @no-cookie-jar
+GET {{baseUrl}}/api/invitations/{{gtogSmokeUnknownToken}}/calendar
+Accept: text/calendar, application/problem+json
+
+> {%
+    client.test("26b unknown calendar returns 404", function () {
+        client.assert(response.status === 404, "Expected 404");
+        client.assert(response.body.instance === "/api/invitations", "ProblemDetail must not expose token");
+    });
+%}
+
+# C. Seguimiento privado y cancelacion; las consultas publicas siguen sin cookies.
+
+### 27 — Panel del anfitrion tras cambiar a No asisto
+# @no-cookie-jar
+GET {{baseUrl}}/api/events/{{gtogSmokeEventId}}/dashboard
+Accept: application/json
+Cookie: XSRF-TOKEN={{csrf}}; JSESSIONID={{gtogSmokeSession}}
+
+> {%
+    client.test("27 returns dashboard totals and preserves privacy", function () {
+        client.assert(response.status === 200, "Expected 200");
+        const totals = response.body.totals;
+        client.assert(totals.guests === 1 && totals.answered === 1 && totals.pending === 0 && totals.attending === 0, "Unexpected dashboard totals");
+        client.assert(response.body.guests.length === 1, "Expected one dashboard row");
+        const ana = response.body.guests.find(guest => guest.id === client.global.get("gtogSmokeGuest1"));
+        client.assert(!!ana && ana.name === "Ana María", "Missing Ana row");
+        client.assert(ana.invitationStatus === "OPENED", "Public visit must mark OPENED");
+        client.assert(ana.answered === true && ana.optionKnown === true, "Expected answer with a known option");
+        client.assert(!!ana.response && ana.response.label === "No asisto", "Expected No asisto response");
+        client.assert(response.headers.valueOf("Cache-Control") === "no-store", "Expected exact no-store");
+        const body = JSON.stringify(response.body);
+        client.assert(body.indexOf("respuesta-privada") === -1, "Dashboard exposes private response email");
+        const token = client.global.get("gtogSmokeToken1");
+        client.assert(body.split(token).length - 1 === 1, "Token must appear exactly once");
+        client.assert(ana.invitationPath === "/r/" + token, "Token must appear inside invitationPath");
+        client.assert(!/"(?:guestToken|token)"\s*:/.test(body), "Unexpected raw token key");
+    });
+    client.assert(response.status === 200, "Cannot store dashboard totals");
+    client.global.set("gtogSmokeDashboardTotals", JSON.stringify(response.body.totals));
+%}
+
+### 28 — Contadores del listado coinciden con el panel
+# @no-cookie-jar
+GET {{baseUrl}}/api/events
+Accept: application/json
+Cookie: XSRF-TOKEN={{csrf}}; JSESSIONID={{gtogSmokeSession}}
+
+> {%
+    client.test("28 listing totals match the dashboard", function () {
+        client.assert(response.status === 200, "Expected 200");
+        const summary = response.body.find(event => event.id === client.global.get("gtogSmokeEventId"));
+        const totals = JSON.parse(client.global.get("gtogSmokeDashboardTotals"));
+        client.assert(!!summary, "Missing event summary");
+        client.assert(summary.totalGuests === totals.guests && summary.answered === totals.answered
+            && summary.pending === totals.pending && summary.attending === totals.attending, "Listing and dashboard totals differ");
+        client.assert(!("byOption" in summary), "Listing must not include option breakdown");
+    });
+%}
+
+### 29 — Cancelar el evento publicado
+# @no-cookie-jar
+POST {{baseUrl}}/api/events/{{gtogSmokeEventId}}/cancel
+Accept: application/json
+Cookie: XSRF-TOKEN={{csrf}}; JSESSIONID={{gtogSmokeSession}}
+X-XSRF-TOKEN: {{csrf}}
+Content-Type: application/json
+
+{
+  "reason": "Fin del recorrido funcional"
+}
+
+> {%
+    client.test("29 cancels the event", function () {
+        client.assert(response.status === 200, "Expected 200");
+        client.assert(response.body.status === "CANCELLED", "Event must be CANCELLED");
+    });
+%}
+
+### 30a — Invitacion cancelada sigue siendo consultable
+# @no-cookie-jar
+GET {{baseUrl}}/api/invitations/{{gtogSmokeToken1}}
+Accept: application/json
+
+> {%
+    client.test("30a cancelled invitation remains accessible", function () {
+        client.assert(response.status === 200, "Expected 200");
+        client.assert(response.body.status === "CANCELLED", "Expected CANCELLED");
+        client.assert(response.body.cancellationReason === "Fin del recorrido funcional", "Missing cancellation reason");
+    });
+%}
+
+### 30b — Calendario cancelado rechaza descarga
+# @no-cookie-jar
+GET {{baseUrl}}/api/invitations/{{gtogSmokeToken1}}/calendar
+Accept: text/calendar, application/problem+json
+
+> {%
+    client.test("30b cancelled calendar returns a safe 409", function () {
+        client.assert(response.status === 409 && response.body.status === 409, "Expected 409 ProblemDetail");
+        client.assert(response.body.instance === "/api/invitations", "ProblemDetail must not expose token");
+        client.assert(response.headers.valueOf("Cache-Control") === "no-store", "Expected exact no-store");
+    });
+%}
+
+### 30c — Evento cancelado rechaza nuevas respuestas
+# @no-cookie-jar
+PUT {{baseUrl}}/api/invitations/{{gtogSmokeToken1}}/response
+Accept: application/json
+Content-Type: application/json
+
+{
+  "responseOptionId": "{{gtogSmokeOptionYes}}"
+}
+
+> {%
+    client.test("30c cancelled event rejects a response change", function () {
+        client.assert(response.status === 409, "Expected 409");
+    });
+%}
+
+# D. Aislamiento entre anfitriones y cierre de la primera sesion.
+
+### 31a — Registrar segundo anfitrion
+# @no-cookie-jar
+< {%
+    client.global.set("gtogSmokeEmail2", "host-smoke-other-" + Date.now() + "@example.com");
+%}
+POST {{baseUrl}}/api/auth/register
+Accept: application/json
+Cookie: XSRF-TOKEN={{csrf}}
+X-XSRF-TOKEN: {{csrf}}
+Content-Type: application/json
+
+{
+  "name": "Segundo anfitrión de prueba",
+  "email": "{{gtogSmokeEmail2}}",
+  "rawPassword": "{{password}}",
+  "timeZone": "Europe/Madrid"
+}
+
+> {%
+    client.test("31a registers another host", function () {
+        client.assert(response.status === 201, "Expected 201");
+        client.assert(response.body.id !== client.global.get("gtogSmokeHostId"), "Expected another host");
+    });
+%}
+
+### 31b — Iniciar segunda sesion independiente
+# @no-cookie-jar
+POST {{baseUrl}}/api/auth/login
+Accept: application/json
+Cookie: XSRF-TOKEN={{csrf}}
+X-XSRF-TOKEN: {{csrf}}
+Content-Type: application/json
+
+{
+  "email": "{{gtogSmokeEmail2}}",
+  "password": "{{password}}"
+}
+
+> {%
+    client.test("31b logs in the second host", function () {
+        client.assert(response.status === 200, "Expected 200");
+    });
+    client.assert(response.status === 200, "Cannot capture second session");
+    const session = response.cookiesByName("JSESSIONID")[0];
+    client.assert(!!session, "Missing second session");
+    client.assert(session.value !== client.global.get("gtogSmokeSession"), "Sessions must differ");
+    client.global.set("gtogSmokeSession2", session.value);
+%}
+
+### 32a — Segundo anfitrion no ve el evento ajeno
+# @no-cookie-jar
+GET {{baseUrl}}/api/events/{{gtogSmokeEventId}}
+Accept: application/json
+Cookie: XSRF-TOKEN={{csrf}}; JSESSIONID={{gtogSmokeSession2}}
+
+> {%
+    client.test("32a another hosts event returns 404", function () {
+        client.assert(response.status === 404, "Expected 404 for another hosts event");
+    });
+%}
+
+### 32b — Segundo anfitrion no ve el panel ajeno
+# @no-cookie-jar
+GET {{baseUrl}}/api/events/{{gtogSmokeEventId}}/dashboard
+Accept: application/json
+Cookie: XSRF-TOKEN={{csrf}}; JSESSIONID={{gtogSmokeSession2}}
+
+> {%
+    client.test("32b another hosts dashboard returns 404", function () {
+        client.assert(response.status === 404, "Expected 404 for another hosts dashboard");
+    });
+%}
+
+### 33a — Cerrar sesion del primer anfitrion
+# @no-cookie-jar
+POST {{baseUrl}}/api/auth/logout
+Accept: application/json
+Cookie: XSRF-TOKEN={{csrf}}; JSESSIONID={{gtogSmokeSession}}
+X-XSRF-TOKEN: {{csrf}}
+
+> {%
+    client.test("33a logs out the first host", function () {
+        client.assert(response.status === 204, "Expected 204");
+    });
+%}
+
+### 33b — La sesion cerrada ya no autoriza el listado
+# @no-cookie-jar
+GET {{baseUrl}}/api/events
+Accept: application/json
+Cookie: JSESSIONID={{gtogSmokeSession}}
+
+> {%
+    client.test("33b the old session is no longer authenticated", function () {
+        client.assert(response.status === 401, "Expected 401 for the logged-out session");
+    });
+%}
+
+# E. OPCIONAL: ejecutar 34–37 solo despues de revisar que 01–33 han pasado.
+# Usa el segundo anfitrion; no llama al proveedor de la sala ni envia correo.
+
+### 34a — Crear evento ONLINE con acceso ON_CONFIRMATION
+# @no-cookie-jar
+POST {{baseUrl}}/api/events
+Accept: application/json
+Cookie: XSRF-TOKEN={{csrf}}; JSESSIONID={{gtogSmokeSession2}}
+X-XSRF-TOKEN: {{csrf}}
+Content-Type: application/json
+
+{
+  "title": "Sala virtual de prueba",
+  "description": "Visibilidad del enlace segun la asistencia",
+  "startsAt": "{{gtogSmokeStartsAt}}",
+  "endsAt": "{{gtogSmokeEndsAt}}",
+  "timeZone": "Europe/Madrid",
+  "modality": "ONLINE",
+  "allowResponseChange": true,
+  "onlineAccess": {
+    "platform": "Smoke meeting",
+    "url": "https://meet.example.com/gtog-smoke",
+    "linkVisibility": "ON_CONFIRMATION"
+  }
+}
+
+> {%
+    client.test("34a creates an online draft", function () {
+        client.assert(response.status === 201, "Expected 201");
+        client.assert(response.body.status === "DRAFT" && response.body.modality === "ONLINE", "Expected ONLINE draft");
+    });
+    client.assert(response.status === 201, "Cannot prepare optional event");
+    const yes = response.body.responseOptions.find(option => option.countsAsAttendance === true);
+    const no = response.body.responseOptions.find(option => option.countsAsAttendance === false);
+    client.assert(!!yes && !!no, "Missing online response options");
+    client.global.set("gtogSmokeOnlineEventId", response.body.id);
+    client.global.set("gtogSmokeOnlineOptionYes", yes.id);
+    client.global.set("gtogSmokeOnlineOptionNo", no.id);
+%}
+
+### 34b — Publicar evento ONLINE
+# @no-cookie-jar
+POST {{baseUrl}}/api/events/{{gtogSmokeOnlineEventId}}/publish
+Accept: application/json
+Cookie: XSRF-TOKEN={{csrf}}; JSESSIONID={{gtogSmokeSession2}}
+X-XSRF-TOKEN: {{csrf}}
+
+> {%
+    client.test("34b publishes the online event", function () {
+        client.assert(response.status === 200, "Expected 200");
+        client.assert(response.body.status === "PUBLISHED", "Online event was not published");
+    });
+%}
+
+### 34c — Anadir invitado al evento ONLINE
+# @no-cookie-jar
+POST {{baseUrl}}/api/events/{{gtogSmokeOnlineEventId}}/guests
+Accept: application/json
+Cookie: XSRF-TOKEN={{csrf}}; JSESSIONID={{gtogSmokeSession2}}
+X-XSRF-TOKEN: {{csrf}}
+Content-Type: application/json
+
+{
+  "name": "Invitado virtual",
+  "email": "invitado-virtual@example.com",
+  "phone": null
+}
+
+> {%
+    client.test("34c creates an online guest", function () {
+        client.assert(response.status === 201, "Expected 201");
+    });
+    client.assert(response.status === 201, "Cannot prepare optional invitation");
+    client.assert(/^\/r\/[A-Za-z0-9_-]{43}$/.test(response.body.invitationPath), "Invalid optional invitation path");
+    client.global.set("gtogSmokeOnlineToken", response.body.invitationPath.replace(/^\/r\//, ""));
+%}
+
+### 35 — Sin respuesta: metadatos publicos, sala oculta
+# @no-cookie-jar
+GET {{baseUrl}}/api/invitations/{{gtogSmokeOnlineToken}}
+Accept: application/json
+
+> {%
+    client.test("35 hides the meeting URL before confirmation", function () {
+        client.assert(response.status === 200, "Expected 200 without session or CSRF");
+        client.assert(JSON.stringify(response.body).indexOf("https://meet.example.com/gtog-smoke") === -1, "Public body exposes hidden meeting URL");
+        client.assert(!("onlineAccess" in response.body), "Hidden onlineAccess must be omitted");
+        client.assert(!!response.body.onlineAccessInfo, "Missing non-secret metadata");
+        client.assert(response.body.onlineAccessInfo.platform === "Smoke meeting", "Missing platform");
+        client.assert(response.body.onlineAccessInfo.linkVisibility === "ON_CONFIRMATION", "Missing visibility rule");
+    });
+%}
+
+### 36 — No asiste: responder no basta para mostrar la sala
+# @no-cookie-jar
+PUT {{baseUrl}}/api/invitations/{{gtogSmokeOnlineToken}}/response
+Accept: application/json
+Content-Type: application/json
+
+{
+  "responseOptionId": "{{gtogSmokeOnlineOptionNo}}"
+}
+
+> {%
+    client.test("36 a non-attending answer keeps the meeting URL hidden", function () {
+        client.assert(response.status === 200, "Expected 200 without session or CSRF");
+        client.assert(response.body.myResponse.responseOptionId === client.global.get("gtogSmokeOnlineOptionNo"), "Unexpected answer");
+        client.assert(JSON.stringify(response.body).indexOf("https://meet.example.com/gtog-smoke") === -1, "Non-attending guest received meeting URL");
+        client.assert(!("onlineAccess" in response.body), "Hidden onlineAccess must be omitted");
+    });
+%}
+
+### 37 — Confirma asistencia: el backend muestra la sala
+# @no-cookie-jar
+PUT {{baseUrl}}/api/invitations/{{gtogSmokeOnlineToken}}/response
+Accept: application/json
+Content-Type: application/json
+
+{
+  "responseOptionId": "{{gtogSmokeOnlineOptionYes}}"
+}
+
+> {%
+    client.test("37 an attending answer reveals the meeting URL", function () {
+        client.assert(response.status === 200, "Expected 200 without session or CSRF");
+        client.assert(response.body.myResponse.responseOptionId === client.global.get("gtogSmokeOnlineOptionYes"), "Unexpected answer");
+        client.assert(!!response.body.onlineAccess, "Missing allowed online access");
+        client.assert(response.body.onlineAccess.url === "https://meet.example.com/gtog-smoke", "Wrong meeting URL");
     });
 %}
