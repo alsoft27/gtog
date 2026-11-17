@@ -1,5 +1,5 @@
 # Recorrido funcional R1–R9: evento, invitados, respuesta publica y panel (no exhaustivo).
-# Arranca tu el backend. Ejecuta 01–33 en orden con las flechas verdes del HTTP Client.
+# Arranca tu el backend. Ejecuta 00–33 en orden con las flechas verdes del HTTP Client.
 # Solo si todas las pruebas anteriores pasan, ejecuta el bloque opcional 34–37.
 # Run All Requests tambien ejecuta el bloque opcional; no lo uses para omitir esa revision.
 # No requiere un environment de IntelliJ. Las letras a/b/c son llamadas del mismo paso.
@@ -9,16 +9,16 @@
 # El bloque opcional deja ademas un evento ONLINE publicado del segundo anfitrion.
 # No se envian invitaciones ni correos; el email de respuesta solo se guarda.
 #
-# CSRF: para este cliente de prueba se envia la misma cadena en XSRF-TOKEN y X-XSRF-TOKEN.
-# Esto es compatible con la configuracion actual y no prueba el bootstrap CSRF del frontend.
+# CSRF: 00 obtiene la cookie del servidor y guarda su valor en gtogSmokeCsrf.
+# El anfitrion envia ese valor crudo en XSRF-TOKEN y X-XSRF-TOKEN; las invitaciones no lo envian.
 # Se desactiva el cookie jar por peticion y se envia la sesion explicitamente para evitar
 # interferencias con otras pruebas abiertas en IntelliJ. No imprimir ni versionar sesiones.
 # Registro y login estan incluidos como preparacion del recorrido.
 # Los logs de 01, 02 y 18 observan Set-Cookie sin imprimir sus valores ni exigir rotacion.
-# Observado: la cookie XSRF-TOKEN se emite en la respuesta rechazada por CSRF, no en el GET previo.
+# Antes solo se emitia al rechazar CSRF; ahora se exige tambien en el primer GET (00 y 18).
 #
 # Lo que este archivo no verifica:
-# - Bootstrap real de CSRF del frontend y renovacion segura tras login: usamos @csrf manual.
+# - Integracion del frontend con el bootstrap CSRF; aqui se comprueba solo el contrato HTTP.
 # - Politicas del navegador (CORS, SameSite, Secure, HttpOnly), Referer y Referrer-Policy.
 # - Interfaz, mapa, conversion de zona del invitado e importacion real del .ics en su agenda.
 # - Concurrencia, indices, numero de consultas, version o limpieza de respuestas huerfanas.
@@ -27,7 +27,24 @@
 
 @baseUrl = http://localhost:8080
 @password = SmokeTest2026!
-@csrf = gtog-local-smoke-csrf
+
+### 00 — Obtener cookie CSRF antes del registro
+# @no-cookie-jar
+< {%
+    client.global.clear("gtogSmokeCsrf");
+%}
+GET {{baseUrl}}/actuator/health
+Accept: application/json
+
+> {%
+    const csrfCookie = response.cookiesByName("XSRF-TOKEN")[0];
+    client.test("00 issues the CSRF cookie on the first GET", function () {
+        client.assert(response.status === 200, "Expected 200");
+        client.assert(!!csrfCookie && !!csrfCookie.value, "Missing initial CSRF cookie");
+    });
+    client.assert(response.status === 200 && !!csrfCookie && !!csrfCookie.value, "Cannot bootstrap CSRF");
+    client.global.set("gtogSmokeCsrf", csrfCookie.value);
+%}
 
 ### 01 — Registrar anfitrion de prueba
 # @no-cookie-jar
@@ -52,8 +69,8 @@
 %}
 POST {{baseUrl}}/api/auth/register
 Accept: application/json
-Cookie: XSRF-TOKEN={{csrf}}
-X-XSRF-TOKEN: {{csrf}}
+Cookie: XSRF-TOKEN={{gtogSmokeCsrf}}
+X-XSRF-TOKEN: {{gtogSmokeCsrf}}
 Content-Type: application/json
 
 {
@@ -80,8 +97,8 @@ Content-Type: application/json
 # @no-cookie-jar
 POST {{baseUrl}}/api/auth/login
 Accept: application/json
-Cookie: XSRF-TOKEN={{csrf}}
-X-XSRF-TOKEN: {{csrf}}
+Cookie: XSRF-TOKEN={{gtogSmokeCsrf}}
+X-XSRF-TOKEN: {{gtogSmokeCsrf}}
 Content-Type: application/json
 
 {
@@ -107,8 +124,8 @@ Content-Type: application/json
 # @no-cookie-jar
 POST {{baseUrl}}/api/events
 Accept: application/json
-Cookie: XSRF-TOKEN={{csrf}}; JSESSIONID={{gtogSmokeSession}}
-X-XSRF-TOKEN: {{csrf}}
+Cookie: XSRF-TOKEN={{gtogSmokeCsrf}}; JSESSIONID={{gtogSmokeSession}}
+X-XSRF-TOKEN: {{gtogSmokeCsrf}}
 Content-Type: application/json
 
 {
@@ -145,7 +162,7 @@ Content-Type: application/json
 # @no-cookie-jar
 GET {{baseUrl}}/api/events/{{gtogSmokeEventId}}
 Accept: application/json
-Cookie: XSRF-TOKEN={{csrf}}; JSESSIONID={{gtogSmokeSession}}
+Cookie: XSRF-TOKEN={{gtogSmokeCsrf}}; JSESSIONID={{gtogSmokeSession}}
 
 > {%
     client.test("04 returns 200", function () {
@@ -163,8 +180,8 @@ Cookie: XSRF-TOKEN={{csrf}}; JSESSIONID={{gtogSmokeSession}}
 # @no-cookie-jar
 PUT {{baseUrl}}/api/events/{{gtogSmokeEventId}}
 Accept: application/json
-Cookie: XSRF-TOKEN={{csrf}}; JSESSIONID={{gtogSmokeSession}}
-X-XSRF-TOKEN: {{csrf}}
+Cookie: XSRF-TOKEN={{gtogSmokeCsrf}}; JSESSIONID={{gtogSmokeSession}}
+X-XSRF-TOKEN: {{gtogSmokeCsrf}}
 Content-Type: application/json
 
 {
@@ -192,8 +209,8 @@ Content-Type: application/json
 # @no-cookie-jar
 POST {{baseUrl}}/api/events/{{gtogSmokeEventId}}/guests
 Accept: application/json
-Cookie: XSRF-TOKEN={{csrf}}; JSESSIONID={{gtogSmokeSession}}
-X-XSRF-TOKEN: {{csrf}}
+Cookie: XSRF-TOKEN={{gtogSmokeCsrf}}; JSESSIONID={{gtogSmokeSession}}
+X-XSRF-TOKEN: {{gtogSmokeCsrf}}
 Content-Type: application/json
 
 {
@@ -221,8 +238,8 @@ Content-Type: application/json
 # @no-cookie-jar
 POST {{baseUrl}}/api/events/{{gtogSmokeEventId}}/guests
 Accept: application/json
-Cookie: XSRF-TOKEN={{csrf}}; JSESSIONID={{gtogSmokeSession}}
-X-XSRF-TOKEN: {{csrf}}
+Cookie: XSRF-TOKEN={{gtogSmokeCsrf}}; JSESSIONID={{gtogSmokeSession}}
+X-XSRF-TOKEN: {{gtogSmokeCsrf}}
 Content-Type: application/json
 
 {
@@ -247,7 +264,7 @@ Content-Type: application/json
 # @no-cookie-jar
 GET {{baseUrl}}/api/events/{{gtogSmokeEventId}}/guests
 Accept: application/json
-Cookie: XSRF-TOKEN={{csrf}}; JSESSIONID={{gtogSmokeSession}}
+Cookie: XSRF-TOKEN={{gtogSmokeCsrf}}; JSESSIONID={{gtogSmokeSession}}
 
 > {%
     client.test("08 returns 200", function () {
@@ -266,8 +283,8 @@ Cookie: XSRF-TOKEN={{csrf}}; JSESSIONID={{gtogSmokeSession}}
 # @no-cookie-jar
 POST {{baseUrl}}/api/events/{{gtogSmokeEventId}}/guests
 Accept: application/json
-Cookie: XSRF-TOKEN={{csrf}}; JSESSIONID={{gtogSmokeSession}}
-X-XSRF-TOKEN: {{csrf}}
+Cookie: XSRF-TOKEN={{gtogSmokeCsrf}}; JSESSIONID={{gtogSmokeSession}}
+X-XSRF-TOKEN: {{gtogSmokeCsrf}}
 Content-Type: application/json
 
 {
@@ -290,8 +307,8 @@ Content-Type: application/json
 # @no-cookie-jar
 POST {{baseUrl}}/api/events/{{gtogSmokeEventId}}/guests
 Accept: application/json
-Cookie: XSRF-TOKEN={{csrf}}; JSESSIONID={{gtogSmokeSession}}
-X-XSRF-TOKEN: {{csrf}}
+Cookie: XSRF-TOKEN={{gtogSmokeCsrf}}; JSESSIONID={{gtogSmokeSession}}
+X-XSRF-TOKEN: {{gtogSmokeCsrf}}
 Content-Type: application/json
 
 {
@@ -314,8 +331,8 @@ Content-Type: application/json
 # @no-cookie-jar
 PUT {{baseUrl}}/api/events/{{gtogSmokeEventId}}/guests/{{gtogSmokeGuest1}}
 Accept: application/json
-Cookie: XSRF-TOKEN={{csrf}}; JSESSIONID={{gtogSmokeSession}}
-X-XSRF-TOKEN: {{csrf}}
+Cookie: XSRF-TOKEN={{gtogSmokeCsrf}}; JSESSIONID={{gtogSmokeSession}}
+X-XSRF-TOKEN: {{gtogSmokeCsrf}}
 Content-Type: application/json
 
 {
@@ -341,7 +358,7 @@ Content-Type: application/json
 # @no-cookie-jar
 GET {{baseUrl}}/api/events/{{gtogSmokeEventId}}/guests
 Accept: application/json
-Cookie: XSRF-TOKEN={{csrf}}; JSESSIONID={{gtogSmokeSession}}
+Cookie: XSRF-TOKEN={{gtogSmokeCsrf}}; JSESSIONID={{gtogSmokeSession}}
 
 > {%
     client.test("12 returns 200", function () {
@@ -360,8 +377,8 @@ Cookie: XSRF-TOKEN={{csrf}}; JSESSIONID={{gtogSmokeSession}}
 # @no-cookie-jar
 DELETE {{baseUrl}}/api/events/{{gtogSmokeEventId}}/guests/{{gtogSmokeGuest2}}
 Accept: application/json
-Cookie: XSRF-TOKEN={{csrf}}; JSESSIONID={{gtogSmokeSession}}
-X-XSRF-TOKEN: {{csrf}}
+Cookie: XSRF-TOKEN={{gtogSmokeCsrf}}; JSESSIONID={{gtogSmokeSession}}
+X-XSRF-TOKEN: {{gtogSmokeCsrf}}
 
 > {%
     client.test("13 returns 204", function () {
@@ -374,7 +391,7 @@ X-XSRF-TOKEN: {{csrf}}
 # @no-cookie-jar
 GET {{baseUrl}}/api/events/{{gtogSmokeEventId}}/guests
 Accept: application/json
-Cookie: XSRF-TOKEN={{csrf}}; JSESSIONID={{gtogSmokeSession}}
+Cookie: XSRF-TOKEN={{gtogSmokeCsrf}}; JSESSIONID={{gtogSmokeSession}}
 
 > {%
     client.test("14 returns 200", function () {
@@ -392,8 +409,8 @@ Cookie: XSRF-TOKEN={{csrf}}; JSESSIONID={{gtogSmokeSession}}
 # @no-cookie-jar
 POST {{baseUrl}}/api/events/{{gtogSmokeEventId}}/publish
 Accept: application/json
-Cookie: XSRF-TOKEN={{csrf}}; JSESSIONID={{gtogSmokeSession}}
-X-XSRF-TOKEN: {{csrf}}
+Cookie: XSRF-TOKEN={{gtogSmokeCsrf}}; JSESSIONID={{gtogSmokeSession}}
+X-XSRF-TOKEN: {{gtogSmokeCsrf}}
 
 > {%
     client.test("15 returns 200", function () {
@@ -410,7 +427,7 @@ X-XSRF-TOKEN: {{csrf}}
 # @no-cookie-jar
 GET {{baseUrl}}/api/events/{{gtogSmokeEventId}}/guests
 Accept: application/json
-Cookie: XSRF-TOKEN={{csrf}}; JSESSIONID={{gtogSmokeSession}}
+Cookie: XSRF-TOKEN={{gtogSmokeCsrf}}; JSESSIONID={{gtogSmokeSession}}
 
 > {%
     client.test("16 returns 200", function () {
@@ -437,7 +454,7 @@ Accept: application/json
     });
 %}
 
-### 18 — Salud publica y observacion de cookie CSRF
+### 18 — Salud publica emite cookie CSRF
 # @no-cookie-jar
 GET {{baseUrl}}/actuator/health
 Accept: application/json
@@ -446,8 +463,9 @@ Accept: application/json
     client.log("18 cookie XSRF-TOKEN en respuesta: " + (response.cookiesByName("XSRF-TOKEN").length > 0 ? "sí" : "no"));
     client.test("18 health is public", function () {
         client.assert(response.status === 200, "Expected public health endpoint to return 200");
+        const csrfCookie = response.cookiesByName("XSRF-TOKEN")[0];
+        client.assert(!!csrfCookie && !!csrfCookie.value, "Public health GET must issue a CSRF cookie");
     });
-    // La presencia o ausencia de la cookie es una observacion, no una asercion.
 %}
 
 ### 19 — Registro sin cookie ni cabecera CSRF
@@ -475,8 +493,8 @@ Content-Type: application/json
 # @no-cookie-jar
 POST {{baseUrl}}/api/auth/login
 Accept: application/json
-Cookie: XSRF-TOKEN={{csrf}}
-X-XSRF-TOKEN: {{csrf}}
+Cookie: XSRF-TOKEN={{gtogSmokeCsrf}}
+X-XSRF-TOKEN: {{gtogSmokeCsrf}}
 Content-Type: application/json
 
 {
@@ -497,7 +515,7 @@ Content-Type: application/json
 # @no-cookie-jar
 GET {{baseUrl}}/api/events/{{gtogSmokeEventId}}
 Accept: application/json
-Cookie: XSRF-TOKEN={{csrf}}; JSESSIONID={{gtogSmokeSession}}
+Cookie: XSRF-TOKEN={{gtogSmokeCsrf}}; JSESSIONID={{gtogSmokeSession}}
 
 > {%
     client.test("20 returns the hosts event", function () {
@@ -641,7 +659,7 @@ Accept: text/calendar, application/problem+json
 # @no-cookie-jar
 GET {{baseUrl}}/api/events/{{gtogSmokeEventId}}/dashboard
 Accept: application/json
-Cookie: XSRF-TOKEN={{csrf}}; JSESSIONID={{gtogSmokeSession}}
+Cookie: XSRF-TOKEN={{gtogSmokeCsrf}}; JSESSIONID={{gtogSmokeSession}}
 
 > {%
     client.test("27 returns dashboard totals and preserves privacy", function () {
@@ -670,7 +688,7 @@ Cookie: XSRF-TOKEN={{csrf}}; JSESSIONID={{gtogSmokeSession}}
 # @no-cookie-jar
 GET {{baseUrl}}/api/events
 Accept: application/json
-Cookie: XSRF-TOKEN={{csrf}}; JSESSIONID={{gtogSmokeSession}}
+Cookie: XSRF-TOKEN={{gtogSmokeCsrf}}; JSESSIONID={{gtogSmokeSession}}
 
 > {%
     client.test("28 listing totals match the dashboard", function () {
@@ -688,8 +706,8 @@ Cookie: XSRF-TOKEN={{csrf}}; JSESSIONID={{gtogSmokeSession}}
 # @no-cookie-jar
 POST {{baseUrl}}/api/events/{{gtogSmokeEventId}}/cancel
 Accept: application/json
-Cookie: XSRF-TOKEN={{csrf}}; JSESSIONID={{gtogSmokeSession}}
-X-XSRF-TOKEN: {{csrf}}
+Cookie: XSRF-TOKEN={{gtogSmokeCsrf}}; JSESSIONID={{gtogSmokeSession}}
+X-XSRF-TOKEN: {{gtogSmokeCsrf}}
 Content-Type: application/json
 
 {
@@ -754,8 +772,8 @@ Content-Type: application/json
 %}
 POST {{baseUrl}}/api/auth/register
 Accept: application/json
-Cookie: XSRF-TOKEN={{csrf}}
-X-XSRF-TOKEN: {{csrf}}
+Cookie: XSRF-TOKEN={{gtogSmokeCsrf}}
+X-XSRF-TOKEN: {{gtogSmokeCsrf}}
 Content-Type: application/json
 
 {
@@ -776,8 +794,8 @@ Content-Type: application/json
 # @no-cookie-jar
 POST {{baseUrl}}/api/auth/login
 Accept: application/json
-Cookie: XSRF-TOKEN={{csrf}}
-X-XSRF-TOKEN: {{csrf}}
+Cookie: XSRF-TOKEN={{gtogSmokeCsrf}}
+X-XSRF-TOKEN: {{gtogSmokeCsrf}}
 Content-Type: application/json
 
 {
@@ -800,7 +818,7 @@ Content-Type: application/json
 # @no-cookie-jar
 GET {{baseUrl}}/api/events/{{gtogSmokeEventId}}
 Accept: application/json
-Cookie: XSRF-TOKEN={{csrf}}; JSESSIONID={{gtogSmokeSession2}}
+Cookie: XSRF-TOKEN={{gtogSmokeCsrf}}; JSESSIONID={{gtogSmokeSession2}}
 
 > {%
     client.test("32a another hosts event returns 404", function () {
@@ -812,7 +830,7 @@ Cookie: XSRF-TOKEN={{csrf}}; JSESSIONID={{gtogSmokeSession2}}
 # @no-cookie-jar
 GET {{baseUrl}}/api/events/{{gtogSmokeEventId}}/dashboard
 Accept: application/json
-Cookie: XSRF-TOKEN={{csrf}}; JSESSIONID={{gtogSmokeSession2}}
+Cookie: XSRF-TOKEN={{gtogSmokeCsrf}}; JSESSIONID={{gtogSmokeSession2}}
 
 > {%
     client.test("32b another hosts dashboard returns 404", function () {
@@ -824,8 +842,8 @@ Cookie: XSRF-TOKEN={{csrf}}; JSESSIONID={{gtogSmokeSession2}}
 # @no-cookie-jar
 POST {{baseUrl}}/api/auth/logout
 Accept: application/json
-Cookie: XSRF-TOKEN={{csrf}}; JSESSIONID={{gtogSmokeSession}}
-X-XSRF-TOKEN: {{csrf}}
+Cookie: XSRF-TOKEN={{gtogSmokeCsrf}}; JSESSIONID={{gtogSmokeSession}}
+X-XSRF-TOKEN: {{gtogSmokeCsrf}}
 
 > {%
     client.test("33a logs out the first host", function () {
@@ -840,20 +858,26 @@ Accept: application/json
 Cookie: JSESSIONID={{gtogSmokeSession}}
 
 > {%
+    const previousCsrf = client.global.get("gtogSmokeCsrf");
+    const renewedCsrf = response.cookiesByName("XSRF-TOKEN")[0];
     client.test("33b the old session is no longer authenticated", function () {
         client.assert(response.status === 401, "Expected 401 for the logged-out session");
+        client.assert(!!renewedCsrf && !!renewedCsrf.value, "GET after logout must issue a CSRF cookie");
+        client.assert(renewedCsrf.value !== previousCsrf, "Expected a new CSRF cookie after logout");
     });
+    client.assert(!!renewedCsrf && !!renewedCsrf.value, "Cannot refresh CSRF after logout");
+    client.global.set("gtogSmokeCsrf", renewedCsrf.value);
 %}
 
-# E. OPCIONAL: ejecutar 34–37 solo despues de revisar que 01–33 han pasado.
+# E. OPCIONAL: ejecutar 34–37 solo despues de revisar que 00–33 han pasado.
 # Usa el segundo anfitrion; no llama al proveedor de la sala ni envia correo.
 
 ### 34a — Crear evento ONLINE con acceso ON_CONFIRMATION
 # @no-cookie-jar
 POST {{baseUrl}}/api/events
 Accept: application/json
-Cookie: XSRF-TOKEN={{csrf}}; JSESSIONID={{gtogSmokeSession2}}
-X-XSRF-TOKEN: {{csrf}}
+Cookie: XSRF-TOKEN={{gtogSmokeCsrf}}; JSESSIONID={{gtogSmokeSession2}}
+X-XSRF-TOKEN: {{gtogSmokeCsrf}}
 Content-Type: application/json
 
 {
@@ -889,8 +913,8 @@ Content-Type: application/json
 # @no-cookie-jar
 POST {{baseUrl}}/api/events/{{gtogSmokeOnlineEventId}}/publish
 Accept: application/json
-Cookie: XSRF-TOKEN={{csrf}}; JSESSIONID={{gtogSmokeSession2}}
-X-XSRF-TOKEN: {{csrf}}
+Cookie: XSRF-TOKEN={{gtogSmokeCsrf}}; JSESSIONID={{gtogSmokeSession2}}
+X-XSRF-TOKEN: {{gtogSmokeCsrf}}
 
 > {%
     client.test("34b publishes the online event", function () {
@@ -903,8 +927,8 @@ X-XSRF-TOKEN: {{csrf}}
 # @no-cookie-jar
 POST {{baseUrl}}/api/events/{{gtogSmokeOnlineEventId}}/guests
 Accept: application/json
-Cookie: XSRF-TOKEN={{csrf}}; JSESSIONID={{gtogSmokeSession2}}
-X-XSRF-TOKEN: {{csrf}}
+Cookie: XSRF-TOKEN={{gtogSmokeCsrf}}; JSESSIONID={{gtogSmokeSession2}}
+X-XSRF-TOKEN: {{gtogSmokeCsrf}}
 Content-Type: application/json
 
 {

@@ -1,6 +1,12 @@
 package com.gtog.shared.config;
 
+import java.io.IOException;
 import java.util.List;
+
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -16,10 +22,15 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
+import org.springframework.security.web.csrf.CsrfFilter;
 import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
+import org.springframework.security.web.csrf.DeferredCsrfToken;
+import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
+import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+import org.springframework.web.filter.OncePerRequestFilter;
 
 @Configuration
 @EnableWebSecurity
@@ -37,6 +48,7 @@ public class SecurityConfig {
 				.ignoringRequestMatchers("/api/invitations/**")
 				.csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
 				.csrfTokenRequestHandler(new CsrfTokenRequestAttributeHandler()))
+			.addFilterAfter(new CsrfCookieFilter(), CsrfFilter.class)
 			.authorizeHttpRequests(auth -> auth
 				.requestMatchers(HttpMethod.POST, "/api/auth/register", "/api/auth/login").permitAll()
 				.requestMatchers("/actuator/**", "/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
@@ -50,6 +62,26 @@ public class SecurityConfig {
 				.deleteCookies("JSESSIONID")
 				.logoutSuccessHandler((req, res, auth) -> res.setStatus(HttpStatus.NO_CONTENT.value())));
 		return http.build();
+	}
+
+	// Solo se registra en la cadena de seguridad, no como filtro adicional del contenedor.
+	private static final class CsrfCookieFilter extends OncePerRequestFilter {
+		private final RequestMatcher invitations = PathPatternRequestMatcher.pathPattern("/api/invitations/**");
+
+		@Override
+		protected boolean shouldNotFilter(HttpServletRequest request) {
+			return invitations.matches(request);
+		}
+
+		@Override
+		protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
+				throws ServletException, IOException {
+			// Security 7.1 publica el DeferredCsrfToken como atributo; consumirlo emite la cookie en el primer GET.
+			if (request.getAttribute(DeferredCsrfToken.class.getName()) instanceof DeferredCsrfToken deferred) {
+				deferred.get().getToken();
+			}
+			chain.doFilter(request, response);
+		}
 	}
 
 	@Bean
