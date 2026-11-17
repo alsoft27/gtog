@@ -20,7 +20,6 @@ import org.springframework.security.config.annotation.web.configuration.EnableWe
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
-import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.csrf.CsrfFilter;
 import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
@@ -31,6 +30,8 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 import org.springframework.web.filter.OncePerRequestFilter;
+import com.gtog.shared.security.ProblemDetailAccessDeniedHandler;
+import com.gtog.shared.security.ProblemDetailAuthenticationEntryPoint;
 
 @Configuration
 @EnableWebSecurity
@@ -40,7 +41,8 @@ public class SecurityConfig {
 	private String allowedOrigin;
 
 	@Bean
-	public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+	public SecurityFilterChain securityFilterChain(HttpSecurity http, ProblemDetailAccessDeniedHandler accessDeniedHandler,
+			ProblemDetailAuthenticationEntryPoint authenticationEntryPoint) throws Exception {
 		http
 			.cors(cors -> cors.configurationSource(corsConfigurationSource()))
 			.csrf(csrf -> csrf
@@ -55,7 +57,8 @@ public class SecurityConfig {
 				.requestMatchers("/api/invitations/**").permitAll()
 				.anyRequest().authenticated())
 			.exceptionHandling(ex -> ex
-				.authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)))
+				.accessDeniedHandler(accessDeniedHandler)
+				.authenticationEntryPoint(authenticationEntryPoint))
 			.logout(logout -> logout
 				.logoutUrl("/api/auth/logout")
 				.invalidateHttpSession(true)

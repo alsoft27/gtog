@@ -482,9 +482,9 @@ Content-Type: application/json
 }
 
 > {%
-    // Un rechazo CSRF anonimo se muestra como 401: /api/auth/** es publico y la autorizacion no interviene.
+    // El rechazo CSRF escribe directamente un 403, sin despachar a /error.
     client.test("19 registration still requires CSRF", function () {
-        client.assert(response.status === 401, "Expected 401 without CSRF cookie and header");
+        client.assert(response.status === 403, "Expected 403 without CSRF cookie and header");
         client.assert(response.status < 200 || response.status >= 300, "Registration must not succeed without CSRF");
     });
 %}
@@ -997,5 +997,154 @@ Content-Type: application/json
         client.assert(response.body.myResponse.responseOptionId === client.global.get("gtogSmokeOnlineOptionYes"), "Unexpected answer");
         client.assert(!!response.body.onlineAccess, "Missing allowed online access");
         client.assert(response.body.onlineAccess.url === "https://meet.example.com/gtog-smoke", "Wrong meeting URL");
+    });
+%}
+
+# F. Comprobaciones de errores HTTP: ejecutar tambien si se omite el bloque opcional E.
+# Requiere 00–33; usa el token de Ana y la segunda sesion, que sigue activa tras el logout del primero.
+# Cada asercion expresa el contrato deseado. Un fallo informa del comportamiento actual del backend;
+# no hay que cambiar la expectativa ni reparar el JSON malformado para que pase. Revisar todos los logs F1–F8.
+
+### F1 — Respuesta publica con JSON malformado: deseado 400
+# @no-cookie-jar
+PUT {{baseUrl}}/api/invitations/{{gtogSmokeToken1}}/response
+Accept: application/json
+Content-Type: application/json
+
+{
+  "responseOptionId": "{{gtogSmokeOptionYes}}"
+
+> {%
+    client.log("F1 status obtenido: " + response.status + "; deseado: 400");
+    client.test("F1 malformed public JSON should return 400", function () {
+        client.assert(response.status === 400, "Desired 400; obtained " + response.status);
+    });
+%}
+
+### F2 — Respuesta publica con text/plain: deseado 415
+# @no-cookie-jar
+PUT {{baseUrl}}/api/invitations/{{gtogSmokeToken1}}/response
+Accept: application/json
+Content-Type: text/plain
+
+{"responseOptionId":"{{gtogSmokeOptionYes}}"}
+
+> {%
+    client.log("F2 status obtenido: " + response.status + "; deseado: 415");
+    client.test("F2 unsupported public content type should return 415", function () {
+        client.assert(response.status === 415, "Desired 415; obtained " + response.status);
+    });
+%}
+
+### F3 — Metodo DELETE no soportado en la respuesta publica: deseado 405
+# @no-cookie-jar
+DELETE {{baseUrl}}/api/invitations/{{gtogSmokeToken1}}/response
+Accept: application/json
+
+> {%
+    client.log("F3 status obtenido: " + response.status + "; deseado: 405");
+    client.test("F3 unsupported public method should return 405", function () {
+        client.assert(response.status === 405, "Desired 405; obtained " + response.status);
+    });
+%}
+
+### F4 — Crear evento con sesion, CSRF valido y JSON malformado: deseado 400
+# @no-cookie-jar
+POST {{baseUrl}}/api/events
+Accept: application/json
+Cookie: XSRF-TOKEN={{gtogSmokeCsrf}}; JSESSIONID={{gtogSmokeSession2}}
+X-XSRF-TOKEN: {{gtogSmokeCsrf}}
+Content-Type: application/json
+
+{
+  "title": "JSON malformado intencionadamente"
+
+> {%
+    client.log("F4 status obtenido: " + response.status + "; deseado: 400");
+    client.test("F4 malformed authenticated JSON should return 400", function () {
+        client.assert(response.status === 400, "Desired 400; obtained " + response.status);
+    });
+%}
+
+### F5 — Crear evento con sesion y cabecera CSRF distinta de la cookie: deseado 403
+# @no-cookie-jar
+POST {{baseUrl}}/api/events
+Accept: application/json
+Cookie: XSRF-TOKEN={{gtogSmokeCsrf}}; JSESSIONID={{gtogSmokeSession2}}
+X-XSRF-TOKEN: {{gtogSmokeCsrf}}-different
+Content-Type: application/json
+
+{
+  "title": "Evento de comprobacion CSRF",
+  "startsAt": "{{gtogSmokeStartsAt}}",
+  "endsAt": "{{gtogSmokeEndsAt}}",
+  "timeZone": "Europe/Madrid",
+  "modality": "IN_PERSON",
+  "venue": {
+    "placeName": "Sala de prueba",
+    "address": "Calle de prueba 1, Madrid",
+    "latitude": 40.4168,
+    "longitude": -3.7038,
+    "placeId": "manual-place-id"
+  }
+}
+
+> {%
+    client.log("F5 status obtenido: " + response.status + "; deseado: 403");
+    client.test("F5 mismatched CSRF with an authenticated session should return 403", function () {
+        client.assert(response.status === 403, "Desired 403; obtained " + response.status);
+    });
+%}
+
+### F6 — Ruta inexistente bajo events con sesion: deseado 404
+# @no-cookie-jar
+GET {{baseUrl}}/api/events/gtog-smoke-route-that-does-not-exist/unknown-route
+Accept: application/json
+Cookie: XSRF-TOKEN={{gtogSmokeCsrf}}; JSESSIONID={{gtogSmokeSession2}}
+
+> {%
+    client.log("F6 status obtenido: " + response.status + "; deseado: 404");
+    client.test("F6 an unknown authenticated route should return 404", function () {
+        client.assert(response.status === 404, "Desired 404; obtained " + response.status);
+    });
+%}
+
+### F7 — Registro anonimo sin CSRF: deseado 403 ProblemDetail
+# @no-cookie-jar
+POST {{baseUrl}}/api/auth/register
+Accept: application/json
+Content-Type: application/json
+
+{
+  "name": "Registro bloqueado por CSRF",
+  "email": "blocked-f7-{{gtogSmokeEmail}}",
+  "rawPassword": "{{password}}",
+  "timeZone": "Europe/Madrid"
+}
+
+> {%
+    client.log("F7 status obtenido: " + response.status + "; deseado: 403");
+    client.test("F7 anonymous CSRF rejection is a 403 ProblemDetail", function () {
+        client.assert(response.status === 403, "Desired 403; obtained " + response.status);
+        client.assert(response.contentType.mimeType === "application/problem+json", "Expected ProblemDetail content type");
+        client.assert(response.body.status === 403, "Expected ProblemDetail status 403");
+        client.assert(response.body.instance === "/api/errors", "Expected constant error instance");
+        client.assert(response.headers.valueOf("Cache-Control") === "no-store", "Expected exact no-store");
+    });
+%}
+
+### F8 — Listado sin sesion: deseado 401 ProblemDetail
+# @no-cookie-jar
+GET {{baseUrl}}/api/events
+Accept: application/json
+
+> {%
+    client.log("F8 status obtenido: " + response.status + "; deseado: 401");
+    client.test("F8 missing authentication is a 401 ProblemDetail", function () {
+        client.assert(response.status === 401, "Desired 401; obtained " + response.status);
+        client.assert(response.contentType.mimeType === "application/problem+json", "Expected ProblemDetail content type");
+        client.assert(response.body.status === 401, "Expected ProblemDetail status 401");
+        client.assert(response.body.instance === "/api/errors", "Expected constant error instance");
+        client.assert(response.headers.valueOf("Cache-Control") === "no-store", "Expected exact no-store");
     });
 %}

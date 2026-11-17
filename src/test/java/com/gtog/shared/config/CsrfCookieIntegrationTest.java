@@ -1,6 +1,7 @@
 package com.gtog.shared.config;
 
 import java.net.URI;
+import java.net.HttpCookie;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -30,6 +31,7 @@ import com.gtog.event.domain.port.out.EventRepositoryPort;
 import com.gtog.event.infrastructure.out.persistence.EventDocument;
 import com.gtog.event.infrastructure.out.persistence.GuestResponseDocument;
 import com.gtog.user.infrastructure.out.persistence.UserMongoRepository;
+import com.jayway.jsonpath.JsonPath;
 
 import static com.gtog.event.GuestTestFixtures.token;
 import static com.gtog.event.InvitationTestFixtures.event;
@@ -110,19 +112,52 @@ class CsrfCookieIntegrationTest {
 	void registrationRejectsADifferentHeaderValueAndDoesNotCreateTheAccount() throws Exception {
 		Cookie csrf = bootstrapCookie();
 		var response = rejectedRegistration(csrf);
-		assertThat(response.statusCode()).isEqualTo(401);
+		assertSecurityProblem(response, 403, "/api/auth/register");
 		assertThat(users.findByEmail("csrf-host@example.com")).isEmpty();
 	}
 
 	@Test
 	void anonymousRegistrationWithoutCsrfIsRejectedBeforeCreatingTheAccount() throws Exception {
 		var response = rejectedRegistration(null);
-		assertThat(response.statusCode()).isEqualTo(401);
+		assertSecurityProblem(response, 403, "/api/auth/register");
 		assertThat(response.headers().allValues(HttpHeaders.SET_COOKIE)).anyMatch(value -> value.startsWith(COOKIE + "="));
 		assertThat(users.findByEmail("csrf-host@example.com")).isEmpty();
 		Cookie csrf = bootstrapCookie();
 		mvc.perform(post("/api/auth/login").cookie(csrf).header(HEADER, csrf.getValue())
 				.contentType(MediaType.APPLICATION_JSON).content(LOGIN)).andExpect(status().isUnauthorized());
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = { "/api/events", "/api/events/%s" })
+	void missingAuthenticationIsA401ProblemWithoutTheRequestedPath(String template) throws Exception {
+		String path = template.formatted(token(101));
+		try (var client = HttpClient.newHttpClient()) {
+			var response = client.send(HttpRequest.newBuilder(URI.create("http://localhost:" + port + path)).GET().build(),
+					HttpResponse.BodyHandlers.ofString());
+			assertSecurityProblem(response, 401, path);
+		}
+	}
+
+	@Test
+	void authenticatedCsrfRejectionIsAlsoA403Problem() throws Exception {
+		Cookie csrf = bootstrapCookie();
+		register(csrf);
+		try (var client = HttpClient.newHttpClient()) {
+			var loginRequest = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/api/auth/login"))
+					.header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
+					.header(HttpHeaders.COOKIE, COOKIE + "=" + csrf.getValue()).header(HEADER, csrf.getValue())
+					.POST(HttpRequest.BodyPublishers.ofString(LOGIN)).build();
+			var login = client.send(loginRequest, HttpResponse.BodyHandlers.ofString());
+			assertThat(login.statusCode()).isEqualTo(200);
+			String session = login.headers().allValues(HttpHeaders.SET_COOKIE).stream()
+					.flatMap(value -> HttpCookie.parse(value).stream()).filter(cookie -> cookie.getName().equals("JSESSIONID"))
+					.findFirst().orElseThrow().getValue();
+			var request = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/api/events"))
+					.header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
+					.header(HttpHeaders.COOKIE, COOKIE + "=" + csrf.getValue() + "; JSESSIONID=" + session)
+					.header(HEADER, csrf.getValue() + "-different").POST(HttpRequest.BodyPublishers.ofString("{}")).build();
+			assertSecurityProblem(client.send(request, HttpResponse.BodyHandlers.ofString()), 403, "/api/events");
+		}
 	}
 
 	@Test
@@ -153,14 +188,27 @@ class CsrfCookieIntegrationTest {
 	}
 
 	private HttpResponse<String> rejectedRegistration(Cookie csrf) throws Exception {
-		// El contenedor despacha el error CSRF a /error; MockMvc no ejecuta ese despacho HTTP final.
+		// El servidor real permite comprobar que el rechazo no acaba en un despacho a /error.
 		var request = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/api/auth/register"))
 				.header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
 				.POST(HttpRequest.BodyPublishers.ofString(REGISTRATION));
 		if (csrf != null) {
 			request.header(HttpHeaders.COOKIE, COOKIE + "=" + csrf.getValue()).header(HEADER, csrf.getValue() + "-different");
 		}
-		return HttpClient.newHttpClient().send(request.build(), HttpResponse.BodyHandlers.ofString());
+		try (var client = HttpClient.newHttpClient()) {
+			return client.send(request.build(), HttpResponse.BodyHandlers.ofString());
+		}
+	}
+
+	private void assertSecurityProblem(HttpResponse<String> response, int status, String path) {
+		assertThat(response.statusCode()).isEqualTo(status);
+		assertThat(response.headers().firstValue(HttpHeaders.CONTENT_TYPE)).contains(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
+		assertThat(response.headers().firstValue(HttpHeaders.CACHE_CONTROL)).contains("no-store");
+		var problem = JsonPath.parse(response.body());
+		assertThat(problem.read("$.status", Integer.class)).isEqualTo(status);
+		assertThat(problem.read("$.instance", String.class)).isEqualTo("/api/errors");
+		assertThat(problem.read("$.detail", String.class)).isEqualTo(status == 403 ? "Access denied" : "Authentication required");
+		assertThat(response.body()).doesNotContain(path, token(101), "\"path\"");
 	}
 
 	private void register(Cookie csrf) throws Exception {
