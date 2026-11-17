@@ -1004,6 +1004,7 @@ Content-Type: application/json
 # Requiere 00–33; usa el token de Ana y la segunda sesion, que sigue activa tras el logout del primero.
 # Cada asercion expresa el contrato deseado. Un fallo informa del comportamiento actual del backend;
 # no hay que cambiar la expectativa ni reparar el JSON malformado para que pase. Revisar todos los logs F1–F8.
+# F9 comprueba el cuerpo completo como cadena en los handlers de F2, F3 y F7, sin otra peticion HTTP.
 
 ### F1 — Respuesta publica con JSON malformado: deseado 400
 # @no-cookie-jar
@@ -1033,6 +1034,14 @@ Content-Type: text/plain
     client.log("F2 status obtenido: " + response.status + "; deseado: 415");
     client.test("F2 unsupported public content type should return 415", function () {
         client.assert(response.status === 415, "Desired 415; obtained " + response.status);
+        client.assert(response.contentType.mimeType === "application/problem+json", "Expected ProblemDetail content type");
+        client.assert(response.headers.valueOf("Cache-Control") === "no-store", "Expected exact no-store");
+    });
+    client.test("F9 F2 body contains neither token nor requested path", function () {
+        const body = typeof response.body === "string" ? response.body : JSON.stringify(response.body);
+        const token = client.global.get("gtogSmokeToken1");
+        client.assert(body.indexOf(token) === -1, "Error body exposes invitation token");
+        client.assert(body.indexOf("/api/invitations/" + token + "/response") === -1, "Error body exposes requested path");
     });
 %}
 
@@ -1045,6 +1054,16 @@ Accept: application/json
     client.log("F3 status obtenido: " + response.status + "; deseado: 405");
     client.test("F3 unsupported public method should return 405", function () {
         client.assert(response.status === 405, "Desired 405; obtained " + response.status);
+        client.assert(response.contentType.mimeType === "application/problem+json", "Expected ProblemDetail content type");
+        client.assert(response.headers.valueOf("Cache-Control") === "no-store", "Expected exact no-store");
+        const allow = response.headers.valueOf("Allow") || "";
+        client.assert(allow.split(",").some(method => method.trim() === "PUT"), "Allow must include PUT");
+    });
+    client.test("F9 F3 body contains neither token nor requested path", function () {
+        const body = typeof response.body === "string" ? response.body : JSON.stringify(response.body);
+        const token = client.global.get("gtogSmokeToken1");
+        client.assert(body.indexOf(token) === -1, "Error body exposes invitation token");
+        client.assert(body.indexOf("/api/invitations/" + token + "/response") === -1, "Error body exposes requested path");
     });
 %}
 
@@ -1130,6 +1149,11 @@ Content-Type: application/json
         client.assert(response.body.status === 403, "Expected ProblemDetail status 403");
         client.assert(response.body.instance === "/api/errors", "Expected constant error instance");
         client.assert(response.headers.valueOf("Cache-Control") === "no-store", "Expected exact no-store");
+    });
+    client.test("F9 F7 body contains neither token nor requested path", function () {
+        const body = typeof response.body === "string" ? response.body : JSON.stringify(response.body);
+        client.assert(body.indexOf(client.global.get("gtogSmokeToken1")) === -1, "Error body exposes invitation token");
+        client.assert(body.indexOf("/api/auth/register") === -1, "Error body exposes requested path");
     });
 %}
 

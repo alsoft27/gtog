@@ -10,8 +10,8 @@ import com.gtog.event.domain.model.ResponseOptionAttendanceChangeNotAllowedExcep
 import com.gtog.event.domain.model.InvitationCalendarNotAvailableException;
 import com.gtog.event.domain.model.InvitationCalendarGenerationException;
 import org.springframework.http.MediaType;
-import org.springframework.http.converter.HttpMessageNotReadableException;
-import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
 
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
@@ -41,9 +41,10 @@ import com.gtog.user.domain.model.EmailAlreadyRegisteredException;
 import com.gtog.user.domain.model.UserDomainException;
 
 // Todas las excepciones de dominio heredan de EventDomainException o UserDomainException; el dominio no sabe de codigos HTTP.
-// Este advice es el unico responsable de mapear cada una a su codigo: los @ExceptionHandler mas especificos
+// Este advice traduce las excepciones de dominio: los @ExceptionHandler mas especificos
 // (404, 409) ganan sobre el generico de *DomainException (422) para el resto de subtipos.
 @RestControllerAdvice
+@Order(Ordered.HIGHEST_PRECEDENCE)
 public class GlobalExceptionHandler {
 
 	@ExceptionHandler(InvitationNotFoundException.class)
@@ -71,15 +72,6 @@ public class GlobalExceptionHandler {
 	@ExceptionHandler(GuestResponseStorageException.class)
 	public ResponseEntity<ProblemDetail> handleResponseStorage(GuestResponseStorageException exception) {
 		return invitationProblem(HttpStatus.INTERNAL_SERVER_ERROR, "Unable to store guest response");
-	}
-
-	@ExceptionHandler(HttpMessageNotReadableException.class)
-	public ResponseEntity<ProblemDetail> handleUnreadableBody(HttpMessageNotReadableException exception, HttpServletRequest request) {
-		// El mensaje original de Jackson puede incluir comentario, correo o contenido de la peticion.
-		if (request.getRequestURI().startsWith("/api/invitations/")) {
-			return invitationProblem(HttpStatus.BAD_REQUEST, "Invalid request body");
-		}
-		return ResponseEntity.badRequest().body(ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, "Invalid request body"));
 	}
 
 	private ResponseEntity<ProblemDetail> invitationProblem(HttpStatus status, String detail) {

@@ -251,7 +251,7 @@ y la URL ya filtrada; UID basado en el evento, nunca en el token; DTSTAMP obteni
 - Sustantivos en plural y en inglés: `/api/events`, `/api/events/{eventId}/guests`.
 - Los endpoints públicos del invitado van bajo `/api/invitations/{token}`, separados del resto para que la regla de seguridad se vea en la propia ruta.
 - Códigos: `201` al crear con cabecera `Location`, `204` al borrar, `409` en conflicto de estado, `422` cuando una regla de negocio rechaza la petición.
-- Errores con **`ProblemDetail`** (RFC 7807), gestionados por un único `@RestControllerAdvice` en `shared`. No inventes un formato de error propio.
+- Errores con **`ProblemDetail`** (RFC 7807), gestionados en `shared`: advice de dominio con prioridad alta y advice MVC con menor prioridad para errores de framework y fallback. Los filtros de seguridad escriben el mismo formato directamente. No inventes un formato de error propio.
 
 **CSRF en login y registro: deliberado.** Tanto `POST /api/auth/login` como `POST /api/auth/register` requieren un token CSRF válido, enviado en `X-XSRF-TOKEN`. No los excluyas de la protección: excluir el login permitiría que un atacante autenticase a la víctima en la cuenta del atacante (login-CSRF). Esta decisión prevalece sobre la propuesta anterior de excluirlos en `docs/plan-r5-usuario-seguridad.md`.
 

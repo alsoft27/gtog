@@ -1,6 +1,6 @@
 # gtog — Plan de la iteración 1
 
-Estado a 15 de noviembre de 2026. Decisión de correo documentada; sin implementación de R10 todavía.
+Estado a 17 de noviembre de 2026. Formato de errores de seguridad y MVC corregido; sin implementación de R10 todavía.
 
 ---
 
@@ -25,9 +25,12 @@ Estado a 15 de noviembre de 2026. Decisión de correo documentada; sin implement
 | R8 — Calendario (commit 4) | `GET /api/invitations/{token}/calendar`, público, text/calendar UTF-8, attachment y no-store exacto. iCal4j 4.2.0, fechas locales con VTIMEZONE, UID del evento y URL filtrada como en JSON. CANCELLED → 409; FINISHED → 200; DRAFT y desconocido → mismo 404. 25 tests nuevos. R8 cerrada. |
 | R9 — Panel de un evento (commit 1) | `GET /api/events/{id}/dashboard`, autenticado y con propiedad comprobada en aplicación. Dos lecturas unidas en aplicación, sin $lookup; cálculo puro EventAttendanceSummary basado en guests[]. Huérfanos ignorados, optionKnown trivalente y email de respuesta excluido. No escribe; solo su 200 fija no-store exacto. 27 tests nuevos. |
 | R9 — Contadores del listado (commit 2) | `EventSummaryResponse` añade totalGuests, answered, pending y attending, sin byOption. Mismo cálculo que el panel, con una única consulta de respuestas para todos los eventos del anfitrión, sin consultas por evento. Lectura sin cambios en documentos, version ni caché. 11 tests nuevos. R9 cerrada; siguiente rebanada: R10. |
+| CSRF — Cookie inicial | El primer GET del anfitrión consume DeferredCsrfToken y emite XSRF-TOKEN. Las invitaciones públicas quedan excluidas; se conserva el valor crudo en la cabecera, sin renovación en login y con expiración en logout. 10 tests nuevos. |
+| Errores — Seguridad (commit 1) | AccessDeniedHandler y AuthenticationEntryPoint propios escriben directamente 403 y 401 ProblemDetail, sin sendError, con instance constante y no-store exacto. Los rechazos CSRF anónimos ya no acaban en 401. 3 tests nuevos respecto a la corrección de cookie inicial. |
+| Errores — MVC (commit 2) | Advice basado en ResponseEntityExceptionHandler de Spring 7.0.8, normalización de cuerpos y estados, conservación de Allow y fallback 500 de menor prioridad. Pruebas HTTP con servidor real: privacidad del cuerpo y del log, errores 400/404/405/406/415/500/503. 18 tests nuevos. D-ERROR-FORMAT saldada. |
 | Infraestructura | Java 25, Spring Boot 4.1, Maven por defecto, MongoDB Atlas, OpenAPI |
 
-**Verificación actual:** `mvn clean verify` pasa con **464 tests**, 0 fallos, 0 errores y 0 omitidos. R8 incorporó 150 casos; R9 añade 38: 27 en el commit 1 (7 de dominio, 6 de aplicación y 14 de integración) y 11 en el commit 2 (2 de aplicación y 9 de integración). El ajuste separado a inyección por constructor no cambia el número de tests.
+**Verificación actual:** `mvn clean verify` pasa con **495 tests**, 0 fallos, 0 errores y 0 omitidos. R8 incorporó 150 casos; R9 añade 38: 27 en el commit 1 y 11 en el commit 2. La cookie inicial añadió 10 y la corrección de errores añade 21: 3 de seguridad y 18 de MVC. El ajuste separado a inyección por constructor no cambia el número de tests.
 
 **Lo que eso valida:** la arquitectura hexagonal funciona en la práctica, el mapeo entre `Event` y `EventDocument` es asumible, y el circuito completo de desarrollo está operativo. Además, `Event.create(...)`/`reconstitute(...)` cambiaron de firma en las tres rebanadas seguidas, así que desde R3 `Event` se construye con dos builders internos (`Event.builder()` para eventos nuevos, `Event.reconstituteBuilder()` para rehidratar) en vez de factory methods con parámetros posicionales — ver `docs/modelo-evento.md`.
 
@@ -55,8 +58,24 @@ Esto no es una lista de pendientes cualquiera: son cosas que ya están mal a pro
 | D-DELETE-DRAFT | **Borrar un `DRAFT` sin implementar** | Un borrador no se puede cancelar (`cancel()` solo desde `PUBLISHED`). No existe `DELETE /api/events/{id}`. | Rebanada posterior |
 | D-SWAGGER-PUBLIC | **OpenAPI y Swagger UI sin autenticación** | Cualquiera puede ver la documentación completa de la API sin autenticarse. Hoy es conveniente para desarrollo; antes de producción hay que decidir si protegerlo o dejarlo público. | Antes del despliegue a producción |
 | D-SECURE-COOKIE | **Cookie de sesión sin `Secure` en desarrollo** | La cookie `JSESSIONID` se envía también por HTTP. En producción detrás de HTTPS con `server.ssl.*` o proxy con `server.forward-headers-strategy=native`, Spring Boot activa el flag automáticamente. Verificar antes del primer despliegue. | Antes del despliegue a producción |
-| D-ERROR-FORMAT | **401 de los filtros de seguridad sin `ProblemDetail`** | El advice devuelve `ProblemDetail`, pero el rechazo por falta de autenticación se produce en los filtros y no garantiza el mismo formato. La unificación queda pendiente; no cambiar los filtros en esta corrección. | Pendiente de planificación |
+| D-ERROR-FORMAT | **Errores de seguridad y MVC sin formato uniforme** | Los handlers de seguridad escriben 401/403 directamente como ProblemDetail. El advice MVC normaliza los errores heredados de ResponseEntityExceptionHandler y el fallback 500, con detalles fijos, instance constante, no-store y sin datos de la petición. El 405 conserva Allow. No se permite el despacho ERROR de forma general. | **Saldada en la corrección de errores, commits 1 y 2.** |
 | D-DUP-KEY | **`DuplicateKeyException` mapeada por texto, no por código de error en users** | `UserRepositoryAdapter` sigue inspeccionando `e.getMessage().contains("email")`. En `responses` se evita desde R8: código 11000 y `keyPattern` estructurado distinguen el índice compuesto de cualquier otro duplicado, sin conservar mensaje ni causa. La inserción usa el comando Mongo porque el driver descarta keyPattern en insertOne; el upsert conserva los metadatos del error de comando. Los otros duplicados devuelven 500 saneado, nunca el 409 de respuesta existente. | Pendiente solo en users |
+
+**Errores HTTP: decisiones y límite conocido.** Un sendError de Spring MVC o del filtro CSRF provocaba un
+despacho a /error, donde un anónimo terminaba en 401. La seguridad escribe ahora ProblemDetail directamente;
+MvcExceptionHandler extiende ResponseEntityExceptionHandler y sobrescribe handleExceptionInternal con la
+firma comprobada en las fuentes locales de Spring 7.0.8. Construye un cuerpo nuevo, descarta propiedades de
+la excepción y fija detalle por estado, instance /api/invitations o /api/errors y Cache-Control: no-store.
+HttpMessageNotReadableException conserva su 400 con "Invalid request body" mediante override, sin handler
+duplicado. El advice de dominio tiene prioridad alta; el MVC y su fallback Exception → 500 tienen la menor.
+El fallback solo registra clase de excepción e identificador generado, nunca mensaje, causa, ruta o stack
+trace; devuelve ese identificador en X-Correlation-ID. La cobertura usa servidor embebido real, sin csrf()
+de MockMvc, e incluye respuesta 500 forzada con MockitoSpyBean y ausencia de token/ruta en cuerpo y log.
+
+**Límite conocido:** los errores que genera Tomcat antes de llegar a Spring siguen mostrándose como 401 a
+un anónimo. Quedan fuera de esta corrección. No se aplica dispatcherTypeMatchers(ERROR).permitAll(): el cuerpo
+por defecto de Boot podría incluir path con el token de la invitación. El filtro de emisión de cookie CSRF
+y la comparación del valor crudo no se han cambiado.
 
 **D-4, saldada.** Decía "health indicator de Mongo desactivado", y no era así: estaba activo y en `DOWN`. El indicador por defecto de Actuator recorre **todas** las bases que el `MongoClient` ve vía `listDatabaseNames()` — no solo `local`, también `admin`, `config`, la de la propia app — y ejecuta `hello` en cada una; en Atlas el usuario de la aplicación no tiene permiso sobre `local`, así que el chequeo entero caía con `DOWN` aunque `gtog_dev`/`gtog_test` respondieran sin problema. Comprobado arrancando la app. Sustituido por `MongoDatabaseHealthIndicator` (en `shared/config`), que hace `ping` solo contra la base configurada de la aplicación; el indicador por defecto se desactiva con `management.health.mongodb.enabled=false` en ambos `application*.properties` para que no convivan. Verificado de nuevo: `GET /actuator/health` → `"mongo":{"details":{"database":"gtog_dev","ping":1},"status":"UP"}`.
 
