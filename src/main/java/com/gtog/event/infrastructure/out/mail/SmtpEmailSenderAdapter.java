@@ -56,19 +56,60 @@ public final class SmtpEmailSenderAdapter implements EmailSenderPort {
 			return EmailDeliveryResult.success();
 		}
 		catch (AddressException exception) {
-			logFailure(exception);
+			logFailure(exception, EmailSendFailureCode.INVALID_RECIPIENT);
 			return EmailDeliveryResult.failure(EmailSendFailureCode.INVALID_RECIPIENT);
 		}
 		catch (MailException exception) {
 			EmailSendFailureCode code = classify(exception, email.recipient(), Collections.newSetFromMap(new IdentityHashMap<>()));
-			logFailure(exception);
-			return EmailDeliveryResult.failure(code == null ? EmailSendFailureCode.PROVIDER_UNAVAILABLE : code);
+			code = code == null ? EmailSendFailureCode.PROVIDER_UNAVAILABLE : code;
+			logFailure(exception, code);
+			return EmailDeliveryResult.failure(code);
 		}
 	}
 
-	private static void logFailure(Exception exception) {
+	private static void logFailure(Exception exception, EmailSendFailureCode code) {
 		// Los mensajes, las causas y los objetos SMTP pueden contener direcciones y el enlace privado.
-		log.warn("SMTP_SEND_FAILED exceptionType={} correlationId={}", exception.getClass().getName(), UUID.randomUUID());
+		FailureCategory category = diagnosticCategory(exception, Collections.newSetFromMap(new IdentityHashMap<>()));
+		if (category == FailureCategory.UNCLASSIFIED
+				&& (code == EmailSendFailureCode.RECIPIENT_REJECTED || code == EmailSendFailureCode.INVALID_RECIPIENT)) {
+			category = FailureCategory.RECIPIENT_REJECTED;
+		}
+		log.warn("SMTP_SEND_FAILED category={} exceptionType={} correlationId={}", category, exception.getClass().getName(), UUID.randomUUID());
+	}
+
+	// Solo diagnóstico interno; ni estas categorías ni su prioridad alteran los códigos de la API.
+	private enum FailureCategory { SENDER_REJECTED, AUTH_FAILED, TIMEOUT, CONNECTION, RECIPIENT_REJECTED, UNCLASSIFIED }
+
+	private static FailureCategory diagnosticCategory(Throwable exception, Set<Throwable> visited) {
+		if (exception == null || !visited.add(exception)) { return FailureCategory.UNCLASSIFIED; }
+		FailureCategory category = FailureCategory.UNCLASSIFIED;
+		if (isSenderRejection(exception)) { category = FailureCategory.SENDER_REJECTED; }
+		else if (exception instanceof MailAuthenticationException || exception instanceof AuthenticationFailedException) { category = FailureCategory.AUTH_FAILED; }
+		else if (exception instanceof SocketTimeoutException) { category = FailureCategory.TIMEOUT; }
+		else if (exception instanceof java.net.SocketException || exception instanceof java.net.UnknownHostException) { category = FailureCategory.CONNECTION; }
+		category = diagnosticPriority(category, diagnosticCategory(exception.getCause(), visited));
+		if (exception instanceof MessagingException messaging) {
+			category = diagnosticPriority(category, diagnosticCategory(messaging.getNextException(), visited));
+		}
+		if (exception instanceof MailSendException failed) {
+			for (Exception nested : failed.getMessageExceptions()) { category = diagnosticPriority(category, diagnosticCategory(nested, visited)); }
+		}
+		return category;
+	}
+
+	private static FailureCategory diagnosticPriority(FailureCategory first, FailureCategory second) {
+		return first.ordinal() <= second.ordinal() ? first : second;
+	}
+
+	private static boolean isSenderRejection(Throwable exception) {
+		String type = exception.getClass().getName();
+		if (type.equals("org.eclipse.angus.mail.smtp.SMTPSenderFailedException")) { return true; }
+		if (!type.equals("org.eclipse.angus.mail.smtp.SMTPSendFailedException")) { return false; }
+		try {
+			Object command = exception.getClass().getMethod("getCommand").invoke(exception);
+			return command instanceof String value && value.regionMatches(true, 0, "MAIL FROM", 0, 9);
+		}
+		catch (ReflectiveOperationException | SecurityException failure) { return false; }
 	}
 
 	private static EmailSendFailureCode classify(Throwable exception, String recipient, Set<Throwable> visited) {

@@ -33,7 +33,7 @@ Estado a 18 de noviembre de 2026. R10 cerrada: reservas, transporte y endpoint d
 | R10 — Endpoint de correo (commit 3) | POST /api/events/{id}/invitations/send: propiedad, CSRF, lote síncrono, resultados individuales y dailyLimit final; no-store exacto. Corte tras tres fallos de proveedor o cuota agotada, compensaciones y SENT/recorded=false explícito. Clasificación SMTP conservadora, sin confundir remitente y destinatario. 44 tests nuevos (10 de dominio, 26 con servidor real y 8 de clasificación SMTP), siempre con correo falso. R10 cerrada; siguiente: R11. |
 | Infraestructura | Java 25, Spring Boot 4.1, Maven por defecto, MongoDB Atlas, OpenAPI |
 
-**Verificación actual:** `mvn clean verify` pasa con **620 tests**, 0 fallos, 0 errores y 0 omitidos. R10 añade 125 sobre los 495 anteriores: 52 del commit 1, 29 del commit 2 y 44 del commit 3. Los tres commits se verifican por separado y ninguna prueba envía correo real.
+**Verificación actual:** `mvn clean verify` pasa con **622 tests**, 0 fallos, 0 errores y 0 omitidos. R10 añade 125 sobre los 495 anteriores: 52 del commit 1, 29 del commit 2 y 44 del commit 3. La mejora posterior de diagnóstico SMTP añade 2 casos; el log incluye categoría interna, clase y correlación, sin mensajes ni direcciones y sin cambiar los códigos de la API. Los commits se verifican por separado y ninguna prueba envía correo real.
 
 **Lo que eso valida:** la arquitectura hexagonal funciona en la práctica, el mapeo entre `Event` y `EventDocument` es asumible, y el circuito completo de desarrollo está operativo. Además, `Event.create(...)`/`reconstitute(...)` cambiaron de firma en las tres rebanadas seguidas, así que desde R3 `Event` se construye con dos builders internos (`Event.builder()` para eventos nuevos, `Event.reconstituteBuilder()` para rehidratar) en vez de factory methods con parámetros posicionales — ver `docs/modelo-evento.md`.
 
@@ -55,6 +55,7 @@ Esto no es una lista de pendientes cualquiera: son cosas que ya están mal a pro
 | D-LIST-SCALE | **Listado sin paginar con cálculo en memoria** | Desde el commit 2 de R9, el listado calcula contadores sobre todos los eventos del anfitrión y sus respuestas en memoria, con dos lecturas y sin paginación. Se acepta esta limitación; una sola consulta de respuestas evita N+1, pero no limita el volumen cargado. | Antes de necesitar paginación o grandes volúmenes |
 | D-CONFIRMED-LINK | **Confirmación de asistencia provisional en R7** | `InvitationViewFactory.guestHasConfirmed(...)` usa la respuesta propia: solo confirma si la opción todavía existe y tiene `countsAsAttendance = true`. Sin respuesta, opción inexistente o "No asisto", false. El filtro se comparte en GET y PUT sin consultas adicionales. | **Saldada en R8, commit 2.** |
 | D-EMAIL-NOT-SENT | **Cita al responder pendiente** | **Saldada para invitaciones en R10.** La cita al responder sigue fuera de R10: el email de la respuesta solo se almacena, no se usa para ningún envío; cualquier uso futuro requiere aprobación expresa y doble confirmación de su dueño. | Cita: sin rebanada aprobada |
+| D-BOUNCES | **Sin procesamiento de rebotes ni quejas del proveedor** | SENT significa aceptado por SMTP, no entregado. No se procesan rebotes ni quejas; las direcciones inválidas pueden afectar a la reputación del dominio. | Antes del despliegue público |
 | D-REGISTER-RATE-LIMIT | **Registro y login sin límite de peticiones** | Limitar abuso de creación de cuentas e intentos de autenticación antes del despliegue público. Las cuotas de correo no sustituyen esta protección. | Antes del despliegue público |
 | D-RATE-LIMIT | **Endpoint público sin límite de peticiones** | La entropía del token hace inviable adivinarlo, pero no protege frente a abuso o tráfico repetido sobre un enlace conocido. No hay rate limiting en R7. | Pendiente de planificación |
 | D-REFERRER | **Política de Referer del frontend** | La página del invitado lleva la credencial en la URL. Para evitar filtrarla al cargar un mapa de Google u otros recursos externos, el frontend debe servir la página con `Referrer-Policy: no-referrer`. La cabecera de la API no sustituye la política del documento del frontend. | Frontend, al integrar la página del invitado |
@@ -435,6 +436,7 @@ Para no discutirlo cada vez:
 
 ## Bloqueadores de despliegue público
 
+- D-BOUNCES: procesar rebotes y quejas del proveedor para proteger la reputación del dominio; SENT no garantiza entrega.
 - R12: verificación del correo del anfitrión.
 - D-REGISTER-RATE-LIMIT: límite de peticiones en registro y login.
 - D-RATE-LIMIT: protección contra abuso de las rutas públicas de invitación.

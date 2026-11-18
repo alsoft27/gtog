@@ -80,21 +80,22 @@ class SmtpEmailSenderAdapterTest {
 		assertThat(adapter.send(email).code()).isEqualTo(EmailSendFailureCode.RECIPIENT_REJECTED);
 	}
 
-	static java.util.stream.Stream<MailException> providerFailures() {
-		return java.util.stream.Stream.of(new MailAuthenticationException("private-recipient@example.com token-secreto"),
-				new MailSendException("private-recipient@example.com", new ConnectException("token-secreto")),
-				new MailSendException("private-recipient@example.com", new SocketTimeoutException("token-secreto")),
-				new MailSendException("private-recipient@example.com token-secreto"));
+	static java.util.stream.Stream<org.junit.jupiter.params.provider.Arguments> providerFailures() {
+		return java.util.stream.Stream.of(
+				org.junit.jupiter.params.provider.Arguments.of(new MailAuthenticationException("private-recipient@example.com token-secreto"), "AUTH_FAILED"),
+				org.junit.jupiter.params.provider.Arguments.of(new MailSendException("private-recipient@example.com", new ConnectException("token-secreto")), "CONNECTION"),
+				org.junit.jupiter.params.provider.Arguments.of(new MailSendException("private-recipient@example.com", new SocketTimeoutException("token-secreto")), "TIMEOUT"),
+				org.junit.jupiter.params.provider.Arguments.of(new MailSendException("private-recipient@example.com token-secreto"), "UNCLASSIFIED"));
 	}
 
 	@ParameterizedTest
 	@MethodSource("providerFailures")
-	void providerFailuresAreSanitizedAndNeverRetried(MailException failure, CapturedOutput output) {
+	void providerFailuresAreSanitizedAndNeverRetried(MailException failure, String category, CapturedOutput output) {
 		doThrow(failure).when(smtp).send(any(SimpleMailMessage.class));
 		assertThat(adapter.send(email)).isEqualTo(EmailDeliveryResult.failure(EmailSendFailureCode.PROVIDER_UNAVAILABLE));
 		assertThat(EmailSendFailureCode.PROVIDER_UNAVAILABLE.isProviderFailure()).isTrue();
 		verify(smtp, times(1)).send(any(SimpleMailMessage.class));
-		assertThat(output.getAll()).contains("SMTP_SEND_FAILED", "exceptionType=" + failure.getClass().getName(), "correlationId=")
+		assertThat(output.getAll()).contains("SMTP_SEND_FAILED", "category=" + category, "exceptionType=" + failure.getClass().getName(), "correlationId=")
 				.doesNotContain(email.recipient(), "token-secreto");
 	}
 
@@ -128,7 +129,19 @@ class SmtpEmailSenderAdapterTest {
 		var rejected = new SMTPAddressFailedException(new InternetAddress(email.recipient()), "RCPT TO", 550, email.recipient() + " token-secreto");
 		doThrow(new MailSendException(email.recipient(), rejected)).when(smtp).send(any(SimpleMailMessage.class));
 		assertThat(adapter.send(email).code()).isEqualTo(EmailSendFailureCode.RECIPIENT_REJECTED);
-		assertThat(output.getAll()).contains("SMTP_SEND_FAILED", "correlationId=").doesNotContain(email.recipient(), "token-secreto", "RCPT TO");
+		assertThat(output.getAll()).contains("SMTP_SEND_FAILED", "category=RECIPIENT_REJECTED", "correlationId=").doesNotContain(email.recipient(), "token-secreto", "RCPT TO");
+	}
+
+	@ParameterizedTest @ValueSource(booleans = { false, true })
+	void rejectedSenderLogsItsInternalCategoryWithoutLeakingTheRecipient(boolean hasSenderException, CapturedOutput output) throws Exception {
+		String privateMessage = email.recipient() + " token-secreto";
+		Exception rejection = hasSenderException
+				? new SMTPSenderFailedException(new InternetAddress("sender@example.com"), "MAIL FROM", 550, privateMessage)
+				: new SMTPSendFailedException("MAIL FROM:<sender@example.com>", 550, privateMessage, null, null, null, null);
+		doThrow(new MailSendException(privateMessage, rejection)).when(smtp).send(any(SimpleMailMessage.class));
+		assertThat(adapter.send(email).code()).isEqualTo(EmailSendFailureCode.PROVIDER_UNAVAILABLE);
+		assertThat(output.getAll()).contains("SMTP_SEND_FAILED", "category=SENDER_REJECTED", "exceptionType=" + MailSendException.class.getName(), "correlationId=")
+				.doesNotContain(email.recipient(), "sender@example.com", "token-secreto", "MAIL FROM");
 	}
 
 	@Test
