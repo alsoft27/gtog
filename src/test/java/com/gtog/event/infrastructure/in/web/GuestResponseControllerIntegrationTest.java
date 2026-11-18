@@ -14,6 +14,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.Arguments;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
@@ -250,6 +252,46 @@ class GuestResponseControllerIntegrationTest {
 		assertThat(result.getResponse().getStatus()).isEqualTo(offset <= 0 ? 200 : 409);
 		if (offset > 0) { assertProblem(result, 409); }
 		assertThat(mongo.count(new Query(), GuestResponseDocument.class)).isEqualTo(offset <= 0 ? 1 : 0);
+	}
+
+	static java.util.stream.Stream<Arguments> responsePermissionCases() {
+		Instant deadline = Instant.parse("2027-01-01T16:00:00Z");
+		Instant end = Instant.parse("2027-01-01T19:00:00Z");
+		return java.util.stream.Stream.of(
+				Arguments.of("first response, open window, changes disabled", EventStatus.PUBLISHED, false, false, null, NOW, true),
+				Arguments.of("first response, open window, changes enabled", EventStatus.PUBLISHED, false, true, null, NOW, true),
+				Arguments.of("first response, deadline expired", EventStatus.PUBLISHED, false, true, DEADLINE, deadline.plusSeconds(1), false),
+				Arguments.of("first response, exact deadline", EventStatus.PUBLISHED, false, true, DEADLINE, deadline, true),
+				Arguments.of("first response, before event end", EventStatus.PUBLISHED, false, true, null, end.minusSeconds(1), true),
+				Arguments.of("first response, exact event end", EventStatus.PUBLISHED, false, true, null, end, false),
+				Arguments.of("first response, after event end", EventStatus.PUBLISHED, false, true, null, end.plusSeconds(1), false),
+				Arguments.of("existing response, changes disabled", EventStatus.PUBLISHED, true, false, null, NOW, false),
+				Arguments.of("existing response, changes enabled", EventStatus.PUBLISHED, true, true, null, NOW, true),
+				Arguments.of("existing response, deadline expired", EventStatus.PUBLISHED, true, true, DEADLINE, deadline.plusSeconds(1), false),
+				Arguments.of("existing response, exact deadline", EventStatus.PUBLISHED, true, true, DEADLINE, deadline, true),
+				Arguments.of("cancelled event", EventStatus.CANCELLED, false, true, null, NOW, false),
+				Arguments.of("finished event", EventStatus.FINISHED, false, true, null, NOW, false));
+	}
+
+	@ParameterizedTest(name = "{0}") @MethodSource("responsePermissionCases")
+	void canRespondMatchesThePublicPutWithTheSameFixedClock(String scenario, EventStatus state, boolean answered,
+			boolean allowChanges, LocalDateTime deadline, Instant now, boolean expected) throws Exception {
+		Event event = seed(state, true, allowChanges, deadline);
+		if (answered) {
+			responses.insert(com.gtog.event.domain.model.GuestResponse.create(event, token, "yes-id", null, null, NOW));
+		}
+		fixed(now);
+		mvc.perform(get(invitationPath())).andExpect(status().isOk())
+				.andExpect(jsonPath("$.canRespond").value(expected))
+				.andExpect(jsonPath("$.canChangeResponse").value(answered && expected));
+		var put = respond("no-id", null, null);
+		assertThat(put.getResponse().getStatus()).as(scenario).isEqualTo(expected ? 200 : 409);
+		if (expected) {
+			var body = com.jayway.jsonpath.JsonPath.parse(put.getResponse().getContentAsString());
+			assertThat(body.read("$.canRespond", Boolean.class)).isEqualTo(allowChanges);
+			assertThat(body.read("$.canChangeResponse", Boolean.class)).isEqualTo(allowChanges);
+		}
+		assertThat(mongo.count(new Query(), GuestResponseDocument.class)).isEqualTo(answered || expected ? 1 : 0);
 	}
 
 	@ParameterizedTest

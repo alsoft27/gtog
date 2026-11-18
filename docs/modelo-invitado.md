@@ -364,6 +364,24 @@ identificadores internos. Si no hay respuesta se omite el bloque. `canChangeResp
 existente, allowResponseChange y las mismas condiciones de tiempo y estado. El plazo rige toda escritura,
 incluida la primera: se acepta exactamente en el plazo, pero nunca en el instante exacto del fin.
 
+GET y PUT incluyen además `canRespond` (boolean). Es true si el evento está PUBLISHED, no ha vencido el
+plazo (inclusive), now es anterior a endsAtInstant y, si existe respuesta, allowResponseChange es true.
+Sin respuesta y con ventana abierta puede ser true aunque canChangeResponse sea false. Este último
+conserva su significado: `existe respuesta && canRespond`. CANCELLED y FINISHED devuelven ambos false;
+DRAFT sigue oculto con 404. Tras una primera respuesta sin cambios permitidos, el PUT devuelve 200 pero
+su vista actualizada ya lleva canRespond=false, pues una siguiente escritura quedaría bloqueada.
+
+La política de dominio `ResponseAcceptancePolicy`, obtenida desde Event con el instante del Clock
+inyectado, comparte las reglas entre GET y PUT. La ventana se calcula únicamente en Event.acceptsResponses;
+GuestResponse.create la exige mediante esa política y el caso de uso toma de ella el permiso de cambios
+para elegir insert o upsert. No se añade una consulta de existencia antes del insert: el índice único
+sigue imponiendo una respuesta por invitado. Los flags describen disponibilidad; el PUT conserva también
+las validaciones de opción, comentario y email.
+
+Tests con Clock fijo comparan GET y PUT con cuerpo válido en 13 escenarios: primera respuesta, respuestas
+existentes con/sin cambios, plazo vencido/exacto, fin anterior/exacto/posterior, CANCELLED y FINISHED.
+Cuatro tests de dominio cubren la política; las pruebas previas de concurrencia y privacidad se conservan.
+
 Éxitos y errores conservan `Cache-Control: no-store` exacto; los errores usan instancia constante
 `/api/invitations`. Los mensajes son constantes, sin eco de token, comentario ni email. JSON ilegible produce
 400 saneado sin registrar el mensaje de Jackson. `InvitationViewFactory` comparte la proyección segura de

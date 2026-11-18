@@ -199,7 +199,11 @@ public class Event {
 	}
 
 	public void requireAcceptingResponses(Instant now) {
-		if (!acceptsResponses(now)) { throw new ResponseNotAcceptedException(); }
+		if (!responseAcceptancePolicy(now).canRespond(false)) { throw new ResponseNotAcceptedException(); }
+	}
+
+	public ResponseAcceptancePolicy responseAcceptancePolicy(Instant now) {
+		return new ResponseAcceptancePolicy(acceptsResponses(now), allowResponseChange);
 	}
 
 	public void changeResponseDeadline(LocalDateTime responseDeadline, Instant now) {

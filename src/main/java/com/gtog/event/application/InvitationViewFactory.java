@@ -14,6 +14,7 @@ public final class InvitationViewFactory {
 	public static InvitationView create(Event event, Guest guest, Instant now, GuestResponse response) {
 		OnlineAccess access = event.getOnlineAccess();
 		boolean cancelled = event.getStatus() == EventStatus.CANCELLED;
+		boolean canRespond = event.responseAcceptancePolicy(now).canRespond(response != null);
 		return new InvitationView(guest.getName(), event.getTitle(), event.getDescription(), event.getStatus(),
 				event.getModality(), event.getStartsAt(), event.getEndsAt(), event.getTimeZone(), event.startsAtInstant(),
 				event.endsAtInstant(), event.getVenue(), event.getResponseOptions().stream()
@@ -23,7 +24,7 @@ public final class InvitationViewFactory {
 				access == null ? null : new InvitationView.OnlineAccessInfo(access.platform(), access.linkVisibility(), access.hoursBefore()),
 				event.visibleOnlineAccess(guestHasConfirmed(event, response), now).orElse(null),
 				response == null ? null : new InvitationView.MyResponse(response.responseOptionId(), response.comment(), response.answeredAt(), response.updatedAt()),
-				response != null && event.isAllowResponseChange() && event.acceptsResponses(now));
+				response != null && canRespond, canRespond);
 	}
 
 	private static boolean guestHasConfirmed(Event event, GuestResponse response) {

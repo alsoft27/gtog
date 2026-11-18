@@ -31,9 +31,10 @@ Estado a 18 de noviembre de 2026. R10 cerrada: reservas, transporte y endpoint d
 | R10 — Reservas de correo (commit 1) | Reservas atómicas del invitado y del anfitrión, límites configurables y compensaciones condicionadas. Reinicio al cambiar el correo y coexistencia con OPENED. 52 tests nuevos; sin envío SMTP ni endpoint todavía. |
 | R10 — Transporte de correo (commit 2) | EmailSenderPort, mensaje fijo en español y adaptador SMTP Mailjet con el starter existente. TLS obligatorio, timeouts, activación con configuración y adaptador capturador exclusivo de tests. Indicador de salud desactivado y comprobado con el informe de condiciones de Boot 4.1. 29 tests nuevos; endpoint pendiente. |
 | R10 — Endpoint de correo (commit 3) | POST /api/events/{id}/invitations/send: propiedad, CSRF, lote síncrono, resultados individuales y dailyLimit final; no-store exacto. Corte tras tres fallos de proveedor o cuota agotada, compensaciones y SENT/recorded=false explícito. Clasificación SMTP conservadora, sin confundir remitente y destinatario. 44 tests nuevos (10 de dominio, 26 con servidor real y 8 de clasificación SMTP), siempre con correo falso. R10 cerrada; siguiente: R11. |
+| Invitación — Disponibilidad de respuesta | InvitationResponse añade canRespond, calculado con ResponseAcceptancePolicy compartida con PUT. Ventana PUBLISHED, plazo inclusive, fin exclusivo y permiso de cambio si ya existe respuesta. canChangeResponse conserva su significado. Sin consultas previas nuevas ni cambios en insert/upsert. 17 tests nuevos: 4 de dominio y 13 de coherencia GET/PUT con Clock fijo. |
 | Infraestructura | Java 25, Spring Boot 4.1, Maven por defecto, MongoDB Atlas, OpenAPI |
 
-**Verificación actual:** `mvn clean verify` pasa con **622 tests**, 0 fallos, 0 errores y 0 omitidos. R10 añade 125 sobre los 495 anteriores: 52 del commit 1, 29 del commit 2 y 44 del commit 3. La mejora posterior de diagnóstico SMTP añade 2 casos; el log incluye categoría interna, clase y correlación, sin mensajes ni direcciones y sin cambiar los códigos de la API. Los commits se verifican por separado y ninguna prueba envía correo real.
+**Verificación actual:** `mvn clean verify` pasa con **639 tests**, 0 fallos, 0 errores y 0 omitidos. R10 añade 125 sobre los 495 anteriores: 52 del commit 1, 29 del commit 2 y 44 del commit 3. El diagnóstico SMTP añade 2 casos y canRespond añade 17 (4 de dominio y 13 de coherencia GET/PUT). Los commits se verifican por separado y ninguna prueba envía correo real.
 
 **Lo que eso valida:** la arquitectura hexagonal funciona en la práctica, el mapeo entre `Event` y `EventDocument` es asumible, y el circuito completo de desarrollo está operativo. Además, `Event.create(...)`/`reconstitute(...)` cambiaron de firma en las tres rebanadas seguidas, así que desde R3 `Event` se construye con dos builders internos (`Event.builder()` para eventos nuevos, `Event.reconstituteBuilder()` para rehidratar) en vez de factory methods con parámetros posicionales — ver `docs/modelo-evento.md`.
 
@@ -165,6 +166,11 @@ No se escribe ANSWERED en `events`: se deriva de la existencia de respuesta. No 
 
 GET y PUT devuelven `InvitationResponse`, con `myResponse` (opción, comentario y fechas, sin email) y
 `canChangeResponse`: true solo si existe respuesta, se permiten cambios y se cumplen las reglas de tiempo y estado.
+La ampliación posterior añade `canRespond`, true también antes de la primera respuesta si la ventana está
+abierta. Event.responseAcceptancePolicy(now) comparte ventana y permiso de cambios con el PUT; no se
+duplican las reglas temporales ni se consulta existencia antes del insert. canChangeResponse equivale a
+respuesta existente && canRespond. Los 13 casos de coherencia comparan el flag con PUT 200/409 usando
+el mismo Clock fijo, incluido plazo exacto, fin exacto, CANCELLED y FINISHED.
 Opción ajena, comentario con contenido sin permiso, longitud mayor de 500 y email inválido producen 422;
 comentario en blanco equivale a ausente y se guarda como null. Email opcional, validado y almacenado, sin envío
 (D-EMAIL-NOT-SENT). Los errores usan instancia constante `/api/invitations` y `Cache-Control: no-store` exacto;

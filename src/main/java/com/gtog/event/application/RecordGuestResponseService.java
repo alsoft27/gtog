@@ -34,7 +34,7 @@ public class RecordGuestResponseService implements RecordGuestResponseUseCase {
 		var now = clock.instant();
 		GuestResponse response = GuestResponse.create(event, command.token(), command.responseOptionId(), command.comment(), command.email(), now);
 		// Nunca consultar existencia antes de insertar: el indice unico decide quien gana la carrera.
-		GuestResponse stored = event.isAllowResponseChange() ? responses.upsert(response) : responses.insert(response);
+		GuestResponse stored = event.responseAcceptancePolicy(now).allowResponseChange() ? responses.upsert(response) : responses.insert(response);
 		return InvitationViewFactory.create(event, guest, now, stored);
 	}
 }
