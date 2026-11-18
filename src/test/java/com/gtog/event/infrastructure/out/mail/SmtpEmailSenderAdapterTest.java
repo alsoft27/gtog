@@ -14,6 +14,7 @@ import org.eclipse.angus.mail.smtp.SMTPAddressFailedException;
 import org.eclipse.angus.mail.smtp.SMTPSenderFailedException;
 import org.eclipse.angus.mail.smtp.SMTPSendFailedException;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -36,17 +37,24 @@ class SmtpEmailSenderAdapterTest {
 	private final SmtpEmailSenderAdapter adapter = new SmtpEmailSenderAdapter(smtp, "sender@example.com", "gtog");
 	private final InvitationEmail email = new InvitationEmail("private-recipient@example.com", "Título", "Texto privado y token-secreto");
 
+	@BeforeEach
+	void prepareMimeMessageWithoutAnyTransport() {
+		when(smtp.createMimeMessage()).thenAnswer(invocation -> new MimeMessage(Session.getInstance(new java.util.Properties())));
+	}
+
 	@Test
 	void sendsOnePlainTextMessageWithOneRecipientAndNoReplyToCcOrBcc() throws Exception {
 		assertThat(adapter.send(email).accepted()).isTrue();
-		var captured = ArgumentCaptor.forClass(SimpleMailMessage.class);
+		var captured = ArgumentCaptor.forClass(MimeMessage.class);
 		verify(smtp, times(1)).send(captured.capture());
-		SimpleMailMessage message = captured.getValue();
-		assertThat(message.getTo()).containsExactly(email.recipient());
-		assertThat(message.getCc()).isNull(); assertThat(message.getBcc()).isNull(); assertThat(message.getReplyTo()).isNull();
-		assertThat(new InternetAddress(message.getFrom()).getPersonal()).isEqualTo("gtog");
-		assertThat(new InternetAddress(message.getFrom()).getAddress()).isEqualTo("sender@example.com");
-		assertThat(message.getSubject()).isEqualTo(email.subject()); assertThat(message.getText()).isEqualTo(email.body());
+		MimeMessage message = captured.getValue();
+		assertThat(message.getRecipients(jakarta.mail.Message.RecipientType.TO)).extracting(Object::toString).containsExactly(email.recipient());
+		assertThat(message.getRecipients(jakarta.mail.Message.RecipientType.CC)).isNull();
+		assertThat(message.getRecipients(jakarta.mail.Message.RecipientType.BCC)).isNull();
+		assertThat(message.getHeader("Reply-To")).isNull();
+		assertThat(((InternetAddress) message.getFrom()[0]).getPersonal()).isEqualTo("gtog");
+		assertThat(((InternetAddress) message.getFrom()[0]).getAddress()).isEqualTo("sender@example.com");
+		assertThat(message.getSubject()).isEqualTo(email.subject()); assertThat(message.getContent()).isEqualTo(email.body());
 	}
 
 	@Test
@@ -58,17 +66,17 @@ class SmtpEmailSenderAdapterTest {
 	@Test
 	void rejectedRecipientsAreDifferentFromProviderFailures() throws Exception {
 		var rejected = new SMTPAddressFailedException(new InternetAddress(email.recipient()), "RCPT TO", 550, "private-recipient@example.com token-secreto");
-		doThrow(new MailSendException("private", rejected)).when(smtp).send(any(SimpleMailMessage.class));
+		doThrow(new MailSendException("private", rejected)).when(smtp).send(any(MimeMessage.class));
 		var result = adapter.send(email);
 		assertThat(result.code()).isEqualTo(EmailSendFailureCode.RECIPIENT_REJECTED);
 		assertThat(result.code().isProviderFailure()).isFalse();
-		verify(smtp, times(1)).send(any(SimpleMailMessage.class));
+		verify(smtp, times(1)).send(any(MimeMessage.class));
 	}
 
 	@Test
 	void translatesInvalidAddressesStoredInTheFailedMessageMap() throws Exception {
 		var failed = new SendFailedException("private", null, null, null, new InternetAddress[] { new InternetAddress(email.recipient()) });
-		doThrow(new MailSendException(Map.of(new SimpleMailMessage(), failed))).when(smtp).send(any(SimpleMailMessage.class));
+		doThrow(new MailSendException(Map.of(new SimpleMailMessage(), failed))).when(smtp).send(any(MimeMessage.class));
 		assertThat(adapter.send(email).code()).isEqualTo(EmailSendFailureCode.INVALID_RECIPIENT);
 	}
 
@@ -76,7 +84,7 @@ class SmtpEmailSenderAdapterTest {
 	void followsTheMessagingNextExceptionChainWithoutReadingMessages() throws Exception {
 		var failure = new MessagingException("private-recipient@example.com");
 		failure.setNextException(new SMTPAddressFailedException(new InternetAddress(email.recipient()), "RCPT TO", 550, "private"));
-		doThrow(new MailSendException("private", failure)).when(smtp).send(any(SimpleMailMessage.class));
+		doThrow(new MailSendException("private", failure)).when(smtp).send(any(MimeMessage.class));
 		assertThat(adapter.send(email).code()).isEqualTo(EmailSendFailureCode.RECIPIENT_REJECTED);
 	}
 
@@ -91,10 +99,10 @@ class SmtpEmailSenderAdapterTest {
 	@ParameterizedTest
 	@MethodSource("providerFailures")
 	void providerFailuresAreSanitizedAndNeverRetried(MailException failure, String category, CapturedOutput output) {
-		doThrow(failure).when(smtp).send(any(SimpleMailMessage.class));
+		doThrow(failure).when(smtp).send(any(MimeMessage.class));
 		assertThat(adapter.send(email)).isEqualTo(EmailDeliveryResult.failure(EmailSendFailureCode.PROVIDER_UNAVAILABLE));
 		assertThat(EmailSendFailureCode.PROVIDER_UNAVAILABLE.isProviderFailure()).isTrue();
-		verify(smtp, times(1)).send(any(SimpleMailMessage.class));
+		verify(smtp, times(1)).send(any(MimeMessage.class));
 		assertThat(output.getAll()).contains("SMTP_SEND_FAILED", "category=" + category, "exceptionType=" + failure.getClass().getName(), "correlationId=")
 				.doesNotContain(email.recipient(), "token-secreto");
 	}
@@ -117,7 +125,7 @@ class SmtpEmailSenderAdapterTest {
 
 	@ParameterizedTest @MethodSource("nonRecipientFailures")
 	void onlyClearRejectionOfThisRecipientCanAvoidTheProviderCircuitBreaker(MailException failure, CapturedOutput output) {
-		doThrow(failure).when(smtp).send(any(SimpleMailMessage.class));
+		doThrow(failure).when(smtp).send(any(MimeMessage.class));
 		var result = adapter.send(email);
 		assertThat(result.code()).isEqualTo(EmailSendFailureCode.PROVIDER_UNAVAILABLE);
 		assertThat(result.code().isProviderFailure()).isTrue();
@@ -127,7 +135,7 @@ class SmtpEmailSenderAdapterTest {
 	@Test
 	void rejectedRecipientLogsDoNotLeakSmtpMessagesOrCauses(CapturedOutput output) throws AddressException {
 		var rejected = new SMTPAddressFailedException(new InternetAddress(email.recipient()), "RCPT TO", 550, email.recipient() + " token-secreto");
-		doThrow(new MailSendException(email.recipient(), rejected)).when(smtp).send(any(SimpleMailMessage.class));
+		doThrow(new MailSendException(email.recipient(), rejected)).when(smtp).send(any(MimeMessage.class));
 		assertThat(adapter.send(email).code()).isEqualTo(EmailSendFailureCode.RECIPIENT_REJECTED);
 		assertThat(output.getAll()).contains("SMTP_SEND_FAILED", "category=RECIPIENT_REJECTED", "correlationId=").doesNotContain(email.recipient(), "token-secreto", "RCPT TO");
 	}
@@ -138,7 +146,7 @@ class SmtpEmailSenderAdapterTest {
 		Exception rejection = hasSenderException
 				? new SMTPSenderFailedException(new InternetAddress("sender@example.com"), "MAIL FROM", 550, privateMessage)
 				: new SMTPSendFailedException("MAIL FROM:<sender@example.com>", 550, privateMessage, null, null, null, null);
-		doThrow(new MailSendException(privateMessage, rejection)).when(smtp).send(any(SimpleMailMessage.class));
+		doThrow(new MailSendException(privateMessage, rejection)).when(smtp).send(any(MimeMessage.class));
 		assertThat(adapter.send(email).code()).isEqualTo(EmailSendFailureCode.PROVIDER_UNAVAILABLE);
 		assertThat(output.getAll()).contains("SMTP_SEND_FAILED", "category=SENDER_REJECTED", "exceptionType=" + MailSendException.class.getName(), "correlationId=")
 				.doesNotContain(email.recipient(), "sender@example.com", "token-secreto", "MAIL FROM");
@@ -154,7 +162,7 @@ class SmtpEmailSenderAdapterTest {
 
 	@ParameterizedTest
 	@ValueSource(strings = { "Mañana: reunión y café 🎉", "Fiesta\r\nsegunda línea" })
-	void theSerializedMimeSubjectPreservesUnicodeAndNeutralizesLineBreaks(String subject) throws Exception {
+	void theSerializedMimeDeclaresSpanishAndPreservesTheSanitizedUnicodeSubject(String subject) throws Exception {
 		var transport = new MimeCapturingSender();
 		transport.setDefaultEncoding("UTF-8");
 		var sender = new SmtpEmailSenderAdapter(transport, "sender@example.com", "gtog");
@@ -164,9 +172,10 @@ class SmtpEmailSenderAdapterTest {
 		var decoded = new MimeMessage(Session.getInstance(new java.util.Properties()), new java.io.ByteArrayInputStream(bytes.toByteArray()));
 		assertThat(decoded.getSubject()).isEqualTo(subject.replace('\r', ' ').replace('\n', ' ')).doesNotContain("\r", "\n");
 		assertThat(decoded.isMimeType("text/plain")).isTrue();
+		assertThat(decoded.getHeader("Content-Language")).containsExactly("es");
 	}
 
-	// Se ejercita la conversión real de SimpleMailMessage a MIME, sin abrir transporte alguno.
+	// Se serializa el MIME compuesto por el adaptador, sin abrir transporte alguno.
 	private static final class MimeCapturingSender extends JavaMailSenderImpl {
 		private MimeMessage message;
 		@Override protected void doSend(MimeMessage[] messages, Object[] originals) {

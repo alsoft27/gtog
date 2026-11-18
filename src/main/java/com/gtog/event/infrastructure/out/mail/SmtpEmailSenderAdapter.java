@@ -20,6 +20,7 @@ import org.springframework.mail.MailException;
 import org.springframework.mail.MailSendException;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
+import org.springframework.mail.javamail.MimeMailMessage;
 
 import com.gtog.event.domain.model.EmailDeliveryResult;
 import com.gtog.event.domain.model.EmailSendFailureCode;
@@ -52,12 +53,19 @@ public final class SmtpEmailSenderAdapter implements EmailSenderPort {
 			message.setTo(email.recipient());
 			message.setSubject(email.subject().replaceAll("[\\p{Cntrl}\\p{Zl}\\p{Zp}]", " ").strip());
 			message.setText(email.body());
-			sender.send(message);
+			var mime = sender.createMimeMessage();
+			message.copyTo(new MimeMailMessage(mime));
+			mime.setHeader("Content-Language", "es");
+			sender.send(mime);
 			return EmailDeliveryResult.success();
 		}
 		catch (AddressException exception) {
 			logFailure(exception, EmailSendFailureCode.INVALID_RECIPIENT);
 			return EmailDeliveryResult.failure(EmailSendFailureCode.INVALID_RECIPIENT);
+		}
+		catch (MessagingException exception) {
+			logFailure(exception, EmailSendFailureCode.PROVIDER_UNAVAILABLE);
+			return EmailDeliveryResult.failure(EmailSendFailureCode.PROVIDER_UNAVAILABLE);
 		}
 		catch (MailException exception) {
 			EmailSendFailureCode code = classify(exception, email.recipient(), Collections.newSetFromMap(new IdentityHashMap<>()));
