@@ -1,6 +1,6 @@
 # gtog — Plan de la iteración 1
 
-Estado a 18 de noviembre de 2026. R10 en curso: reservas implementadas; SMTP y endpoint pendientes.
+Estado a 18 de noviembre de 2026. R10 en curso: reservas y transporte SMTP implementados; endpoint pendiente.
 
 ---
 
@@ -29,9 +29,10 @@ Estado a 18 de noviembre de 2026. R10 en curso: reservas implementadas; SMTP y e
 | Errores — Seguridad (commit 1) | AccessDeniedHandler y AuthenticationEntryPoint propios escriben directamente 403 y 401 ProblemDetail, sin sendError, con instance constante y no-store exacto. Los rechazos CSRF anónimos ya no acaban en 401. 3 tests nuevos respecto a la corrección de cookie inicial. |
 | Errores — MVC (commit 2) | Advice basado en ResponseEntityExceptionHandler de Spring 7.0.8, normalización de cuerpos y estados, conservación de Allow y fallback 500 de menor prioridad. Pruebas HTTP con servidor real: privacidad del cuerpo y del log, errores 400/404/405/406/415/500/503. 18 tests nuevos. D-ERROR-FORMAT saldada. |
 | R10 — Reservas de correo (commit 1) | Reservas atómicas del invitado y del anfitrión, límites configurables y compensaciones condicionadas. Reinicio al cambiar el correo y coexistencia con OPENED. 52 tests nuevos; sin envío SMTP ni endpoint todavía. |
+| R10 — Transporte de correo (commit 2) | EmailSenderPort, mensaje fijo en español y adaptador SMTP Mailjet con el starter existente. TLS obligatorio, timeouts, activación con configuración y adaptador capturador exclusivo de tests. Indicador de salud desactivado y comprobado con el informe de condiciones de Boot 4.1. 29 tests nuevos; endpoint pendiente. |
 | Infraestructura | Java 25, Spring Boot 4.1, Maven por defecto, MongoDB Atlas, OpenAPI |
 
-**Verificación actual:** `mvn clean verify` pasa con **547 tests**, 0 fallos, 0 errores y 0 omitidos. R10, commit 1, añade 52: 17 de dominio, 7 de aplicación y 28 de persistencia. La base anterior tenía 495 tests.
+**Verificación actual:** `mvn clean verify` pasa con **576 tests**, 0 fallos, 0 errores y 0 omitidos. R10, commit 1, añade 52: 17 de dominio, 7 de aplicación y 28 de persistencia. El commit 2 añade 29: 10 de composición, 13 del adaptador, 5 de configuración y 1 de arranque completo sin credenciales ni perfil test. La base anterior a R10 tenía 495 tests.
 
 **Lo que eso valida:** la arquitectura hexagonal funciona en la práctica, el mapeo entre `Event` y `EventDocument` es asumible, y el circuito completo de desarrollo está operativo. Además, `Event.create(...)`/`reconstitute(...)` cambiaron de firma en las tres rebanadas seguidas, así que desde R3 `Event` se construye con dos builders internos (`Event.builder()` para eventos nuevos, `Event.reconstituteBuilder()` para rehidratar) en vez de factory methods con parámetros posicionales — ver `docs/modelo-evento.md`.
 
@@ -52,7 +53,7 @@ Esto no es una lista de pendientes cualquiera: son cosas que ya están mal a pro
 | D-ORPHAN-OPTION | **Carrera entre responder y eliminar una opción** | Un invitado puede responder con X después de consultar los ids usados y antes de guardar la lista que la elimina. No se añaden transacciones. La lectura tolera la opción inexistente: conserva myResponse, pero no confirma asistencia ni muestra ON_CONFIRMATION. | Pendiente de planificación |
 | D-LIST-SCALE | **Listado sin paginar con cálculo en memoria** | Desde el commit 2 de R9, el listado calcula contadores sobre todos los eventos del anfitrión y sus respuestas en memoria, con dos lecturas y sin paginación. Se acepta esta limitación; una sola consulta de respuestas evita N+1, pero no limita el volumen cargado. | Antes de necesitar paginación o grandes volúmenes |
 | D-CONFIRMED-LINK | **Confirmación de asistencia provisional en R7** | `InvitationViewFactory.guestHasConfirmed(...)` usa la respuesta propia: solo confirma si la opción todavía existe y tiene `countsAsAttendance = true`. Sin respuesta, opción inexistente o "No asisto", false. El filtro se comparte en GET y PUT sin consultas adicionales. | **Saldada en R8, commit 2.** |
-| D-EMAIL-NOT-SENT | **Envío de correo pendiente** | Invitaciones: reservas implementadas; SMTP y endpoint pendientes de los commits 2–3 de R10. La cita al responder sigue fuera de R10: el email de la respuesta solo se almacena y cualquier uso futuro requiere aprobación expresa y doble confirmación de su dueño. | Invitaciones: R10; cita: sin rebanada aprobada |
+| D-EMAIL-NOT-SENT | **Envío de correo pendiente** | Invitaciones: reservas y transporte implementados; endpoint pendiente del commit 3 de R10. La cita al responder sigue fuera de R10: el email de la respuesta solo se almacena y cualquier uso futuro requiere aprobación expresa y doble confirmación de su dueño. | Invitaciones: R10; cita: sin rebanada aprobada |
 | D-REGISTER-RATE-LIMIT | **Registro y login sin límite de peticiones** | Limitar abuso de creación de cuentas e intentos de autenticación antes del despliegue público. Las cuotas de correo no sustituyen esta protección. | Antes del despliegue público |
 | D-RATE-LIMIT | **Endpoint público sin límite de peticiones** | La entropía del token hace inviable adivinarlo, pero no protege frente a abuso o tráfico repetido sobre un enlace conocido. No hay rate limiting en R7. | Pendiente de planificación |
 | D-REFERRER | **Política de Referer del frontend** | La página del invitado lleva la credencial en la URL. Para evitar filtrarla al cargar un mapa de Google u otros recursos externos, el frontend debe servir la página con `Referrer-Policy: no-referrer`. La cabecera de la API no sustituye la política del documento del frontend. | Frontend, al integrar la página del invitado |
@@ -309,14 +310,29 @@ el test concurrente con el máximo alcanzado; quitar la cuota del anfitrión hac
 cuota 1. El test concurrente original del invitado sigue pasando sin tope porque el intervalo también
 protege esa carrera. Ambas condiciones se restauraron antes del build y de enmendar el commit.
 
-**Commit 2 pendiente:** EmailSenderPort y SMTP Mailjet con el starter existente, sin dependencias nuevas.
+**Commit 2 implementado:** EmailSenderPort y SMTP Mailjet con el starter existente, sin dependencias nuevas.
 Un único destinatario por mensaje, sin CC/BCC ni Reply-To; remitente visible gtog. Texto plano fijo en español:
 anfitrión, título, fecha/hora en la zona del evento, lugar presencial o solo plataforma online, enlace de
 invitación y los dos textos fijos aprobados. Nunca incluir secretos de sala ni contactos de otros invitados.
 Asunto y nombres sin caracteres de control. Credenciales exclusivamente MAILJET_API_KEY/MAILJET_SECRET_KEY;
 TLS obligatorio en 587 y timeouts 5/10/10 s. Arranque permitido sin credenciales, SMTP desactivado sin configuración,
-adaptador falso en tests y ninguna prueba con correo real. Verificar la propiedad de salud de correo contra
-el informe de condiciones de Boot 4.1 antes de desactivarla. Errores traducidos a códigos; log de clase y correlación.
+adaptador falso en tests y ninguna prueba con correo real. El informe de condiciones de Boot 4.1 confirma
+`@ConditionalOnEnabledHealthIndicator management.health.mail.enabled is false`; la propiedad queda fijada
+a false para que la sonda no abra conexiones. Una prueba con true confirma el registro del indicador,
+sin ejecutarlo. Errores traducidos a RECIPIENT_REJECTED, PROVIDER_UNAVAILABLE o INVALID_RECIPIENT;
+log WARN SMTP_SEND_FAILED con clase y correlación, nunca mensaje ni causa.
+
+InvitationEmailComposer vive en aplicación y forma el enlace con app.public-base-url (PUBLIC_BASE_URL,
+por defecto http://localhost:4200). app.mail.from toma MAIL_FROM y app.mail.from-name vale gtog.
+Credenciales vacías por defecto para permitir arranque local; sin usuario, contraseña o remitente se usa
+UnavailableEmailSenderAdapter, que devuelve EMAIL_NOT_CONFIGURED sin conectar. Es fallo de proveedor:
+el commit 3 debe compensar las reservas y contarlo para el corte. El perfil test siempre
+usa CapturingEmailSenderAdapter, incluso con credenciales presentes. JavaMailSender se simula en los
+tests del adaptador SMTP. Ningún test llama al proveedor ni a la sonda de correo. El transporte no se
+invoca desde ningún endpoint hasta el commit 3. La configuración y los mensajes están cubiertos por 29 tests.
+El renderizador del cuerpo recibe solo plataforma, nunca Event, OnlineAccess ni la URL de la sala.
+El test MIME serializa y decodifica asunto con ñ, tildes y emoji, y comprueba CR/LF neutralizados.
+El contexto completo de arranque sin credenciales usa dobles de Mongo y no abre ninguna conexión.
 
 **Commit 3 pendiente:** POST /api/events/{id}/invitations/send, autenticado, CSRF, propiedad comprobada en aplicación.
 Solo PUBLISHED: DRAFT/CANCELLED/FINISHED → 409; el enlace público de DRAFT conserva su 404.

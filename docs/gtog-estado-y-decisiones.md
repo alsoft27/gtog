@@ -211,7 +211,7 @@ Esto no es un retraso, es dónde está el proyecto. Pero conviene tenerlo presen
 | **R7** | Página pública del invitado | El endpoint sin autenticación que resuelve el token |
 | **R8** | Registrar respuesta | La colección `responses` y el archivo de calendario |
 | **R9** | Panel del anfitrión | Contadores por opción y seguimiento |
-| **R10** | Envío por correo | Mailjet SMTP decidido; reservas del commit 1 implementadas, transporte y endpoint pendientes |
+| **R10** | Envío por correo | Reservas y transporte Mailjet SMTP implementados (commits 1–2); endpoint pendiente del commit 3. Sin correo real en tests; salud de correo desactivada con propiedad verificada en Boot 4.1 |
 | **R11** | WhatsApp y Telegram | Enlaces profundos y estados de envío |
 | **R12** | Verificación de correo y recuperación de contraseña | Depende de R10 |
 

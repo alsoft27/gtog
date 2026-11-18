@@ -120,7 +120,7 @@ Referencias: [índices multiclave únicos](https://www.mongodb.com/docs/manual/c
 
 ## Reservas de correo (R10, commit 1)
 
-Implementadas sin SMTP ni endpoint de envío todavía. EmailSendPolicy evalúa estado PUBLISHED, correo,
+Implementadas en el commit 1, con transporte SMTP desde el commit 2 y endpoint de envío todavía pendiente. EmailSendPolicy evalúa estado PUBLISHED, correo,
 respuesta existente, máximo por invitado e intervalo. Los datos de respuesta siguen fuera de guests[].
 La selección de todo el lote y la revalidación de respuesta pertenecen al caso de uso del commit 3.
 
@@ -148,7 +148,31 @@ puede duplicar el correo, acotado por máximo e intervalo.
 
 Para el lote aprobado, un destinatario rechazado rompe la racha de errores de proveedor; un salto de
 elegibilidad no es un envío. Tres errores de proveedor consecutivos dejan el resto SKIPPED/PROVIDER_UNAVAILABLE.
-Los mensajes y el corte de lote se implementan en los commits 2–3, no en este commit de reservas.
+El mensaje y el transporte están implementados en el commit 2; el corte de lote corresponde al commit 3.
+
+### Transporte y mensaje (R10, commit 2)
+
+EmailSenderPort recibe InvitationEmail (destinatario, asunto y cuerpo) y devuelve EmailDeliveryResult,
+sin objetos de Spring ni excepciones SMTP. Su toString oculta el contenido. InvitationEmailComposer
+construye texto plano fijo en español, con nombre del anfitrión, título y fechas locales más la zona,
+lugar presencial o solo plataforma online, enlace individual y los textos fijos de respuesta y pie.
+Neutraliza caracteres de control en asunto y nombres. Nunca incluye la URL, contraseña ni instrucciones
+de la sala, otros invitados ni el email dejado en GuestResponse. No hay plantilla editable.
+
+SmtpEmailSenderAdapter usa un solo destinatario, remitente gtog, sin CC/BCC ni Reply-To. TLS obligatorio
+en 587, tiempos de espera de 5/10/10 s y sin reintentos. Traduce errores mediante tipos y datos estructurados
+de Jakarta Mail a RECIPIENT_REJECTED, INVALID_RECIPIENT o PROVIDER_UNAVAILABLE; nunca analiza sus mensajes.
+Log WARN SMTP_SEND_FAILED con clase y correlationId, sin mensaje, causa, dirección ni enlace.
+
+app.public-base-url define la base del enlace /r/{token}; app.mail.from y app.mail.from-name el remitente.
+MAILJET_API_KEY y MAILJET_SECRET_KEY no se guardan en ficheros. Sin credenciales o remitente el transporte
+devuelve EMAIL_NOT_CONFIGURED sin conectar y la aplicación arranca. Se trata como fallo de proveedor:
+compensa reservas y cuenta para el corte del lote. El renderizador recibe solo la plataforma, no Event
+ni OnlineAccess ni la URL de la sala. Los tests MIME serializan y decodifican Unicode y neutralizan CR/LF.
+management.health.mail.enabled=false
+evita conexiones en las sondas; propiedad comprobada contra el informe de condiciones de Boot 4.1.
+El perfil test usa exclusivamente un adaptador falso que captura mensajes; el adaptador SMTP se prueba
+con JavaMailSender simulado. El caso de uso y el endpoint de envío se conectan en el commit 3.
 
 ## Aplicación y API
 
