@@ -10,10 +10,13 @@ public record EmailSendPolicy(int maxSendsPerGuest, Duration minInterval, int ma
 				|| maxSendsPerHostPerDay < 1 || maxBatch < 1) { throw new IllegalArgumentException("Invalid invitation send limits"); }
 	}
 	public EmailSendSkipReason skipReason(Event event, Guest guest, boolean answered, Instant now) {
-		if (event.getStatus() != EventStatus.PUBLISHED) { throw new EventInvitationSendingNotAllowedException(); }
+		ensureSendingAllowed(event);
 		if (guest.getEmail() == null) { return EmailSendSkipReason.NO_EMAIL; }
 		if (answered) { return EmailSendSkipReason.ALREADY_ANSWERED; }
 		return guestLimitReason(guest, now);
+	}
+	public void ensureSendingAllowed(Event event) {
+		if (event.getStatus() != EventStatus.PUBLISHED) { throw new EventInvitationSendingNotAllowedException(); }
 	}
 	public EmailSendSkipReason guestLimitReason(Guest guest, Instant now) {
 		if (guest.getEmailSendCount() >= maxSendsPerGuest) { return EmailSendSkipReason.LIMIT_REACHED; }

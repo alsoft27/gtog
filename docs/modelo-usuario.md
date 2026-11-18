@@ -1,6 +1,6 @@
 # Modelo de datos: Usuario
 
-Estado tras R5 y las reservas de correo de R10, commit 1: registro, login, logout, autenticación por sesión y
+Estado tras R5 y R10: registro, login, logout, autenticación por sesión y
 cuota atómica del anfitrión. Sin verificación de correo ni recuperación de contraseña (R12).
 
 ---
@@ -131,6 +131,17 @@ read consulta el documento tras el lote para obtener dailyLimit: limit, remainin
 vigente devuelve windowStartedAt+24h; una ausente o vencida devuelve null y todo el límite disponible, sin
 escribir. Clock se obtiene en aplicación y los puertos reciben el instante. Los mappers conservan ambos
 campos al rehidratar; no se exponen en AuthUserResponse. Los campos ausentes se leen como 0/null.
+
+users no tiene @Version. Sus actualizaciones deben ser parciales: $set/$inc sobre los campos afectados,
+nunca leer y save() del usuario existente, porque pisaría las cuotas concurrentes. La inserción inicial
+de registro se mantiene. R12 debe actualizar emailVerified y la contraseña de esta forma.
+
+El endpoint de R10 devuelve dailyLimit desde esta lectura después de todo el lote, no desde una estimación
+en memoria. Un fallo SMTP (incluido EMAIL_NOT_CONFIGURED) compensa primero la cuota del anfitrión y luego
+la reserva del invitado. La aceptación SMTP seguida de fallo al registrar SENT conserva ambas; no reenvía.
+Las cuotas no sustituyen la verificación de correo ni el límite de registro/login: siguen siendo bloqueadores
+del despliegue público. El email opcional de GuestResponse no modifica User ni se usa para enviar nada;
+cualquier uso futuro requiere aprobación expresa y doble confirmación de su dueño.
 
 ## Fuera de alcance por ahora
 

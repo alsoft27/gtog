@@ -1,7 +1,7 @@
 # Modelo de datos: Invitado
 
-Estado tras R8 y R9, con reservas de correo de R10, commit 1, a 18 de noviembre de 2026. Gestión de invitados,
-consulta pública, respuestas, panel y calendario; el transporte SMTP y el endpoint de envío siguen pendientes.
+Estado tras R10 a 18 de noviembre de 2026. Gestión de invitados, consulta pública, respuestas, panel,
+calendario y envío por SMTP implementados. Los enlaces asistidos de WhatsApp y Telegram corresponden a R11.
 
 La preparación de R8 (commit 0) añade el plazo editable por el anfitrión mediante
 `PUT /api/events/{id}/response-deadline`: DRAFT, o PUBLISHED estrictamente antes del inicio. null lo elimina;
@@ -30,8 +30,8 @@ comparte agregado y documento. No existe colección ni hexágono `guest` separad
 | `lastEmailSentAt` | `Instant`, nullable | Instante de la última reserva; ausente significa null |
 
 **La respuesta no vive aquí. `ANSWERED` no es un valor del enum ni se almacena.** El panel de R9 lo deriva
-desde los invitados vivos y sus documentos de respuesta. OPENED está implementado desde R7; R10, commit 1,
-prepara la escritura de SENT, pero el envío SMTP sigue pendiente de los commits 2–3 y los otros canales de R11.
+desde los invitados vivos y sus documentos de respuesta. OPENED está implementado desde R7; R10 incorpora
+reservas, escritura de SENT y envío SMTP. Los otros canales quedan para R11.
 
 `Guest.create(...)` valida y normaliza contactos, genera el id y aplica el estado inicial.
 `editContact(...)` devuelve un invitado con los contactos sustituidos y conserva identidad, token y todo el
@@ -120,9 +120,9 @@ Referencias: [índices multiclave únicos](https://www.mongodb.com/docs/manual/c
 
 ## Reservas de correo (R10, commit 1)
 
-Implementadas en el commit 1, con transporte SMTP desde el commit 2 y endpoint de envío todavía pendiente. EmailSendPolicy evalúa estado PUBLISHED, correo,
+Implementadas en el commit 1, con transporte SMTP desde el commit 2 y endpoint de envío desde el commit 3. EmailSendPolicy evalúa estado PUBLISHED, correo,
 respuesta existente, máximo por invitado e intervalo. Los datos de respuesta siguen fuera de guests[].
-La selección de todo el lote y la revalidación de respuesta pertenecen al caso de uso del commit 3.
+La selección de todo el lote y la revalidación de respuesta están en el caso de uso del commit 3.
 
 GuestEmailSendReservationAdapter reserva mediante actualización posicional con $elemMatch de id y correo,
 emailSendCount menor que el máximo (o ausente), y lastEmailSentAt nulo/ausente o menor o igual al umbral.
@@ -142,13 +142,13 @@ correo, token, mensaje ni causa. Una reserva retenida sigue imponiendo el interv
 requiere intervención manual incluso después de pasar el intervalo. No existe recuperación automática.
 
 recordSent solo pasa NOT_SENT a SENT, con canal EMAIL; conserva la primera sentAt y no rebaja OPENED.
-SMTP aceptado con fallo al registrar se tratará en el commit 3 como SENT/recorded=false, sin compensar ni
+SMTP aceptado con fallo al registrar se trata como SENT/recorded=false, sin compensar ni
 reenviar, con log ERROR de clase y correlación. El panel puede seguir en NOT_SENT y un reenvío posterior
 puede duplicar el correo, acotado por máximo e intervalo.
 
 Para el lote aprobado, un destinatario rechazado rompe la racha de errores de proveedor; un salto de
 elegibilidad no es un envío. Tres errores de proveedor consecutivos dejan el resto SKIPPED/PROVIDER_UNAVAILABLE.
-El mensaje y el transporte están implementados en el commit 2; el corte de lote corresponde al commit 3.
+El mensaje y el transporte están implementados en el commit 2; el corte de lote está implementado en el commit 3.
 
 ### Transporte y mensaje (R10, commit 2)
 
@@ -164,6 +164,14 @@ en 587, tiempos de espera de 5/10/10 s y sin reintentos. Traduce errores mediant
 de Jakarta Mail a RECIPIENT_REJECTED, INVALID_RECIPIENT o PROVIDER_UNAVAILABLE; nunca analiza sus mensajes.
 Log WARN SMTP_SEND_FAILED con clase y correlationId, sin mensaje, causa, dirección ni enlace.
 
+Solo un rechazo inequívoco del destinatario de ese mensaje evita el corte: RECIPIENT_REJECTED para
+RCPT TO con dirección coincidente y código definitivo 550–553, o INVALID_RECIPIENT si se identifica esa
+dirección como inválida. Remitente rechazado, autenticación fallida, conexión/timeout, errores de parseo
+no atribuibles al destinatario y cualquier 5xx sin clasificar → PROVIDER_UNAVAILABLE y cuentan para el corte.
+Un fallo de proveedor domina si la cadena también contiene rechazo del destinatario. No se inspeccionan
+mensajes: se usan tipos, direcciones y comandos/códigos estructurados. Angus es de ejecución; su API pública
+se consulta sin añadir dependencias. Si no se puede comprobar el rechazo, se clasifica como proveedor.
+
 app.public-base-url define la base del enlace /r/{token}; app.mail.from y app.mail.from-name el remitente.
 MAILJET_API_KEY y MAILJET_SECRET_KEY no se guardan en ficheros. Sin credenciales o remitente el transporte
 devuelve EMAIL_NOT_CONFIGURED sin conectar y la aplicación arranca. Se trata como fallo de proveedor:
@@ -172,7 +180,38 @@ ni OnlineAccess ni la URL de la sala. Los tests MIME serializan y decodifican Un
 management.health.mail.enabled=false
 evita conexiones en las sondas; propiedad comprobada contra el informe de condiciones de Boot 4.1.
 El perfil test usa exclusivamente un adaptador falso que captura mensajes; el adaptador SMTP se prueba
-con JavaMailSender simulado. El caso de uso y el endpoint de envío se conectan en el commit 3.
+con JavaMailSender simulado. El caso de uso y el endpoint de envío están conectados desde el commit 3.
+
+### Lote y endpoint (R10, commit 3)
+
+`POST /api/events/{id}/invitations/send`, autenticado y con CSRF, comprueba propiedad en aplicación:
+evento ajeno → 404. Solo PUBLISHED, incluso sin invitados; DRAFT, CANCELLED y FINISHED → 409.
+Sin cuerpo o con guestIds ausente/null toma todos en orden de alta. Con lista explícita sigue su orden;
+lista vacía, repetidos, ids vacíos o máximo superado → 422, id ajeno al evento → 404. Toda la selección
+se valida antes de consultar elegibilidad, reservar o enviar. No hay operaciones parciales ante entrada inválida.
+
+SendInvitationsService consulta responses una vez para el lote, por eventId; solo utiliza sus tokens.
+Antes de SMTP vuelve a comprobar propiedad, estado, presencia y correo del invitado, y su respuesta mediante
+consulta puntual. Si ya respondió, compensa y salta ALREADY_ANSWERED. El email almacenado en GuestResponse
+nunca se utiliza como destinatario. Persiste una carrera entre la última lectura y SMTP; no se añaden transacciones.
+
+Respuesta 200 y Cache-Control: no-store exacto. results lleva guestId, status y code (FAILED) o reason
+(SKIPPED). SENT lleva recorded: true si el registro se confirmó; false si falló tras aceptación SMTP.
+Sin contactos, tokens ni mensajes internos. dailyLimit lleva limit, remaining y resetsAt, leído desde users
+después del lote, también tras fallos o saltos. EMAIL_NOT_CONFIGURED es fallo de proveedor: compensa reservas
+y cuenta para el corte tras tres; el resto sale SKIPPED/PROVIDER_UNAVAILABLE. Rechazar un destinatario rompe
+la racha; los saltos de elegibilidad no son intentos ni la reinician. DAILY_LIMIT corta todos los restantes.
+
+La aceptación SMTP seguida de fallo de registro conserva las reservas y devuelve SENT/recorded=false.
+Log ERROR EMAIL_SENT_RECORDING_FAILED con clase y correlación, sin mensaje ni causa. El panel puede seguir
+en NOT_SENT; un reenvío posterior podría duplicar el correo, acotado por máximo e intervalo. Ningún reenvío
+automático. La compensación fallida se diagnostica con EMAIL_SEND_COMPENSATION_FAILED; al alcanzar el máximo
+requiere intervención manual, incluso pasado el intervalo. Las pruebas usan correo falso y servidor real.
+rest-api-mail.http es la prueba manual separada para correo real; realRecipient procede del entorno privado.
+
+El test de revalidación simula con un spy una respuesta aparecida después de la lectura del lote y
+comprueba ALREADY_ANSWERED, ausencia de correo y compensación. No hay test con dos hilos reales para
+esa carrera. Las pruebas concurrentes reales de envío cubren doble petición y cuota del anfitrión.
 
 ## Aplicación y API
 

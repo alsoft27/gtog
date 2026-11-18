@@ -36,3 +36,4 @@ build/
 .env
 application-local.properties
 /execution-logs/
+/http-client.private.env.json

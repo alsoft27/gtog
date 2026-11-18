@@ -1,0 +1,119 @@
+# R10 — Prueba manual de correo REAL. Archivo independiente de rest-api.http.
+# Arranca tú el backend con Mailjet, MAIL_FROM verificado y PUBLIC_BASE_URL del frontend.
+# Selecciona en IntelliJ un entorno de http-client.private.env.json que defina realRecipient.
+# No escribas aquí la dirección real ni las credenciales. El fichero privado está ignorado por Git.
+# Ejecuta 00–06 en orden. El paso 06 envía UN correo real; no hay reintentos automáticos.
+# Cada recorrido crea una cuenta, un evento publicado y un invitado en gtog_dev.
+# SENT significa aceptado por SMTP, no entregado: comprueba después tu buzón y spam.
+
+@baseUrl = http://localhost:8080
+@password = MailSmoke2026!
+
+### 00 — Obtener CSRF e iniciar variables del recorrido de correo
+# @no-cookie-jar
+< {%
+    ["gtogMailCsrf", "gtogMailSession", "gtogMailEventId", "gtogMailGuestId"].forEach(function (name) { client.global.clear(name); });
+    client.global.set("gtogMailEmail", "mail-host-" + Date.now() + "@example.com");
+    const date = new Date();
+    date.setDate(date.getDate() + 7);
+    const localDate = date.getFullYear() + "-" + String(date.getMonth() + 1).padStart(2, "0") + "-" + String(date.getDate()).padStart(2, "0");
+    client.global.set("gtogMailStartsAt", localDate + "T18:00:00");
+    client.global.set("gtogMailEndsAt", localDate + "T20:00:00");
+%}
+GET {{baseUrl}}/actuator/health
+
+> {%
+    const cookie = response.cookiesByName("XSRF-TOKEN")[0];
+    client.assert(response.status === 200 && !!cookie && !!cookie.value, "Cannot bootstrap CSRF");
+    client.global.set("gtogMailCsrf", cookie.value);
+%}
+
+### 01 — Registrar anfitrión
+# @no-cookie-jar
+POST {{baseUrl}}/api/auth/register
+Content-Type: application/json
+Cookie: XSRF-TOKEN={{gtogMailCsrf}}
+X-XSRF-TOKEN: {{gtogMailCsrf}}
+
+{ "name": "Anfitrión de prueba", "email": "{{gtogMailEmail}}", "rawPassword": "{{password}}", "timeZone": "Europe/Madrid" }
+
+> {% client.test("Registration returns 201", function () { client.assert(response.status === 201, "Registration failed"); }); %}
+
+### 02 — Iniciar sesión
+# @no-cookie-jar
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+Cookie: XSRF-TOKEN={{gtogMailCsrf}}
+X-XSRF-TOKEN: {{gtogMailCsrf}}
+
+{ "email": "{{gtogMailEmail}}", "password": "{{password}}" }
+
+> {%
+    client.assert(response.status === 200, "Login failed");
+    const session = response.cookiesByName("JSESSIONID")[0];
+    client.assert(!!session && !!session.value, "Missing session");
+    client.global.set("gtogMailSession", session.value);
+%}
+
+### 03 — Crear evento presencial
+# @no-cookie-jar
+POST {{baseUrl}}/api/events
+Content-Type: application/json
+Cookie: XSRF-TOKEN={{gtogMailCsrf}}; JSESSIONID={{gtogMailSession}}
+X-XSRF-TOKEN: {{gtogMailCsrf}}
+
+{
+  "title": "Invitación de prueba — reunión 🎉",
+  "startsAt": "{{gtogMailStartsAt}}", "endsAt": "{{gtogMailEndsAt}}",
+  "timeZone": "Europe/Madrid", "modality": "IN_PERSON",
+  "venue": { "placeName": "Sala de prueba", "address": "Calle de prueba 1, Madrid", "latitude": 40.4168, "longitude": -3.7038, "placeId": "manual-mail-place" }
+}
+
+> {%
+    client.assert(response.status === 201, "Event creation failed");
+    client.global.set("gtogMailEventId", response.body.id);
+%}
+
+### 04 — Añadir el destinatario real del entorno privado
+# @no-cookie-jar
+POST {{baseUrl}}/api/events/{{gtogMailEventId}}/guests
+Content-Type: application/json
+Cookie: XSRF-TOKEN={{gtogMailCsrf}}; JSESSIONID={{gtogMailSession}}
+X-XSRF-TOKEN: {{gtogMailCsrf}}
+
+{ "name": "Invitado de prueba", "email": "{{realRecipient}}" }
+
+> {%
+    client.assert(response.status === 201, "Guest creation failed; check realRecipient in the private environment");
+    client.global.set("gtogMailGuestId", response.body.id);
+%}
+
+### 05 — Publicar
+# @no-cookie-jar
+POST {{baseUrl}}/api/events/{{gtogMailEventId}}/publish
+Content-Type: application/json
+Cookie: XSRF-TOKEN={{gtogMailCsrf}}; JSESSIONID={{gtogMailSession}}
+X-XSRF-TOKEN: {{gtogMailCsrf}}
+
+> {% client.test("Publication returns PUBLISHED", function () { client.assert(response.status === 200 && response.body.status === "PUBLISHED", "Publication failed"); }); %}
+
+### 06 — Enviar UN correo real
+# @no-cookie-jar
+POST {{baseUrl}}/api/events/{{gtogMailEventId}}/invitations/send
+Content-Type: application/json
+Cookie: XSRF-TOKEN={{gtogMailCsrf}}; JSESSIONID={{gtogMailSession}}
+X-XSRF-TOKEN: {{gtogMailCsrf}}
+
+{ "guestIds": ["{{gtogMailGuestId}}"] }
+
+> {%
+    client.test("SMTP accepted and the invitation was recorded", function () {
+        client.assert(response.status === 200, "Unexpected HTTP status");
+        client.assert(response.body.results.length === 1, "Expected one result");
+        const result = response.body.results[0];
+        client.assert(result.status === "SENT", "Email not accepted: " + (result.code || result.reason));
+        client.assert(result.recorded === true, "SMTP accepted but SENT was not recorded; do not retry automatically");
+        client.assert(response.headers.valueOf("Cache-Control") === "no-store", "Unexpected Cache-Control");
+        client.assert(response.body.dailyLimit.limit > 0 && response.body.dailyLimit.remaining >= 0, "Missing final quota");
+    });
+%}

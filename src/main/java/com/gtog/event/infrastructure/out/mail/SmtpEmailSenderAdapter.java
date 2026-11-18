@@ -17,7 +17,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.mail.MailAuthenticationException;
 import org.springframework.mail.MailException;
-import org.springframework.mail.MailParseException;
 import org.springframework.mail.MailSendException;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
@@ -61,7 +60,7 @@ public final class SmtpEmailSenderAdapter implements EmailSenderPort {
 			return EmailDeliveryResult.failure(EmailSendFailureCode.INVALID_RECIPIENT);
 		}
 		catch (MailException exception) {
-			EmailSendFailureCode code = classify(exception, Collections.newSetFromMap(new IdentityHashMap<>()));
+			EmailSendFailureCode code = classify(exception, email.recipient(), Collections.newSetFromMap(new IdentityHashMap<>()));
 			logFailure(exception);
 			return EmailDeliveryResult.failure(code == null ? EmailSendFailureCode.PROVIDER_UNAVAILABLE : code);
 		}
@@ -72,31 +71,63 @@ public final class SmtpEmailSenderAdapter implements EmailSenderPort {
 		log.warn("SMTP_SEND_FAILED exceptionType={} correlationId={}", exception.getClass().getName(), UUID.randomUUID());
 	}
 
-	private static EmailSendFailureCode classify(Throwable exception, Set<Throwable> visited) {
+	private static EmailSendFailureCode classify(Throwable exception, String recipient, Set<Throwable> visited) {
 		if (exception == null || !visited.add(exception)) { return null; }
 		if (exception instanceof MailAuthenticationException || exception instanceof AuthenticationFailedException
 				|| exception instanceof ConnectException || exception instanceof SocketTimeoutException) {
 			return EmailSendFailureCode.PROVIDER_UNAVAILABLE;
 		}
-		if (exception instanceof AddressException || exception instanceof MailParseException) {
-			return EmailSendFailureCode.INVALID_RECIPIENT;
+		if (exception instanceof AddressException address) {
+			return recipient.equalsIgnoreCase(address.getRef()) ? EmailSendFailureCode.INVALID_RECIPIENT : EmailSendFailureCode.PROVIDER_UNAVAILABLE;
 		}
-		if (exception instanceof SendFailedException failed && failed.getInvalidAddresses() != null
-				&& failed.getInvalidAddresses().length > 0) { return EmailSendFailureCode.INVALID_RECIPIENT; }
-		EmailSendFailureCode result = classify(exception.getCause(), visited);
-		if (result != null) { return result; }
+		EmailSendFailureCode result = null;
+		if (exception.getClass().getName().equals("org.eclipse.angus.mail.smtp.SMTPAddressFailedException")) {
+			result = isExplicitRecipientRejection(exception, recipient) ? EmailSendFailureCode.RECIPIENT_REJECTED : EmailSendFailureCode.PROVIDER_UNAVAILABLE;
+		}
+		else if (exception.getClass() == SendFailedException.class) {
+			var invalid = ((SendFailedException) exception).getInvalidAddresses();
+			if (invalid != null && invalid.length > 0) {
+				result = invalid.length == 1 && invalid[0] instanceof InternetAddress address && recipient.equalsIgnoreCase(address.getAddress())
+						? EmailSendFailureCode.INVALID_RECIPIENT : EmailSendFailureCode.PROVIDER_UNAVAILABLE;
+			}
+		}
+		else if (!(exception instanceof MailSendException) && exception.getClass() != MessagingException.class) {
+			// Incluye MAIL FROM, DATA, fin de datos y cualquier 5xx o excepción sin clasificar.
+			return EmailSendFailureCode.PROVIDER_UNAVAILABLE;
+		}
+		result = combine(result, classify(exception.getCause(), recipient, visited));
 		if (exception instanceof MessagingException messaging) {
-			result = classify(messaging.getNextException(), visited);
-			if (result != null) { return result; }
+			result = combine(result, classify(messaging.getNextException(), recipient, visited));
 		}
 		if (exception instanceof MailSendException failed) {
 			for (Exception nested : failed.getMessageExceptions()) {
-				result = classify(nested, visited);
-				if (result != null) { return result; }
+				result = combine(result, classify(nested, recipient, visited));
 			}
 		}
-		// El proveedor SMTP es de ejecución: usamos la API Jakarta, sin añadir dependencias de compilación.
-		if (exception instanceof SendFailedException) { return EmailSendFailureCode.RECIPIENT_REJECTED; }
-		return null;
+		return result;
+	}
+
+	private static EmailSendFailureCode combine(EmailSendFailureCode first, EmailSendFailureCode second) {
+		// Un fallo de proveedor prevalece aunque otra excepción encadenada rechace al destinatario.
+		if (first == EmailSendFailureCode.PROVIDER_UNAVAILABLE || second == EmailSendFailureCode.PROVIDER_UNAVAILABLE) {
+			return EmailSendFailureCode.PROVIDER_UNAVAILABLE;
+		}
+		return first == null ? second : first;
+	}
+
+	private static boolean isExplicitRecipientRejection(Throwable exception, String recipient) {
+		// Angus es dependencia de ejecución. Leer solo su API estructurada, sin añadir dependencias ni leer mensajes.
+		try {
+			Class<?> type = exception.getClass();
+			Object address = type.getMethod("getAddress").invoke(exception);
+			Object command = type.getMethod("getCommand").invoke(exception);
+			int code = (Integer) type.getMethod("getReturnCode").invoke(exception);
+			return address instanceof InternetAddress target && recipient.equalsIgnoreCase(target.getAddress())
+					&& command instanceof String smtpCommand && smtpCommand.regionMatches(true, 0, "RCPT TO", 0, 7)
+					&& code >= 550 && code <= 553;
+		}
+		catch (ReflectiveOperationException | ClassCastException | SecurityException failure) {
+			return false;
+		}
 	}
 }
