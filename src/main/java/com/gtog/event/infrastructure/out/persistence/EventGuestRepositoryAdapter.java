@@ -63,7 +63,8 @@ public class EventGuestRepositoryAdapter implements EventGuestRepositoryPort {
 		Query query = writableEvent(eventId, hostId, expectedVersion);
 		query.addCriteria(Criteria.where("guests.id").is(guest.getId()));
 		Update update = new Update().set("guests.$.name", guest.getName()).set("guests.$.email", guest.getEmail())
-				.set("guests.$.phoneE164", guest.getPhoneE164()).inc("version", 1);
+				.set("guests.$.phoneE164", guest.getPhoneE164()).set("guests.$.emailSendCount", guest.getEmailSendCount())
+				.set("guests.$.lastEmailSentAt", guest.getLastEmailSentAt()).inc("version", 1);
 		checkUpdated(mongoTemplate.updateFirst(query, update, EventDocument.class));
 	}
 

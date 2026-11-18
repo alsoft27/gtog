@@ -23,6 +23,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import com.gtog.event.domain.model.EventDomainException;
+import com.gtog.event.domain.model.EventInvitationSendingNotAllowedException;
 import com.gtog.event.domain.model.ResponseDeadlineNotEditableException;
 import com.gtog.event.domain.model.InvitationNotFoundException;
 import com.gtog.event.domain.model.DuplicateGuestEmailException;
@@ -123,7 +124,7 @@ public class GlobalExceptionHandler {
 		return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, exception.getMessage());
 	}
 
-	@ExceptionHandler({ResponseDeadlineNotEditableException.class, ResponseOptionDeletionNotAllowedException.class,
+	@ExceptionHandler({EventInvitationSendingNotAllowedException.class, ResponseDeadlineNotEditableException.class, ResponseOptionDeletionNotAllowedException.class,
 			ResponseOptionAttendanceChangeNotAllowedException.class})
 	public ProblemDetail handleEventConfigurationConflict(EventDomainException exception) {
 		return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, exception.getMessage());

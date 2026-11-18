@@ -57,7 +57,10 @@ Los canales disponibles dependen de los datos de cada invitado. Si solo tienes s
 
 El invitado abre su enlace, normalmente desde el móvil y desde un chat. Ve el evento, la fecha en su propia zona horaria, el mapa con el botón de cómo llegar o la información de conexión, y las opciones que definió el anfitrión.
 
-Elige una, deja un comentario si está permitido, y se le ofrece dejar su correo para recibir la cita de calendario. Ese es el momento en el que el anfitrión consigue el correo de quien llegó por WhatsApp.
+Elige una y deja un comentario si está permitido. Puede indicar un correo opcional, almacenado en su
+respuesta, que nunca se muestra al anfitrión ni a otros invitados. R10 no usa esa dirección para enviar
+nada. La cita al responder queda pendiente: cualquier uso futuro requiere aprobación expresa y doble
+confirmación de la dirección antes de escribirle, porque el PUT público acepta direcciones sin que su dueño lo sepa.
 
 ### Seguir las respuestas
 
@@ -208,7 +211,7 @@ Esto no es un retraso, es dónde está el proyecto. Pero conviene tenerlo presen
 | **R7** | Página pública del invitado | El endpoint sin autenticación que resuelve el token |
 | **R8** | Registrar respuesta | La colección `responses` y el archivo de calendario |
 | **R9** | Panel del anfitrión | Contadores por opción y seguimiento |
-| **R10** | Envío por correo | Bloqueado por la elección de proveedor |
+| **R10** | Envío por correo | Mailjet SMTP decidido; reservas del commit 1 implementadas, transporte y endpoint pendientes |
 | **R11** | WhatsApp y Telegram | Enlaces profundos y estados de envío |
 | **R12** | Verificación de correo y recuperación de contraseña | Depende de R10 |
 
@@ -230,7 +233,7 @@ Esto no es un retraso, es dónde está el proyecto. Pero conviene tenerlo presen
 
 | Decisión | Bloquea | Urgencia |
 |---|---|---|
-| Proveedor de correo (SES, SendGrid, SMTP) | R10, R12 | Alta |
+| Proveedor de correo | R10, R12 | Resuelto: Mailjet por SMTP, sin dependencias nuevas |
 | Formato del token | R6 | Irreversible una vez circule un enlace |
 | ¿Puede el anfitrión registrar a mano una respuesta recibida por fuera? | R8, R9 | Decide el modelo |
 

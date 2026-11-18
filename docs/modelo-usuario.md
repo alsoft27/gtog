@@ -1,7 +1,7 @@
 # Modelo de datos: Usuario
 
-Estado del modelo tras R5: registro, login, logout y autenticación por sesión. Sin verificación de correo ni
-recuperación de contraseña (R12).
+Estado tras R5 y las reservas de correo de R10, commit 1: registro, login, logout, autenticación por sesión y
+cuota atómica del anfitrión. Sin verificación de correo ni recuperación de contraseña (R12).
 
 ---
 
@@ -16,6 +16,8 @@ Vive en `com.gtog.user.domain.model.User`. Clase plana sin anotaciones de framew
 | `email` | `String` | Dirección de correo. Normalizada a minúsculas y sin espacios al registrar. Única en la colección `users` (índice único). |
 | `password` | `Password` | Objeto de valor. Encapsula el hash; nunca expone el texto en claro. `Password.of(raw, hasher)` valida la longitud mínima (8 caracteres) y delega el hasheo; `Password.fromHash(hash)` rehidrata sin revalidar. |
 | `timeZone` | `String` | Zona horaria IANA del anfitrión, usada como zona por defecto al crear eventos. Obligatoria. |
+| `emailSendsInWindow` | `int` | Reservas de correo en la ventana de 24 h; ausente equivale a 0 |
+| `windowStartedAt` | `Instant`, nullable | Inicio UTC de la ventana; ausente equivale a null |
 
 Dos factory methods:
 - `User.register(name, email, password, timeZone)` — valida todas las reglas, normaliza el email, genera el id.
@@ -111,6 +113,24 @@ Todos los endpoints de `/api/events/**` requieren sesión activa → 401 si no l
 `/api/invitations/**` es público (resuelto por token de invitado).
 
 ---
+
+## Cuota de correo (R10, commit 1)
+
+HostSendQuotaPort se define en event/domain/port/out; HostSendQuotaAdapter vive en la infraestructura
+de user y escribe users con MongoTemplate. La dependencia apunta desde infraestructura hacia el dominio
+consumidor, nunca desde event hacia user. No se crean colecciones ni índices adicionales.
+
+La reserva usa un único findAndModify con pipeline condicionado. Una ventana ausente o con 24 h cumplidas
+inclusive empieza con contador 1 y windowStartedAt=ahora; una vigente solo incrementa por debajo del máximo.
+No hay lectura previa para decidir la escritura. Se trata de 24 h desde la primera reserva, no del día civil.
+La compensación comprueba la misma ventana y contador positivo, lo decrementa y elimina el inicio si queda
+en cero. No libera cuota de una ventana posterior ni produce valores negativos. Se ejecuta una sola vez,
+sin reintentos automáticos, antes de compensar al invitado; su fallo deja al invitado reservado.
+
+read consulta el documento tras el lote para obtener dailyLimit: limit, remaining y resetsAt. Una ventana
+vigente devuelve windowStartedAt+24h; una ausente o vencida devuelve null y todo el límite disponible, sin
+escribir. Clock se obtiene en aplicación y los puertos reciben el instante. Los mappers conservan ambos
+campos al rehidratar; no se exponen en AuthUserResponse. Los campos ausentes se leen como 0/null.
 
 ## Fuera de alcance por ahora
 

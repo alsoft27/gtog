@@ -196,6 +196,8 @@ Las ediciones del anfitrión sobre el cuerpo del evento sí pueden usar `save()`
 
 ### Otras reglas de persistencia
 
+- **R10, reservas de correo:** cuotas del invitado mediante $elemMatch e incremento de version; cuota del anfitrión en users con pipeline atómico. HostSendQuotaPort pertenece al dominio de event y su adaptador a infraestructura de user. Compensar primero anfitrión y después invitado, una sola vez y sin reintentos; una compensación fallida conserva el bloqueo y al alcanzar el máximo requiere intervención manual. Diagnóstico: ERROR EMAIL_SEND_COMPENSATION_FAILED, clase y correlación, nunca correo, token ni mensaje original. Ver modelos de invitado y usuario. SMTP y endpoint siguen pendientes de los commits 2–3.
+
 - **Índices creados en el arranque**, mediante un componente dedicado en `shared` que use `MongoTemplate.indexOps(...)` y sea idempotente. No los declares con anotaciones `@Indexed`: quedan repartidos por el modelo y no se sabe qué existe en producción sin mirar la base de datos.
 - **Sin herramienta de migraciones por ahora.** Mongock no tiene compatibilidad confirmada con Spring Boot 4 y Spring Data MongoDB 5. Mientras el proyecto no tenga datos reales, el coste de no tenerla es cero. Cuando haga falta una migración de datos de verdad, lo evaluamos entonces. No la añadas por tu cuenta.
 - Enums persistidos como cadenas, nunca como ordinal.
@@ -256,6 +258,8 @@ y la URL ya filtrada; UID basado en el evento, nunca en el token; DTSTAMP obteni
 **CSRF en login y registro: deliberado.** Tanto `POST /api/auth/login` como `POST /api/auth/register` requieren un token CSRF válido, enviado en `X-XSRF-TOKEN`. No los excluyas de la protección: excluir el login permitiría que un atacante autenticase a la víctima en la cuenta del atacante (login-CSRF). Esta decisión prevalece sobre la propuesta anterior de excluirlos en `docs/plan-r5-usuario-seguridad.md`.
 
 Desde R8, **solo `/api/invitations/**` está excluido de CSRF**: su credencial es el token de la ruta, no una cookie; no hay credencial ambiental que un tercero pueda aprovechar. No amplíes la exclusión a `/api/**`. Los errores de invitación usan instancia constante `/api/invitations` y `Cache-Control: no-store`; nunca conserves mensajes ni causas de errores Mongo que incluyan tokens.
+
+El email opcional de GuestResponse se mantiene almacenado, sin mostrarlo al anfitrión ni a otros invitados y sin usarlo para envíos en R10. No debilites el test de privacidad del panel de R9. Cualquier uso futuro exige aprobación expresa y doble confirmación de la dirección antes de escribirle: el PUT público acepta direcciones sin conocimiento de su dueño. RF-2.15 (plantilla editable) queda fuera del MVP; el correo de invitación será texto fijo en español.
 
 **Enums**
 

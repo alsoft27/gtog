@@ -22,9 +22,17 @@ public final class Guest {
 	private final DeliveryChannel deliveryChannel;
 	private final Instant sentAt;
 	private final Instant openedAt;
+	private final int emailSendCount;
+	private final Instant lastEmailSentAt;
 
 	private Guest(String id, String name, String email, String phoneE164, String token,
 			InvitationStatus invitationStatus, DeliveryChannel deliveryChannel, Instant sentAt, Instant openedAt) {
+		this(id, name, email, phoneE164, token, invitationStatus, deliveryChannel, sentAt, openedAt, 0, null);
+	}
+
+	private Guest(String id, String name, String email, String phoneE164, String token,
+			InvitationStatus invitationStatus, DeliveryChannel deliveryChannel, Instant sentAt, Instant openedAt,
+			int emailSendCount, Instant lastEmailSentAt) {
 		this.id = id;
 		this.name = name;
 		this.email = email;
@@ -34,6 +42,8 @@ public final class Guest {
 		this.deliveryChannel = deliveryChannel;
 		this.sentAt = sentAt;
 		this.openedAt = openedAt;
+		this.emailSendCount = emailSendCount;
+		this.lastEmailSentAt = lastEmailSentAt;
 	}
 
 	public static Guest create(String name, String email, String phone, String token, PhoneNormalizerPort normalizer) {
@@ -45,7 +55,8 @@ public final class Guest {
 	public Guest editContact(String name, String email, String phone, PhoneNormalizerPort normalizer) {
 		Contact contact = validatedContact(name, email, phone, normalizer);
 		return new Guest(id, contact.name, contact.email, contact.phoneE164, token, invitationStatus,
-				deliveryChannel, sentAt, openedAt);
+				deliveryChannel, sentAt, openedAt, Objects.equals(this.email, contact.email) ? emailSendCount : 0,
+				Objects.equals(this.email, contact.email) ? lastEmailSentAt : null);
 	}
 
 	private static Contact validatedContact(String name, String email, String phone, PhoneNormalizerPort normalizer) {
@@ -85,6 +96,14 @@ public final class Guest {
 	}
 
 	public String getId() { return id; }
+	public static Guest reconstitute(String id, String name, String email, String phoneE164, String token,
+			InvitationStatus invitationStatus, DeliveryChannel deliveryChannel, Instant sentAt, Instant openedAt,
+			int emailSendCount, Instant lastEmailSentAt) {
+		return new Guest(id, name, email, phoneE164, token, invitationStatus, deliveryChannel, sentAt, openedAt, emailSendCount, lastEmailSentAt);
+	}
+
+	public int getEmailSendCount() { return emailSendCount; }
+	public Instant getLastEmailSentAt() { return lastEmailSentAt; }
 	public String getName() { return name; }
 	public String getEmail() { return email; }
 	public String getPhoneE164() { return phoneE164; }

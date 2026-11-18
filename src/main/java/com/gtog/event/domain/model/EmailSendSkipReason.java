@@ -1,0 +1,3 @@
+package com.gtog.event.domain.model;
+
+public enum EmailSendSkipReason { NO_EMAIL, ALREADY_ANSWERED, THROTTLED, LIMIT_REACHED, DAILY_LIMIT, PROVIDER_UNAVAILABLE }

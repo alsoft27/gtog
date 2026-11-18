@@ -1,6 +1,6 @@
 # gtog — Plan de la iteración 1
 
-Estado a 17 de noviembre de 2026. Formato de errores de seguridad y MVC corregido; sin implementación de R10 todavía.
+Estado a 18 de noviembre de 2026. R10 en curso: reservas implementadas; SMTP y endpoint pendientes.
 
 ---
 
@@ -28,9 +28,10 @@ Estado a 17 de noviembre de 2026. Formato de errores de seguridad y MVC corregid
 | CSRF — Cookie inicial | El primer GET del anfitrión consume DeferredCsrfToken y emite XSRF-TOKEN. Las invitaciones públicas quedan excluidas; se conserva el valor crudo en la cabecera, sin renovación en login y con expiración en logout. 10 tests nuevos. |
 | Errores — Seguridad (commit 1) | AccessDeniedHandler y AuthenticationEntryPoint propios escriben directamente 403 y 401 ProblemDetail, sin sendError, con instance constante y no-store exacto. Los rechazos CSRF anónimos ya no acaban en 401. 3 tests nuevos respecto a la corrección de cookie inicial. |
 | Errores — MVC (commit 2) | Advice basado en ResponseEntityExceptionHandler de Spring 7.0.8, normalización de cuerpos y estados, conservación de Allow y fallback 500 de menor prioridad. Pruebas HTTP con servidor real: privacidad del cuerpo y del log, errores 400/404/405/406/415/500/503. 18 tests nuevos. D-ERROR-FORMAT saldada. |
+| R10 — Reservas de correo (commit 1) | Reservas atómicas del invitado y del anfitrión, límites configurables y compensaciones condicionadas. Reinicio al cambiar el correo y coexistencia con OPENED. 52 tests nuevos; sin envío SMTP ni endpoint todavía. |
 | Infraestructura | Java 25, Spring Boot 4.1, Maven por defecto, MongoDB Atlas, OpenAPI |
 
-**Verificación actual:** `mvn clean verify` pasa con **495 tests**, 0 fallos, 0 errores y 0 omitidos. R8 incorporó 150 casos; R9 añade 38: 27 en el commit 1 y 11 en el commit 2. La cookie inicial añadió 10 y la corrección de errores añade 21: 3 de seguridad y 18 de MVC. El ajuste separado a inyección por constructor no cambia el número de tests.
+**Verificación actual:** `mvn clean verify` pasa con **547 tests**, 0 fallos, 0 errores y 0 omitidos. R10, commit 1, añade 52: 17 de dominio, 7 de aplicación y 28 de persistencia. La base anterior tenía 495 tests.
 
 **Lo que eso valida:** la arquitectura hexagonal funciona en la práctica, el mapeo entre `Event` y `EventDocument` es asumible, y el circuito completo de desarrollo está operativo. Además, `Event.create(...)`/`reconstitute(...)` cambiaron de firma en las tres rebanadas seguidas, así que desde R3 `Event` se construye con dos builders internos (`Event.builder()` para eventos nuevos, `Event.reconstituteBuilder()` para rehidratar) en vez de factory methods con parámetros posicionales — ver `docs/modelo-evento.md`.
 
@@ -51,7 +52,8 @@ Esto no es una lista de pendientes cualquiera: son cosas que ya están mal a pro
 | D-ORPHAN-OPTION | **Carrera entre responder y eliminar una opción** | Un invitado puede responder con X después de consultar los ids usados y antes de guardar la lista que la elimina. No se añaden transacciones. La lectura tolera la opción inexistente: conserva myResponse, pero no confirma asistencia ni muestra ON_CONFIRMATION. | Pendiente de planificación |
 | D-LIST-SCALE | **Listado sin paginar con cálculo en memoria** | Desde el commit 2 de R9, el listado calcula contadores sobre todos los eventos del anfitrión y sus respuestas en memoria, con dos lecturas y sin paginación. Se acepta esta limitación; una sola consulta de respuestas evita N+1, pero no limita el volumen cargado. | Antes de necesitar paginación o grandes volúmenes |
 | D-CONFIRMED-LINK | **Confirmación de asistencia provisional en R7** | `InvitationViewFactory.guestHasConfirmed(...)` usa la respuesta propia: solo confirma si la opción todavía existe y tiene `countsAsAttendance = true`. Sin respuesta, opción inexistente o "No asisto", false. El filtro se comparte en GET y PUT sin consultas adicionales. | **Saldada en R8, commit 2.** |
-| D-EMAIL-NOT-SENT | **Correo de respuesta sin envío** | El correo opcional se valida y se guarda únicamente en `responses`; no sale en `myResponse` ni se envía confirmación por correo. | R10 |
+| D-EMAIL-NOT-SENT | **Envío de correo pendiente** | Invitaciones: reservas implementadas; SMTP y endpoint pendientes de los commits 2–3 de R10. La cita al responder sigue fuera de R10: el email de la respuesta solo se almacena y cualquier uso futuro requiere aprobación expresa y doble confirmación de su dueño. | Invitaciones: R10; cita: sin rebanada aprobada |
+| D-REGISTER-RATE-LIMIT | **Registro y login sin límite de peticiones** | Limitar abuso de creación de cuentas e intentos de autenticación antes del despliegue público. Las cuotas de correo no sustituyen esta protección. | Antes del despliegue público |
 | D-RATE-LIMIT | **Endpoint público sin límite de peticiones** | La entropía del token hace inviable adivinarlo, pero no protege frente a abuso o tráfico repetido sobre un enlace conocido. No hay rate limiting en R7. | Pendiente de planificación |
 | D-REFERRER | **Política de Referer del frontend** | La página del invitado lleva la credencial en la URL. Para evitar filtrarla al cargar un mapa de Google u otros recursos externos, el frontend debe servir la página con `Referrer-Policy: no-referrer`. La cabecera de la API no sustituye la política del documento del frontend. | Frontend, al integrar la página del invitado |
 | D-FINISHED | **`FINISHED` sin implementar** | No existe ningún mecanismo para que un evento pase a `FINISHED`. Ni job programado ni derivación al vuelo. | A definir: requiere decidir si es automático (por fecha) o manual (anfitrión lo marca) |
@@ -225,7 +227,8 @@ del evento. En PUBLISHED, fijar un plazo pasado equivale a cerrar las respuestas
 
 RF descarga de calendario implementada: el frontend solicita el archivo desde la página del invitado,
 por ejemplo después de responder (flujo del MVP §6). El email opcional se sigue guardando sin enviar nada:
-D-EMAIL-NOT-SENT permanece hasta R10. D-ORPHAN-OPTION también queda abierta; D-7 y D-CONFIRMED-LINK están saldadas.
+D-EMAIL-NOT-SENT sigue abierta: invitaciones pendientes de completar en R10 y cita al responder fuera de su
+alcance. D-ORPHAN-OPTION también queda abierta; D-7 y D-CONFIRMED-LINK están saldadas.
 
 **R9. Panel del anfitrión**
 **Commit 1 implementado:** `GET /api/events/{id}/dashboard`. El caso de uso comprueba propiedad (404 si es
@@ -268,48 +271,79 @@ ni un endpoint de respuesta manual en R9.
 
 ### Bloque D — Envío de invitaciones
 
-**R10. Envío por correo**
-Plantilla con las variables del evento y el enlace único. **Proveedor decidido: Mailjet por SMTP**, usando
-`spring-boot-starter-mail`, ya presente en el POM; sin dependencias nuevas. R10 y R12 quedan desbloqueadas
-en cuanto a la elección de proveedor. **Orden inmediato: R9 y después R10.** Esta decisión no implementa
-el envío ni salda todavía D-EMAIL-NOT-SENT.
+**R10. Envío por correo — en curso, tres commits**
 
-Condiciones aprobadas para R10:
+**Commit 1 implementado:** reservas atómicas y sus compensaciones, sin SMTP ni endpoint de envío todavía.
+Guest incorpora emailSendCount y lastEmailSentAt; User incorpora emailSendsInWindow y windowStartedAt.
+Los documentos antiguos se leen con 0/null, sin migración. El cambio de correo normalizado reinicia los
+campos del invitado dentro de la escritura parcial de R6; una edición equivalente los conserva.
 
-- Credenciales únicamente en las variables de entorno `MAILJET_API_KEY` y `MAILJET_SECRET_KEY`, nunca en
-  ficheros. No imprimirlas ni volcarlas a logs, tampoco en los tests.
-- `EmailSenderPort` con adaptador SMTP en producción y adaptador falso en tests. Ningún test envía correo real.
-- Mensajes en texto plano. Neutralizar los saltos de línea en asunto y nombres para impedir inyección de cabeceras.
-- STARTTLS obligatorio en el puerto 587 o SSL implícito en el 465, sin degradación a transporte sin cifrar.
-- Dominio y remitente validados en Mailjet, con SPF y DKIM, como requisito previo al envío real.
-- `SENT` por correo significa aceptado por el proveedor, no entregado al destinatario.
-- Si el envío falla, no se marca `SENT`; se informa del resultado por invitado, también en envíos en bloque.
-- La URL base del frontend usada para construir el enlace de invitación va en una propiedad configurable.
-- El registro de envío debe preservar OPENED: marcar SENT no puede hacerlo retroceder, igual que en R11.
-- Un envío de cita por invitado y dirección, con tope por invitado y contenido fijo sin comentario. El valor
-  concreto del tope sigue pendiente; no se implementa ahora.
+GuestEmailSendReservationPort vive en event/domain/port/out. Su adaptador usa $elemMatch, $inc del contador
+y de version y $set de lastEmailSentAt. El límite y el intervalo se imponen en la escritura, sin save(event).
+El intervalo permite el instante exacto. El comprobante conserva valores anteriores y la versión resultante.
+La compensación del invitado compara identidad, correo, contador, instante y versión: es conservadora,
+también ante una apertura o modificación de otro invitado. Si pierde la coincidencia, no borra cambios nuevos.
 
-Comportamientos que aún hay que concretar antes de implementar R10:
+HostSendQuotaPort se define en el dominio de event y lo implementa HostSendQuotaAdapter en infraestructura
+de user, que conoce users. No hay dependencia de event hacia user. La reserva del anfitrión usa un único
+findAndModify con pipeline condicionado: inicia o reinicia la ventana a partir de 24 horas inclusive,
+o incrementa solo por debajo del máximo. La compensación comprueba la ventana y evita contadores negativos.
+read calcula remaining desde el documento, y resetsAt=windowStartedAt+24h o null si no hay ventana vigente.
 
-- Ejecución síncrona o en segundo plano; límites de lote y contrato de resultados parciales por invitado.
-- Política de reintentos y reenvíos, envíos concurrentes y prevención de duplicados; tratamiento de la
-  aceptación SMTP seguida de un fallo al persistir SENT. No asumir transacciones entre SMTP y Mongo.
-- Estados del evento que admiten envío y política para invitados que ya respondieron o ya recibieron un envío.
-- Qué correos de confirmación de respuesta incluye R10 para saldar D-EMAIL-NOT-SENT, cuándo se disparan,
-  destinatario y si adjuntan el calendario o enlazan a su descarga.
-- Contrato de la plantilla: asunto, variables admitidas y valores por defecto; remitente visible y Reply-To.
+Orden: elegibilidad → reserva del invitado → reserva del anfitrión → envío. DAILY_LIMIT compensa al invitado
+y detiene el lote. Ante fallo del envío se compensa primero al anfitrión y después al invitado, sin reintentos.
+Una compensación fallida conserva el bloqueo del invitado. El log ERROR EMAIL_SEND_COMPENSATION_FAILED incluye
+stage, eventId, guestId, clase y correlación, nunca correo, token, mensaje ni causa. Si el contador retenido
+alcanza el máximo, requiere intervención manual: esperar el intervalo no lo libera. No hay recuperación automática.
+Una reserva de anfitrión con resultado incierto también conserva la del invitado y registra el diagnóstico.
 
-RF-2.17 queda aclarado: el reenvío a pendientes incluye a todos los invitados que no han respondido, con
-independencia de NOT_SENT, SENT u OPENED. La respuesta se deriva consultando responses para invitados vivos.
+Defaults: app.invitations.max-sends-per-guest=3, min-interval=PT1H,
+max-sends-per-host-per-day=100 y max-batch=20. Clock se inyecta; los comprobantes usan la precisión de Mongo.
+La confirmación parcial de SENT no rebaja OPENED y conserva la primera fecha. En este commit se prueba
+una única autorización de envío con dos lotes concurrentes y cuota 1, usando un contador simulado.
+El mensaje capturado y la prueba HTTP completa se incorporan con los commits 2 y 3.
 
-RF-2.14 (envío en bloque por correo): el endpoint de envío debe aceptar un listado de tokens además del individual, o exponer un endpoint `POST /api/events/{id}/invitations/send` que tome una lista.
+Auditoría del commit 1: usuario BSON sin campos de cuota, compensación seguida de guardado antiguo → 409,
+y comprobación de version en SENT. Mutaciones temporales aisladas: quitar el tope del invitado hace fallar
+el test concurrente con el máximo alcanzado; quitar la cuota del anfitrión hace fallar el de dos lotes con
+cuota 1. El test concurrente original del invitado sigue pasando sin tope porque el intervalo también
+protege esa carrera. Ambas condiciones se restauraron antes del build y de enmendar el commit.
 
-RF-2.15 (plantilla editable): la plantilla vive como campo `messageTemplate` en el documento del evento (campo nulo = texto por defecto generado en el backend). No hay colección separada porque no existen plantillas reutilizables entre eventos en el alcance del MVP. Se edita con el mismo `PUT /api/events/{id}` del bloque básico.
+**Commit 2 pendiente:** EmailSenderPort y SMTP Mailjet con el starter existente, sin dependencias nuevas.
+Un único destinatario por mensaje, sin CC/BCC ni Reply-To; remitente visible gtog. Texto plano fijo en español:
+anfitrión, título, fecha/hora en la zona del evento, lugar presencial o solo plataforma online, enlace de
+invitación y los dos textos fijos aprobados. Nunca incluir secretos de sala ni contactos de otros invitados.
+Asunto y nombres sin caracteres de control. Credenciales exclusivamente MAILJET_API_KEY/MAILJET_SECRET_KEY;
+TLS obligatorio en 587 y timeouts 5/10/10 s. Arranque permitido sin credenciales, SMTP desactivado sin configuración,
+adaptador falso en tests y ninguna prueba con correo real. Verificar la propiedad de salud de correo contra
+el informe de condiciones de Boot 4.1 antes de desactivarla. Errores traducidos a códigos; log de clase y correlación.
 
-RF-2.16 (copiar enlace individual): R6 devuelve `invitationPath: /r/{token}` exclusivamente en el alta y el listado de invitados. El frontend completa la ruta con su origen para copiar el enlace. No se expone un campo `token` suelto ni se añade a `EventResponse`; el `PUT` tampoco devuelve el enlace.
+**Commit 3 pendiente:** POST /api/events/{id}/invitations/send, autenticado, CSRF, propiedad comprobada en aplicación.
+Solo PUBLISHED: DRAFT/CANCELLED/FINISHED → 409; el enlace público de DRAFT conserva su 404.
+guestIds opcional: ausencia selecciona todos en orden de alta; lista vacía o repetidos → 422,
+id ajeno al evento → 404, antes de reservas o mensajes; superar max-batch → 422. Se exige verificar
+que las tres entradas inválidas no envían mensajes ni consumen cuota ni alteran contadores del invitado.
 
-RF-2.17 (reenvío): seleccionar invitados con `ANSWERED derivado == false`, sea cual sea su invitationStatus;
-el endpoint de envío en bloque de correo cubre este caso si acepta una lista de tokens.
+Respuesta 200 con results por invitado y dailyLimit {limit, remaining, resetsAt}, leído tras el lote desde users;
+no-store exacto. Elegibilidad con una sola consulta de respuestas para todo el lote y revalidación puntual antes
+de SMTP. SKIPPED: NO_EMAIL, ALREADY_ANSWERED, THROTTLED, LIMIT_REACHED, DAILY_LIMIT y PROVIDER_UNAVAILABLE.
+RF-2.17 incluye a NOT_SENT, SENT y OPENED sin respuesta; quien ya respondió se salta. Persiste la ventana de
+carrera entre la última consulta y SMTP, sin transacciones entre Mongo y proveedor.
+
+Ejecución síncrona, sin reintentos automáticos. Tres fallos consecutivos de proveedor cortan el lote y dejan
+los restantes SKIPPED/PROVIDER_UNAVAILABLE. Un rechazo de destinatario rompe esa racha; un salto de elegibilidad
+no es un intento de envío. DAILY_LIMIT detiene el lote y marca todos los restantes con ese motivo.
+
+SENT significa aceptado por SMTP, no entregado. Si se acepta pero falla registrar SENT, conservar reservas,
+no reenviar y devolver SENT con recorded=false; log ERROR con clase y correlación. El panel puede seguir
+mostrando NOT_SENT; un reenvío posterior puede duplicar el correo, acotado por intervalo y máximo de 3.
+El archivo manual rest-api-mail.http queda separado del recorrido y usa realRecipient del entorno privado.
+
+**RF-2.15 queda fuera del MVP:** plantilla editable con variables, anotada como seguimiento. No se añade
+messageTemplate. RF-2.16 conserva invitationPath /r/{token}; la URL base del frontend será configurable.
+El correo de GuestResponse sigue opcional y almacenado, nunca mostrado al anfitrión ni usado en R10.
+La cita al responder queda pendiente: cualquier uso futuro exige aprobación expresa y confirmar la dirección
+mediante doble confirmación antes de escribirle. No se debilita el test de privacidad del panel de R9.
 
 **R11. Enlaces de WhatsApp y Telegram**
 El backend construye el enlace profundo y lo devuelve; el envío lo hace el anfitrión. R11 implementará `SENT` con actualización posicional atómica e incremento de version. `OPENED` ya está implementado en R7: marcar `SENT` nunca puede sobrescribir un `OPENED` ni hacerlo retroceder.
@@ -359,3 +393,13 @@ Para no discutirlo cada vez:
 4. Sin anotaciones de framework en `domain/`.
 5. Documentada en OpenAPI, con anotaciones solo en `infrastructure/in/web`.
 6. Commit con mensaje convencional.
+
+## Bloqueadores de despliegue público
+
+- R12: verificación del correo del anfitrión.
+- D-REGISTER-RATE-LIMIT: límite de peticiones en registro y login.
+- D-RATE-LIMIT: protección contra abuso de las rutas públicas de invitación.
+- D-SWAGGER-PUBLIC: decisión y configuración de exposición de OpenAPI/Swagger.
+- D-SECURE-COOKIE: cookies seguras bajo HTTPS.
+- D-REFERRER del frontend: Referrer-Policy: no-referrer en la página con token.
+- Dominio y remitente de Mailjet verificados, con SPF, DKIM y DMARC en PASS.

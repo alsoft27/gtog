@@ -9,12 +9,15 @@ import com.gtog.user.domain.model.User;
 public class UserMapper {
 
 	public UserDocument toDocument(User user) {
-		return new UserDocument(
+		UserDocument document = new UserDocument(
 				user.getId(),
 				user.getName(),
 				user.getEmail(),
 				user.getPassword().hash(),
 				user.getTimeZone());
+		document.setEmailSendsInWindow(user.getEmailSendsInWindow());
+		document.setWindowStartedAt(user.getWindowStartedAt());
+		return document;
 	}
 
 	public User toDomain(UserDocument document) {
@@ -23,6 +26,6 @@ public class UserMapper {
 				document.getName(),
 				document.getEmail(),
 				Password.fromHash(document.getPasswordHash()),
-				document.getTimeZone());
+				document.getTimeZone(), document.getEmailSendsInWindow(), document.getWindowStartedAt());
 	}
 }

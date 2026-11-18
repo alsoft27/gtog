@@ -63,14 +63,14 @@ adicionales, check-in, cuentas de empresa, recordatorios automáticos, aplicaci�
 |---------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | RF-2.8  | Al invitar, el anfitrión elige el canal por invitado: correo, WhatsApp o Telegram.                                                                                                                                                                |
 | RF-2.9  | Los canales disponibles dependen de los datos capturados: correo requiere correo; WhatsApp y Telegram requieren teléfono. Los no disponibles se muestran deshabilitados con la razón.                                                             |
-| RF-2.10 | **Correo:** el backend envía el mensaje con la plantilla del evento y el enlace único. Es el único canal con envío automático real.                                                                                                               |
+| RF-2.10 | **Correo:** Mailjet por SMTP, mensaje fijo en español y enlace individual; solo PUBLISHED y sin respuesta previa. Cuotas y reservas implementadas en R10, commit 1; transporte y endpoint pendientes de los commits 2–3. Sin envío al correo dejado en la respuesta. |
 | RF-2.11 | **WhatsApp:** la aplicación abre `https://wa.me/<E164>?text=<mensaje>` en una pestaña nueva, con el mensaje y el enlace ya redactados. El anfitrión confirma el envío en WhatsApp.                                                                |
 | RF-2.12 | **Telegram:** mismo mecanismo con `https://t.me/share/url=<enlace>&text=<mensaje>`.                                                                                                                                                               |
 | RF-2.13 | Tras abrir WhatsApp o Telegram, la aplicación pregunta al anfitrión si el envío se completó y marca el invitado en consecuencia.                                                                                                                  |
-| RF-2.14 | Envío en bloque por canal: seleccionar varios invitados y disparar el envío. En correo es automático; en WhatsApp y Telegram se abre una pestaña por invitado, en secuencia asistida para evitar el bloqueo de ventanas emergentes del navegador. |
-| RF-2.15 | Plantilla del mensaje editable por el anfitrión, con variables de nombre del invitado, título del evento, fecha y enlace.                                                                                                                         |
+| RF-2.14 | Envío en bloque por canal. Correo síncrono con máximo configurable (20 por defecto), resultado por invitado y sin reintentos automáticos. Tras tres fallos consecutivos de proveedor se corta el lote. WhatsApp/Telegram siguen asistidos. Contrato de correo pendiente de completar en R10. |
+| RF-2.15 | Fuera del MVP por decisión del usuario: plantilla editable con variables. Queda como seguimiento; R10 usa texto fijo en español y no incorpora messageTemplate. |
 | RF-2.16 | Botón de copiar el enlace individual, para pegarlo en cualquier otro medio.                                                                                                                                                                       |
-| RF-2.17 | Reenvío individual o a todos los que no han respondido.                                                                                                                                                                                           |
+| RF-2.17 | Reenvío individual o a los invitados que no respondieron, incluidos OPENED. Sin correo o con respuesta se salta con motivo. Máximo 3 por invitado, intervalo PT1H y cuota de anfitrión 100 por ventana de 24 h, configurables. Reservas implementadas; endpoint de R10 pendiente. |
 
 **Estado de invitación por invitado:** `Sin enviar → Enviada → Abierta → Respondida`. El estado *Abierta* solo se
 detecta al abrir el enlace, no por el canal. En WhatsApp y Telegram, *Enviada* se basa en la confirmación manual del
@@ -147,7 +147,9 @@ anfitrión (RF-2.13); esta limitación debe ser visible en la interfaz para que 
 5. Envía `PUT /api/invitations/{token}/response`, sin sesión ni CSRF, con `responseOptionId`, `comment` y `email`
    opcionales salvo la opción. La opción debe pertenecer al evento. Un comentario con contenido requiere
    `allowComment` y admite hasta 500 caracteres; en blanco se trata como ausente y se guarda como null.
-   El correo, si viene, se valida y guarda, pero no se envía nada (D-EMAIL-NOT-SENT, hasta R10).
+   El correo, si viene, se valida y guarda. No se muestra al anfitrión ni se usa para enviar nada en R10.
+   Cualquier uso futuro necesita aprobación expresa y doble confirmación de la dirección antes de escribirle.
+   D-EMAIL-NOT-SENT sigue abierta para la cita al responder.
 6. Recibe 200 con la invitación y `myResponse` (opción, comentario, answeredAt y updatedAt, sin email).
    GET también incluye esos datos, o los omite si no hay respuesta, y calcula `canChangeResponse` en el backend:
    exige respuesta existente, permiso de cambio, PUBLISHED, plazo no vencido y evento aún no terminado.
@@ -207,7 +209,6 @@ events
   modality (IN_PERSON | ONLINE),
   status (DRAFT | PUBLISHED | FINISHED | CANCELLED),
   allowComment, allowResponseChange, responseDeadline,
-  messageTemplate,             // plantilla del mensaje de invitación, editable por el anfitrión; null = texto por defecto
 
   venue                        // solo si modality = IN_PERSON
     { placeName, address, latitude, longitude, placeId, directions }
@@ -263,8 +264,9 @@ wall_posts                     // iteración 2, referencia el evento
 - La fecha del evento es única y la fija el anfitrión. La votación entre varias fechas llega en la siguiente iteración.
 - Sin acompañantes ni campos personalizados: una respuesta por invitado.
 - Un evento es presencial o en línea, nunca ambos. El híbrido queda para una iteración posterior.
-- Al invitado que llegó por WhatsApp o Telegram se le pide el correo en el momento de responder, a cambio del archivo de
-  calendario. Es la única forma de obtener ese dato cuando la invitación no viajó por correo.
+- El correo al responder es opcional y se mantiene almacenado para posibles funcionalidades futuras. No se
+  expone al anfitrión ni a otros invitados, y R10 no lo usa. Antes de cualquier uso futuro se exige aprobación
+  expresa y doble confirmación, porque la operación pública permite indicar una dirección sin conocimiento de su dueño.
 - **Base de datos documental (MongoDB) en lugar de relacional.** El evento se trabaja como un todo y las opciones de
   respuesta configurables encajan de forma natural en un documento, sin la tabla adicional que exigiría un modelo
   relacional.

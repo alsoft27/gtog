@@ -1,7 +1,7 @@
 # Modelo de datos: Invitado
 
-Estado tras R8 completa, commits 0–4, 14 de noviembre de 2026. Gestión de invitados del anfitrión, consulta pública,
-registro de respuestas, enlace por confirmación, opciones publicadas, cascada real y descarga de calendario.
+Estado tras R8 y R9, con reservas de correo de R10, commit 1, a 18 de noviembre de 2026. Gestión de invitados,
+consulta pública, respuestas, panel y calendario; el transporte SMTP y el endpoint de envío siguen pendientes.
 
 La preparación de R8 (commit 0) añade el plazo editable por el anfitrión mediante
 `PUT /api/events/{id}/response-deadline`: DRAFT, o PUBLISHED estrictamente antes del inicio. null lo elimina;
@@ -26,13 +26,17 @@ comparte agregado y documento. No existe colección ni hexágono `guest` separad
 | `deliveryChannel` | `DeliveryChannel`, nullable | `EMAIL`, `WHATSAPP`, `TELEGRAM`, `LINK`; inicialmente nulo |
 | `sentAt` | `Instant`, nullable | Instante UTC de envío; inicialmente nulo |
 | `openedAt` | `Instant`, nullable | Instante UTC de apertura; inicialmente nulo |
+| `emailSendCount` | `int` | Reservas de correo consumidas; ausente significa 0 |
+| `lastEmailSentAt` | `Instant`, nullable | Instante de la última reserva; ausente significa null |
 
-**La respuesta no vive aquí. `ANSWERED` no es un valor del enum ni se almacena.** Se deriva de la existencia de un documento en `responses`; el panel del anfitrión sigue pendiente de R9.
-La primera apertura se implementa en R7. El envío y la transición a SENT siguen pendientes de R10–R11.
+**La respuesta no vive aquí. `ANSWERED` no es un valor del enum ni se almacena.** El panel de R9 lo deriva
+desde los invitados vivos y sus documentos de respuesta. OPENED está implementado desde R7; R10, commit 1,
+prepara la escritura de SENT, pero el envío SMTP sigue pendiente de los commits 2–3 y los otros canales de R11.
 
 `Guest.create(...)` valida y normaliza contactos, genera el id y aplica el estado inicial.
 `editContact(...)` devuelve un invitado con los contactos sustituidos y conserva identidad, token y todo el
-historial de envío. `reconstitute(...)` rehidrata sin generar nada ni repetir la validación.
+historial de envío, salvo emailSendCount/lastEmailSentAt, que se reinician si cambia el correo normalizado.
+`reconstitute(...)` rehidrata sin generar nada ni repetir la validación.
 
 El agregado `Event` expone `addGuest`, `updateGuest`, `removeGuest`, `getGuest` y una lista inmodificable mediante
 `getGuests`. Solo permite mutaciones en `DRAFT` y `PUBLISHED`; se puede consultar en cualquier estado.
@@ -113,6 +117,38 @@ alternativa. También un `save()` antiguo del evento falla por bloqueo optimista
 Referencias: [índices multiclave únicos](https://www.mongodb.com/docs/manual/core/indexes/index-types/index-multikey/),
 [índices parciales](https://www.mongodb.com/docs/manual/core/index-partial/) y
 [actualizaciones atómicas](https://www.mongodb.com/docs/manual/core/write-operations-atomicity/).
+
+## Reservas de correo (R10, commit 1)
+
+Implementadas sin SMTP ni endpoint de envío todavía. EmailSendPolicy evalúa estado PUBLISHED, correo,
+respuesta existente, máximo por invitado e intervalo. Los datos de respuesta siguen fuera de guests[].
+La selección de todo el lote y la revalidación de respuesta pertenecen al caso de uso del commit 3.
+
+GuestEmailSendReservationAdapter reserva mediante actualización posicional con $elemMatch de id y correo,
+emailSendCount menor que el máximo (o ausente), y lastEmailSentAt nulo/ausente o menor o igual al umbral.
+Incrementa contador y version y fija el instante en la misma escritura. El documento anterior proporciona
+el comprobante de compensación; no se lee-modifica-guarda. Un rechazo por límite o intervalo no escribe.
+Los comprobantes usan precisión de milisegundos, igual que Mongo. Cambiar el correo normalizado reinicia
+ambos campos dentro de la edición atómica de R6 y su control de versión; cambiar solo nombre/teléfono no.
+
+Orden aprobado: elegibilidad → reserva del invitado → reserva del anfitrión → SMTP. Un fallo de cuota del
+anfitrión compensa al invitado y detiene el lote con DAILY_LIMIT. Si falla SMTP se compensa primero al
+anfitrión y después al invitado. Si falla la compensación del anfitrión, no se libera al invitado. No hay
+reintentos automáticos. La compensación del invitado exige la versión resultante de su reserva; cualquier
+cambio posterior puede impedirla de forma conservadora, sin deshacer una apertura ni una reserva nueva.
+
+El log ERROR EMAIL_SEND_COMPENSATION_FAILED indica stage, eventId, guestId, clase y correlationId, sin
+correo, token, mensaje ni causa. Una reserva retenida sigue imponiendo el intervalo; si agotó el máximo,
+requiere intervención manual incluso después de pasar el intervalo. No existe recuperación automática.
+
+recordSent solo pasa NOT_SENT a SENT, con canal EMAIL; conserva la primera sentAt y no rebaja OPENED.
+SMTP aceptado con fallo al registrar se tratará en el commit 3 como SENT/recorded=false, sin compensar ni
+reenviar, con log ERROR de clase y correlación. El panel puede seguir en NOT_SENT y un reenvío posterior
+puede duplicar el correo, acotado por máximo e intervalo.
+
+Para el lote aprobado, un destinatario rechazado rompe la racha de errores de proveedor; un salto de
+elegibilidad no es un envío. Tres errores de proveedor consecutivos dejan el resto SKIPPED/PROVIDER_UNAVAILABLE.
+Los mensajes y el corte de lote se implementan en los commits 2–3, no en este commit de reservas.
 
 ## Aplicación y API
 
@@ -248,7 +284,9 @@ campo a campo y compartido con GET. No registra una apertura ni modifica el docu
 
 Comentario null o en blanco se guarda como null, incluso con allowComment=false. El contenido no vacío se
 conserva. Email null o en blanco es ausente; el resto se normaliza sin espacios exteriores y en minúsculas.
-El email se almacena únicamente en la respuesta y no se envía ningún correo (D-EMAIL-NOT-SENT, hasta R10).
+El email se almacena únicamente en la respuesta. No se muestra al anfitrión ni a otros invitados, y R10 no lo
+usa para enviar nada. Cualquier uso futuro requiere aprobación expresa y doble confirmación de la dirección:
+el PUT público permite indicar una dirección sin conocimiento de su dueño. D-EMAIL-NOT-SENT sigue abierta para la cita.
 
 Con allowResponseChange=false se ejecuta un insert sin consultar existencia antes: el índice único decide
 la carrera. El comando de inserción conserva `code` y `keyPattern` que el driver pierde al construir

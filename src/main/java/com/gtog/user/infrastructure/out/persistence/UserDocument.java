@@ -1,5 +1,6 @@
 package com.gtog.user.infrastructure.out.persistence;
 
+import java.time.Instant;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.mapping.Document;
 
@@ -12,6 +13,8 @@ public class UserDocument {
 	private String email;
 	private String passwordHash;
 	private String timeZone;
+	private Integer emailSendsInWindow;
+	private Instant windowStartedAt;
 
 	public UserDocument() {
 	}
@@ -25,6 +28,10 @@ public class UserDocument {
 	}
 
 	public String getId() { return id; }
+	public int getEmailSendsInWindow() { return emailSendsInWindow == null ? 0 : emailSendsInWindow; }
+	public void setEmailSendsInWindow(int value) { emailSendsInWindow = value; }
+	public Instant getWindowStartedAt() { return windowStartedAt; }
+	public void setWindowStartedAt(Instant value) { windowStartedAt = value; }
 	public void setId(String id) { this.id = id; }
 	public String getName() { return name; }
 	public void setName(String name) { this.name = name; }

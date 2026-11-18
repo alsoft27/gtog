@@ -2,6 +2,7 @@ package com.gtog.user.domain.model;
 
 import java.time.DateTimeException;
 import java.time.ZoneId;
+import java.time.Instant;
 import java.util.UUID;
 import java.util.regex.Pattern;
 
@@ -14,13 +15,21 @@ public class User {
 	private final String email;
 	private final Password password;
 	private final String timeZone;
+	private final int emailSendsInWindow;
+	private final Instant windowStartedAt;
 
 	private User(String id, String name, String email, Password password, String timeZone) {
+		this(id, name, email, password, timeZone, 0, null);
+	}
+
+	private User(String id, String name, String email, Password password, String timeZone, int emailSendsInWindow, Instant windowStartedAt) {
 		this.id = id;
 		this.name = name;
 		this.email = email;
 		this.password = password;
 		this.timeZone = timeZone;
+		this.emailSendsInWindow = emailSendsInWindow;
+		this.windowStartedAt = windowStartedAt;
 	}
 
 	/** Para usuarios nuevos: genera UUID, normaliza el email a minúsculas y valida los campos. */
@@ -49,6 +58,12 @@ public class User {
 	}
 
 	public String getId() { return id; }
+	public static User reconstitute(String id, String name, String email, Password password, String timeZone,
+			int emailSendsInWindow, Instant windowStartedAt) {
+		return new User(id, name, email, password, timeZone, emailSendsInWindow, windowStartedAt);
+	}
+	public int getEmailSendsInWindow() { return emailSendsInWindow; }
+	public Instant getWindowStartedAt() { return windowStartedAt; }
 	public String getName() { return name; }
 	public String getEmail() { return email; }
 	public Password getPassword() { return password; }
