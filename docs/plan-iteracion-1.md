@@ -453,8 +453,16 @@ con {{realPhone}} del entorno http-client.private.env.json, publica, genera y co
 la URL; el usuario abre y envía desde WhatsApp antes de confirmar. No se ha ejecutado automáticamente.
 El fichero privado sigue ignorado por Git y no se crea ni se versiona.
 
+**Observación abierta — emojis en WhatsApp:** en una prueba manual, el emoji 🎉 del título del mensaje
+llegó como un carácter de reemplazo, mientras las tildes y el guion largo llegaron bien. El mismo título
+con emoji se vio correcto en el asunto y el cuerpo del correo. Causa sin determinar: puede estar en la
+codificación de la URL de wa.me en nuestro código o en cómo WhatsApp interpreta el parámetro.
+Pendiente medir `new URL(url).searchParams.get("text")` sobre la URL final y compararlo con `message`.
+Si el defecto es nuestro, añadir un test sobre esa URL final con 🎉, 👨‍👩‍👧‍👦, 🇪🇸 y 👍🏽.
+
 **Frontend futuro:** abrir enlaces de uno en uno tras un gesto del usuario; varios popups pueden bloquearse.
 Confirmar después de cada envío y mostrar message como alternativa de copia si WhatsApp no abre.
+Si se confirma que WhatsApp estropea los emojis, mostrar `message` como alternativa de copia.
 MESSAGE_TOO_LONG puede afectar a todo el evento por un título con emojis: cada emoji sencillo de cuatro
 bytes suele ocupar unos 12 caracteres al codificarse; los compuestos consumen más. Sugerir acortar el título.
 Los nombres de invitado y anfitrión también pasan por la limpieza y recorte a 100 grafemas del título.
