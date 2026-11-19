@@ -1,0 +1,131 @@
+# R11 — Prueba manual de WhatsApp. Independiente de rest-api.http: no ejecutar como recorrido automático.
+# Arranca tú el backend y selecciona un entorno de http-client.private.env.json con realPhone (E.164).
+# No crees ni versiones ese fichero desde este recorrido. No escribas aquí teléfonos reales ni credenciales.
+# Ejecuta 00–06 en orden. El único client.log imprime la URL del paso 06: contiene el token; no la compartas.
+# Abre ese enlace por tu cuenta y envía desde tu cuenta de WhatsApp. SOLO DESPUÉS ejecuta 07 para confirmarlo.
+# gtog no abre WhatsApp ni envía mensajes; SENT es tu declaración, no una prueba de entrega.
+
+@baseUrl = http://localhost:8080
+@password = WhatsAppSmoke2026!
+
+### 00 — Obtener CSRF e iniciar este recorrido independiente
+# @no-cookie-jar
+< {%
+    ["gtogWhatsAppCsrf", "gtogWhatsAppSession", "gtogWhatsAppEventId", "gtogWhatsAppGuestId", "gtogWhatsAppEmail", "gtogWhatsAppStartsAt", "gtogWhatsAppEndsAt"].forEach(function (name) { client.global.clear(name); });
+    client.global.set("gtogWhatsAppEmail", "whatsapp-host-" + Date.now() + "@example.com");
+    const date = new Date();
+    date.setDate(date.getDate() + 7);
+    const localDate = date.getFullYear() + "-" + String(date.getMonth() + 1).padStart(2, "0") + "-" + String(date.getDate()).padStart(2, "0");
+    client.global.set("gtogWhatsAppStartsAt", localDate + "T18:00:00");
+    client.global.set("gtogWhatsAppEndsAt", localDate + "T20:00:00");
+%}
+GET {{baseUrl}}/actuator/health
+
+> {%
+    const cookie = response.cookiesByName("XSRF-TOKEN")[0];
+    client.assert(response.status === 200 && !!cookie && !!cookie.value, "Cannot bootstrap CSRF");
+    client.global.set("gtogWhatsAppCsrf", cookie.value);
+%}
+
+### 01 — Registrar anfitrión
+# @no-cookie-jar
+POST {{baseUrl}}/api/auth/register
+Content-Type: application/json
+Cookie: XSRF-TOKEN={{gtogWhatsAppCsrf}}
+X-XSRF-TOKEN: {{gtogWhatsAppCsrf}}
+
+{ "name": "Anfitrión de prueba", "email": "{{gtogWhatsAppEmail}}", "rawPassword": "{{password}}", "timeZone": "Europe/Madrid" }
+
+> {% client.test("Registration returns 201", function () { client.assert(response.status === 201, "Registration failed"); }); %}
+
+### 02 — Iniciar sesión
+# @no-cookie-jar
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+Cookie: XSRF-TOKEN={{gtogWhatsAppCsrf}}
+X-XSRF-TOKEN: {{gtogWhatsAppCsrf}}
+
+{ "email": "{{gtogWhatsAppEmail}}", "password": "{{password}}" }
+
+> {%
+    client.assert(response.status === 200, "Login failed");
+    const session = response.cookiesByName("JSESSIONID")[0];
+    client.assert(!!session && !!session.value, "Missing session");
+    client.global.set("gtogWhatsAppSession", session.value);
+%}
+
+### 03 — Crear evento presencial
+# @no-cookie-jar
+POST {{baseUrl}}/api/events
+Content-Type: application/json
+Cookie: XSRF-TOKEN={{gtogWhatsAppCsrf}}; JSESSIONID={{gtogWhatsAppSession}}
+X-XSRF-TOKEN: {{gtogWhatsAppCsrf}}
+
+{
+  "title": "Invitación de prueba — reunión 🎉",
+  "startsAt": "{{gtogWhatsAppStartsAt}}", "endsAt": "{{gtogWhatsAppEndsAt}}",
+  "timeZone": "Europe/Madrid", "modality": "IN_PERSON",
+  "venue": { "placeName": "Sala de prueba", "address": "Calle de prueba 1, Madrid", "latitude": 40.4168, "longitude": -3.7038, "placeId": "manual-whatsapp-place" }
+}
+
+> {%
+    client.assert(response.status === 201, "Event creation failed");
+    client.global.set("gtogWhatsAppEventId", response.body.id);
+%}
+
+### 04 — Añadir el teléfono del entorno privado
+# @no-cookie-jar
+POST {{baseUrl}}/api/events/{{gtogWhatsAppEventId}}/guests
+Content-Type: application/json
+Cookie: XSRF-TOKEN={{gtogWhatsAppCsrf}}; JSESSIONID={{gtogWhatsAppSession}}
+X-XSRF-TOKEN: {{gtogWhatsAppCsrf}}
+
+{ "name": "Invitado de prueba", "phone": "{{realPhone}}" }
+
+> {%
+    client.assert(response.status === 201, "Guest creation failed; check realPhone in the private environment");
+    client.global.set("gtogWhatsAppGuestId", response.body.id);
+%}
+
+### 05 — Publicar
+# @no-cookie-jar
+POST {{baseUrl}}/api/events/{{gtogWhatsAppEventId}}/publish
+Content-Type: application/json
+Cookie: XSRF-TOKEN={{gtogWhatsAppCsrf}}; JSESSIONID={{gtogWhatsAppSession}}
+X-XSRF-TOKEN: {{gtogWhatsAppCsrf}}
+
+> {% client.test("Publication returns PUBLISHED", function () { client.assert(response.status === 200 && response.body.status === "PUBLISHED", "Publication failed"); }); %}
+
+### 06 — Generar y mostrar SOLO la URL; abrirla y enviar por tu cuenta antes de continuar
+# @no-cookie-jar
+POST {{baseUrl}}/api/events/{{gtogWhatsAppEventId}}/invitations/whatsapp-links
+Content-Type: application/json
+Cookie: XSRF-TOKEN={{gtogWhatsAppCsrf}}; JSESSIONID={{gtogWhatsAppSession}}
+X-XSRF-TOKEN: {{gtogWhatsAppCsrf}}
+
+{ "guestIds": ["{{gtogWhatsAppGuestId}}"] }
+
+> {%
+    client.assert(response.status === 200 && response.body.results.length === 1, "Unexpected generation result");
+    const result = response.body.results[0];
+    client.assert(result.status === "READY" && !!result.url, "Link is not ready");
+    client.assert(response.headers.valueOf("Cache-Control") === "no-store", "Unexpected Cache-Control");
+    client.log(result.url);
+%}
+
+### 07 — SOLO DESPUÉS de enviarlo en WhatsApp: confirmar el envío declarado
+# @no-cookie-jar
+POST {{baseUrl}}/api/events/{{gtogWhatsAppEventId}}/invitations/whatsapp-sent
+Content-Type: application/json
+Cookie: XSRF-TOKEN={{gtogWhatsAppCsrf}}; JSESSIONID={{gtogWhatsAppSession}}
+X-XSRF-TOKEN: {{gtogWhatsAppCsrf}}
+
+{ "guestIds": ["{{gtogWhatsAppGuestId}}"] }
+
+> {%
+    client.test("First send is recorded or was already recorded", function () {
+        client.assert(response.status === 200 && response.body.results.length === 1, "Unexpected confirmation result");
+        client.assert(["MARKED", "ALREADY_SENT", "ALREADY_OPENED"].indexOf(response.body.results[0].status) >= 0, "Send not recorded");
+        client.assert(response.headers.valueOf("Cache-Control") === "no-store", "Unexpected Cache-Control");
+    });
+%}

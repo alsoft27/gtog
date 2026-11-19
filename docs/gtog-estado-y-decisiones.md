@@ -212,7 +212,7 @@ Esto no es un retraso, es dónde está el proyecto. Pero conviene tenerlo presen
 | **R8** | Registrar respuesta | La colección `responses` y el archivo de calendario |
 | **R9** | Panel del anfitrión | Contadores por opción y seguimiento |
 | **R10** | Envío por correo | Cerrada: reservas, transporte Mailjet SMTP y endpoint, en tres commits. Resultado por invitado y cuota final; SMTP aceptado sin registro se informa como SENT/recorded=false, sin reenvío. Sin correo real en tests; salud de correo desactivada con propiedad verificada en Boot 4.1. Siguiente: R11 |
-| **R11** | Solo WhatsApp asistido | Generación de enlaces implementada sin escrituras; confirmación pendiente del commit 2. Telegram aplazado, con su formato de enlace sin verificar |
+| **R11** | Solo WhatsApp asistido | Cerrada: generación sin escrituras y confirmación idempotente con teléfono en los filtros, incremento de version y preservación de OPENED/canal/fecha. SENT declarativo. Prueba manual independiente rest-api-whatsapp.http; Telegram aplazado, con su formato de enlace sin verificar. Siguiente: R12 |
 | **R12** | Verificación de correo y recuperación de contraseña | Depende de R10 |
 
 ---

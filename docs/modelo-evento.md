@@ -366,7 +366,7 @@ y emails de respuesta, huérfanos y documentos sin cambios tras la lectura.
 
 ## Fuera de alcance por ahora
 
-- Transición a `SENT` y envío por email/WhatsApp/Telegram. OPENED está implementado desde R7.
+- Telegram sigue pendiente, fuera de R11. `SENT` por correo está implementado desde R10 y por confirmación manual de WhatsApp desde R11; OPENED desde R7. WhatsApp completa canal/fecha en OPENED sin rebajarlo, mediante escrituras posicionales con incremento de version.
 - `FINISHED`: no implementado (D-FINISHED).
 - Borrar un borrador: no implementado (D-DELETE-DRAFT).
 - Muro social, acompañantes, check-in: iteración 2 o posteriores.

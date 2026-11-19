@@ -1,6 +1,6 @@
 # gtog — Plan de la iteración 1
 
-Estado a 19 de noviembre de 2026. R11 en curso, solo WhatsApp: generación de enlaces implementada; confirmación pendiente del commit 2. Telegram queda fuera de R11.
+Estado a 19 de noviembre de 2026. R11 cerrada, solo WhatsApp: generación sin escrituras y confirmación idempotente implementadas. Telegram queda fuera de R11. Siguiente: R12.
 
 ---
 
@@ -33,9 +33,10 @@ Estado a 19 de noviembre de 2026. R11 en curso, solo WhatsApp: generación de en
 | R10 — Endpoint de correo (commit 3) | POST /api/events/{id}/invitations/send: propiedad, CSRF, lote síncrono, resultados individuales y dailyLimit final; no-store exacto. Corte tras tres fallos de proveedor o cuota agotada, compensaciones y SENT/recorded=false explícito. Clasificación SMTP conservadora, sin confundir remitente y destinatario. 44 tests nuevos (10 de dominio, 26 con servidor real y 8 de clasificación SMTP), siempre con correo falso. R10 cerrada; siguiente: R11. |
 | Invitación — Disponibilidad de respuesta | InvitationResponse añade canRespond, calculado con ResponseAcceptancePolicy compartida con PUT. Ventana PUBLISHED, plazo inclusive, fin exclusivo y permiso de cambio si ya existe respuesta. canChangeResponse conserva su significado. Sin consultas previas nuevas ni cambios en insert/upsert. 17 tests nuevos: 4 de dominio y 13 de coherencia GET/PUT con Clock fijo. |
 | R11 — Generación WhatsApp (commit 1) | POST /api/events/{id}/invitations/whatsapp-links: autenticado, CSRF, propiedad y solo PUBLISHED. READY con url/message o SKIPPED por invitado. Una lectura de respuestas por lote, ninguna escritura ni llamada a reservas/cuotas. Máximo independiente 100, UTF-8 con %20/%0A, recorte de título/lugar a 100 grafemas y URL máxima conservadora de 2000 caracteres. 67 tests nuevos; confirmación pendiente. |
+| R11 — Confirmación WhatsApp (commit 2) | POST /api/events/{id}/invitations/whatsapp-sent: cuerpo/lista obligatorios, seguridad y máximo compartidos con generación. Dos actualizaciones con $elemMatch y teléfono en el filtro, incremento de version y Clock inyectado. Completa envío en OPENED sin rebajarlo; preserva primer canal/fecha. Idempotencia, concurrencia, retirada y 409 a mitad de lote probados con servidor real. Archivo manual independiente rest-api-whatsapp.http. R11 cerrada. |
 | Infraestructura | Java 25, Spring Boot 4.1, Maven por defecto, MongoDB Atlas, OpenAPI |
 
-**Verificación actual:** `mvn clean verify` pasa con **711 tests**, 0 fallos, 0 errores y 0 omitidos. R11, commit 1, añade 67 sobre los 639 anteriores; la corrección posterior de nombres añade 5 (4 de composición y 1 HTTP). Los tests del correo se mantienen sin modificar y siguen en verde. Ninguna prueba abre WhatsApp ni envía correo o mensajes reales.
+**Verificación actual:** `mvn clean verify` pasa con **756 tests**, 0 fallos, 0 errores y 0 omitidos. R11, commit 1, añade 67 sobre los 639 anteriores; la corrección posterior de nombres añade 5 (4 de composición y 1 HTTP), y el commit 2 añade 45 (7 de dominio, 4 de aplicación y 34 HTTP). Los tests del correo se mantienen sin modificar y siguen en verde. Ninguna prueba abre WhatsApp ni envía correo o mensajes reales.
 
 **Lo que eso valida:** la arquitectura hexagonal funciona en la práctica, el mapeo entre `Event` y `EventDocument` es asumible, y el circuito completo de desarrollo está operativo. Además, `Event.create(...)`/`reconstitute(...)` cambiaron de firma en las tres rebanadas seguidas, así que desde R3 `Event` se construye con dos builders internos (`Event.builder()` para eventos nuevos, `Event.reconstituteBuilder()` para rehidratar) en vez de factory methods con parámetros posicionales — ver `docs/modelo-evento.md`.
 
@@ -58,7 +59,7 @@ Esto no es una lista de pendientes cualquiera: son cosas que ya están mal a pro
 | D-CONFIRMED-LINK | **Confirmación de asistencia provisional en R7** | `InvitationViewFactory.guestHasConfirmed(...)` usa la respuesta propia: solo confirma si la opción todavía existe y tiene `countsAsAttendance = true`. Sin respuesta, opción inexistente o "No asisto", false. El filtro se comparte en GET y PUT sin consultas adicionales. | **Saldada en R8, commit 2.** |
 | D-EMAIL-NOT-SENT | **Cita al responder pendiente** | **Saldada para invitaciones en R10.** La cita al responder sigue fuera de R10: el email de la respuesta solo se almacena, no se usa para ningún envío; cualquier uso futuro requiere aprobación expresa y doble confirmación de su dueño. | Cita: sin rebanada aprobada |
 | D-BOUNCES | **Sin procesamiento de rebotes ni quejas del proveedor** | SENT significa aceptado por SMTP, no entregado. No se procesan rebotes ni quejas; las direcciones inválidas pueden afectar a la reputación del dominio. | Antes del despliegue público |
-| D-WHATSAPP-TRUST | **SENT por WhatsApp es declarativo** | El anfitrión afirma haber enviado el mensaje desde su propia cuenta. gtog no puede verificar el envío ni la entrega. Generar enlaces no marca nada; la confirmación se implementará en el commit 2 de R11. | Límite aceptado; mostrarlo en el frontend |
+| D-WHATSAPP-TRUST | **SENT por WhatsApp es declarativo** | El anfitrión afirma haber enviado el mensaje desde su propia cuenta. gtog no puede verificar el envío ni la entrega. Generar enlaces no marca nada; whatsapp-sent registra la declaración desde el commit 2 de R11. | Límite aceptado; mostrarlo en el frontend |
 | D-REGISTER-RATE-LIMIT | **Registro y login sin límite de peticiones** | Limitar abuso de creación de cuentas e intentos de autenticación antes del despliegue público. Las cuotas de correo no sustituyen esta protección. | Antes del despliegue público |
 | D-RATE-LIMIT | **Endpoint público sin límite de peticiones** | La entropía del token hace inviable adivinarlo, pero no protege frente a abuso o tráfico repetido sobre un enlace conocido. No hay rate limiting en R7. | Pendiente de planificación |
 | D-REFERRER | **Política de Referer del frontend** | La página del invitado lleva la credencial en la URL. Para evitar filtrarla al cargar un mapa de Google u otros recursos externos, el frontend debe servir la página con `Referrer-Policy: no-referrer`. La cabecera de la API no sustituye la política del documento del frontend. | Frontend, al integrar la página del invitado |
@@ -274,7 +275,7 @@ Las lecturas en todos los estados no modifican documentos ni version. El listado
 Spring Security, sin no-store propio; solo el 200 del panel fija ese valor exacto. OpenAPI documenta los cuatro
 contadores. D-LIST-SCALE documenta la limitación de volumen en memoria y ausencia de paginación.
 
-**R9 y R10 cerradas. R11, solo WhatsApp, en curso; Telegram queda fuera de esta rebanada.**
+**R9, R10 y R11 cerradas. R11 solo WhatsApp; Telegram queda fuera. Siguiente: R12.**
 
 Registrar manualmente respuestas recibidas por otro medio queda fuera del MVP. Si se incorpora después,
 GuestResponse ganará un campo source; su ausencia significará invitado, sin migración. No se añade ese campo
@@ -393,7 +394,7 @@ El correo de GuestResponse sigue opcional y almacenado, nunca mostrado al anfitr
 La cita al responder queda pendiente: cualquier uso futuro exige aprobación expresa y confirmar la dirección
 mediante doble confirmación antes de escribirle. No se debilita el test de privacidad del panel de R9.
 
-**R11. WhatsApp asistido — en curso, dos commits; Telegram fuera de alcance**
+**R11. WhatsApp asistido — cerrada, dos commits y una corrección de nombres; Telegram fuera de alcance**
 
 **Commit 1 implementado:** POST /api/events/{id}/invitations/whatsapp-links. Autenticado y con CSRF;
 propiedad comprobada en aplicación (404 si es ajeno). Solo PUBLISHED; DRAFT, CANCELLED y FINISHED → 409.
@@ -426,7 +427,7 @@ dos invitados y genera solo para uno; el cuerpo completo no contiene datos del o
 La codificación incluye el ejemplo con C++, &, #, %, comillas y 'cena'. El límite de 2000 incluye todo el
 prefijo https://wa.me/<número>?text= y el mensaje codificado, no solo el parámetro text.
 
-**Commit 2 aprobado, pendiente:** POST /api/events/{id}/invitations/whatsapp-sent, cuerpo obligatorio con guestIds
+**Commit 2 implementado:** POST /api/events/{id}/invitations/whatsapp-sent, cuerpo obligatorio con guestIds
 explícitos y el mismo máximo. Misma seguridad, propiedad y publicación. Confirmar no exige generar primero.
 Primera actualización con $elemMatch por id, NOT_SENT y presencia de phoneE164: fija SENT, WHATSAPP y sentAt
 del Clock, e incrementa version. Segunda actualización condicionada: OPENED y sentAt nulo, con teléfono;
@@ -437,11 +438,20 @@ Sin coincidencia se reconsulta; un invitado retirado entre validación y escritu
 Si el evento deja de estar PUBLISHED a mitad del lote se devuelve 409 aunque haya marcas previas: se acepta
 porque la operación es idempotente, sin transacciones ni rollback del lote.
 
-En cualquier orden de apertura y confirmación debe quedar OPENED con canal y fecha registrados. Se probarán
-ambos órdenes, repetición sin cambiar sentAt, NO_PHONE con documento intacto, dos confirmaciones con hilos
-reales, carrera con apertura, guardado de versión anterior → 409 y panel R9 con canal/estado.
-Mutación temporal pendiente: quitar NOT_SENT de la primera actualización debe hacer fallar el test OPENED;
-restaurar antes de verificar y crear el segundo commit. Esta lógica todavía no está implementada.
+200 con {results:[{guestId,status}]} y Cache-Control exactamente no-store. Cuerpo ausente → 400;
+lista ausente/null/vacía/repetida o máximo superado → 422; id ajeno → 404 antes de escribir.
+Se prueban ambos órdenes de apertura/confirmación, repetición sin cambiar sentAt ni version, NO_PHONE con
+documento completo intacto (teléfono ausente, null, vacío y blanco), dos confirmaciones con hilos reales,
+carrera con primera apertura, guardado de versión anterior → 409 y panel R9 con SENT/WHATSAPP.
+La retirada entre validación y escritura devuelve NOT_FOUND y continúa; cancelar después de la primera marca
+da 409 y conserva esa marca. Confirmar no lee respuestas ni toca reservas/cuotas de correo.
+Mutación temporal ejecutada y no versionada: sin NOT_SENT en el primer filtro, el test de OPENED falló
+con expected OPENED / actual SENT (1 fallo, 0 errores). Condición restaurada antes de la verificación final.
+
+rest-api-whatsapp.http es manual e independiente del recorrido automático. Crea anfitrión, evento e invitado
+con {{realPhone}} del entorno http-client.private.env.json, publica, genera y confirma. Solo un paso imprime
+la URL; el usuario abre y envía desde WhatsApp antes de confirmar. No se ha ejecutado automáticamente.
+El fichero privado sigue ignorado por Git y no se crea ni se versiona.
 
 **Frontend futuro:** abrir enlaces de uno en uno tras un gesto del usuario; varios popups pueden bloquearse.
 Confirmar después de cada envío y mostrar message como alternativa de copia si WhatsApp no abre.
@@ -449,7 +459,7 @@ MESSAGE_TOO_LONG puede afectar a todo el evento por un título con emojis: cada 
 bytes suele ocupar unos 12 caracteres al codificarse; los compuestos consumen más. Sugerir acortar el título.
 Los nombres de invitado y anfitrión también pasan por la limpieza y recorte a 100 grafemas del título.
 La prueba de Cache-Control compara el valor exacto no-store, sin aceptar el valor largo de Spring Security.
-D-WHATSAPP-TRUST: SENT será una declaración del anfitrión, nunca una verificación del proveedor.
+D-WHATSAPP-TRUST: SENT es una declaración del anfitrión, nunca una verificación del proveedor.
 
 **Telegram aplazado:** no hay endpoint ni implementación en R11. El formato actual del MVP está mal formado;
 la hipótesis de que el enlace de compartir abre un selector de chat en vez de un contacto concreto queda
