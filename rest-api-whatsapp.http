@@ -62,7 +62,7 @@ Cookie: XSRF-TOKEN={{gtogWhatsAppCsrf}}; JSESSIONID={{gtogWhatsAppSession}}
 X-XSRF-TOKEN: {{gtogWhatsAppCsrf}}
 
 {
-  "title": "Invitación de prueba — reunión 🎉",
+  "title": "Invitación de prueba — reunión",
   "startsAt": "{{gtogWhatsAppStartsAt}}", "endsAt": "{{gtogWhatsAppEndsAt}}",
   "timeZone": "Europe/Madrid", "modality": "IN_PERSON",
   "venue": { "placeName": "Sala de prueba", "address": "Calle de prueba 1, Madrid", "latitude": 40.4168, "longitude": -3.7038, "placeId": "manual-whatsapp-place" }
