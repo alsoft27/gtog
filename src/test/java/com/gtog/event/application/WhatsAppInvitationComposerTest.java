@@ -54,8 +54,21 @@ class WhatsAppInvitationComposerTest {
 	}
 	@Test void controlsInNamesTitleAndPlaceAreNeutralized() {
 		var named = Guest.reconstitute(guest.getId(), " Ana\r\nPeña ", guest.getEmail(), guest.getPhoneE164(), guest.getToken(), InvitationStatus.NOT_SENT, null, null, null);
-		var link = composer.compose(withText(" Evento\r\nTítulo\u0085 ", " Sala\tPrincipal\u009f "), named, " Host\u2028Nombre ");
-		assertThat(link.message()).contains("Hola Ana  Peña", "Host Nombre te invita a Evento  Título", "Lugar: Sala Principal — Madrid")
+		var link = composer.compose(withText(" Evento\r\nTítulo\u0085 ", " Sala\tPrincipal\u009f "), named, " Host\r\nNombre\u2028 ");
+		assertThat(link.message()).contains("Hola Ana  Peña", "Host  Nombre te invita a Evento  Título", "Lugar: Sala Principal — Madrid")
 				.doesNotContain("\r", "\t", "\u2028", "\u0085", "\u009f");
+	}
+	@Test void threeHundredCharacterGuestAndHostNamesAreAbbreviatedLikeTheTitle() {
+		var named = Guest.reconstitute(guest.getId(), "a".repeat(300), guest.getEmail(), guest.getPhoneE164(), guest.getToken(), InvitationStatus.NOT_SENT, null, null, null);
+		var link = composer.compose(withText("Evento", "Sala"), named, "b".repeat(300));
+		assertThat(link.message()).startsWith("Hola " + "a".repeat(97) + "...,\n\n" + "b".repeat(97) + "... te invita a Evento\n");
+	}
+	@ParameterizedTest @ValueSource(strings = { "👨‍👩‍👧‍👦", "🇪🇸", "👍🏽" })
+	void guestAndHostNamesPreserveTheCompoundGraphemeAtTheCut(String emoji) {
+		String name = "a".repeat(96) + emoji + "b".repeat(300);
+		var named = Guest.reconstitute(guest.getId(), name, guest.getEmail(), guest.getPhoneE164(), guest.getToken(), InvitationStatus.NOT_SENT, null, null, null);
+		var link = composer.compose(withText("Evento", "Sala"), named, name);
+		String shortened = "a".repeat(96) + emoji + "...";
+		assertThat(link.message()).startsWith("Hola " + shortened + ",\n\n" + shortened + " te invita a Evento\n");
 	}
 }

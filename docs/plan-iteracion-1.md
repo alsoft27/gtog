@@ -35,7 +35,7 @@ Estado a 19 de noviembre de 2026. R11 en curso, solo WhatsApp: generación de en
 | R11 — Generación WhatsApp (commit 1) | POST /api/events/{id}/invitations/whatsapp-links: autenticado, CSRF, propiedad y solo PUBLISHED. READY con url/message o SKIPPED por invitado. Una lectura de respuestas por lote, ninguna escritura ni llamada a reservas/cuotas. Máximo independiente 100, UTF-8 con %20/%0A, recorte de título/lugar a 100 grafemas y URL máxima conservadora de 2000 caracteres. 67 tests nuevos; confirmación pendiente. |
 | Infraestructura | Java 25, Spring Boot 4.1, Maven por defecto, MongoDB Atlas, OpenAPI |
 
-**Verificación actual:** `mvn clean verify` pasa con **706 tests**, 0 fallos, 0 errores y 0 omitidos. R11, commit 1, añade 67 sobre los 639 anteriores: 18 de dominio, 19 de aplicación/formateo, 1 de configuración y 29 HTTP con servidor real. Los tests del correo se mantienen sin modificar y siguen en verde. Ninguna prueba abre WhatsApp ni envía correo o mensajes reales.
+**Verificación actual:** `mvn clean verify` pasa con **711 tests**, 0 fallos, 0 errores y 0 omitidos. R11, commit 1, añade 67 sobre los 639 anteriores; la corrección posterior de nombres añade 5 (4 de composición y 1 HTTP). Los tests del correo se mantienen sin modificar y siguen en verde. Ninguna prueba abre WhatsApp ni envía correo o mensajes reales.
 
 **Lo que eso valida:** la arquitectura hexagonal funciona en la práctica, el mapeo entre `Event` y `EventDocument` es asumible, y el circuito completo de desarrollo está operativo. Además, `Event.create(...)`/`reconstitute(...)` cambiaron de firma en las tres rebanadas seguidas, así que desde R3 `Event` se construye con dos builders internos (`Event.builder()` para eventos nuevos, `Event.reconstituteBuilder()` para rehidratar) en vez de factory methods con parámetros posicionales — ver `docs/modelo-evento.md`.
 
@@ -445,6 +445,10 @@ restaurar antes de verificar y crear el segundo commit. Esta lógica todavía no
 
 **Frontend futuro:** abrir enlaces de uno en uno tras un gesto del usuario; varios popups pueden bloquearse.
 Confirmar después de cada envío y mostrar message como alternativa de copia si WhatsApp no abre.
+MESSAGE_TOO_LONG puede afectar a todo el evento por un título con emojis: cada emoji sencillo de cuatro
+bytes suele ocupar unos 12 caracteres al codificarse; los compuestos consumen más. Sugerir acortar el título.
+Los nombres de invitado y anfitrión también pasan por la limpieza y recorte a 100 grafemas del título.
+La prueba de Cache-Control compara el valor exacto no-store, sin aceptar el valor largo de Spring Security.
 D-WHATSAPP-TRUST: SENT será una declaración del anfitrión, nunca una verificación del proveedor.
 
 **Telegram aplazado:** no hay endpoint ni implementación en R11. El formato actual del MVP está mal formado;

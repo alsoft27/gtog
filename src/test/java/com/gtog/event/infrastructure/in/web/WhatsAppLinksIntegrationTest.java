@@ -70,7 +70,7 @@ class WhatsAppLinksIntegrationTest {
 	@Test void generationReturnsReadyAndDoesNotModifyAnyDocumentOrVersion(CapturedOutput output) throws Exception {
 		var before = snapshot();
 		var result = generate("{}");
-		assertThat(result.statusCode()).isEqualTo(200); assertThat(result.headers().firstValue("Cache-Control")).contains("no-store");
+		assertThat(result.statusCode()).isEqualTo(200); assertThat(result.headers().firstValue("Cache-Control").orElseThrow()).isEqualTo("no-store");
 		assertThat(read(result, "$.results[0].status")).isEqualTo("READY");
 		assertThat(read(result, "$.results[0].guestId")).isEqualTo("guest-101");
 		assertThat(message(result)).contains("Hola Invitada 101", "Anfitrión te invita a Reunión", "Inicio: 01/01/2027 18:00",
@@ -143,12 +143,19 @@ class WhatsAppLinksIntegrationTest {
 		assertThat(message(result)).contains("te invita a " + "a".repeat(96) + emoji + "...\n"); assertUnchanged(before);
 	}
 	@Test void anOverlongEncodedUrlSkipsOnlyThatGuest() throws Exception {
-		Guest longName = Guest.reconstitute("guest-101", "Á".repeat(500), "ana@example.com", phoneGuest(101).getPhoneE164(), token(101), InvitationStatus.NOT_SENT, null, null, null);
+		Guest longName = Guest.reconstitute("guest-101", "👨‍👩‍👧‍👦".repeat(100), "ana@example.com", phoneGuest(101).getPhoneE164(), token(101), InvitationStatus.NOT_SENT, null, null, null);
 		event = seed("event-id", "host-1", EventStatus.PUBLISHED, "Evento", null, longName, phoneGuest(102));
 		var before = snapshot(); var result = generate("{}");
 		assertThat(result.statusCode()).isEqualTo(200);
 		assertThat(read(result, "$.results[0].reason")).isEqualTo("MESSAGE_TOO_LONG"); assertThat(read(result, "$.results[1].status")).isEqualTo("READY");
 		assertThat(JsonPath.parse(result.body()).read("$.results[0]", Map.class)).doesNotContainKeys("url", "message"); assertUnchanged(before);
+	}
+	@Test void anEmojiTitleCanMakeEveryGuestMessageTooLong() throws Exception {
+		event = seed("event-id", "host-1", EventStatus.PUBLISHED, "👨‍👩‍👧‍👦".repeat(100), null, phoneGuest(101), phoneGuest(102));
+		var before = snapshot(); var result = generate("{}");
+		assertThat(read(result, "$.results[*].status")).isEqualTo(List.of("SKIPPED", "SKIPPED"));
+		assertThat(read(result, "$.results[*].reason")).isEqualTo(List.of("MESSAGE_TOO_LONG", "MESSAGE_TOO_LONG"));
+		assertUnchanged(before);
 	}
 	@Test void emptyIdsAreRejectedBeforeAnyProcessing() throws Exception { assertInvalidWithoutWrites("{\"guestIds\":[]}", 422); }
 	@ParameterizedTest @ValueSource(ints = { 2000, 2001 })
@@ -157,8 +164,13 @@ class WhatsAppLinksIntegrationTest {
 		Guest shortName = Guest.reconstitute(original.getId(), "A", original.getEmail(), original.getPhoneE164(), original.getToken(), InvitationStatus.NOT_SENT, null, null, null);
 		event = seed("event-id", "host-1", EventStatus.PUBLISHED, "Evento", null, shortName);
 		int initialLength = ((String) read(generate("{}"), "$.results[0].url")).length();
-		Guest adjusted = Guest.reconstitute(original.getId(), "A" + "b".repeat(targetLength - initialLength), original.getEmail(), original.getPhoneE164(), original.getToken(), InvitationStatus.NOT_SENT, null, null, null);
-		event = seed("event-id", "host-1", EventStatus.PUBLISHED, "Evento", null, adjusted);
+		String emoji = "👨‍👩‍👧‍👦";
+		int encodedEmojiLength = java.net.URLEncoder.encode(emoji, StandardCharsets.UTF_8).length();
+		int count = (1902 - initialLength + encodedEmojiLength - 1) / encodedEmojiLength;
+		int padding = targetLength - initialLength - count * encodedEmojiLength;
+		assertThat(padding).isBetween(0, 99);
+		Guest adjusted = Guest.reconstitute(original.getId(), "A" + "b".repeat(padding), original.getEmail(), original.getPhoneE164(), original.getToken(), InvitationStatus.NOT_SENT, null, null, null);
+		event = seed("event-id", "host-1", EventStatus.PUBLISHED, "Evento" + emoji.repeat(count), null, adjusted);
 		var before = snapshot(); var result = generate("{}");
 		assertThat(result.statusCode()).isEqualTo(200);
 		if (targetLength == 2000) {
