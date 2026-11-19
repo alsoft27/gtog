@@ -33,7 +33,7 @@ Maven por defecto, springdoc-openapi, iCal4j 4.2.0, libphonenumber 9.0.43, Mailj
 | R9 | Panel de un evento y contadores en el listado |
 | Cookie CSRF | Se emite en el primer `GET`; las invitaciones públicas quedan excluidas |
 | Errores HTTP | 401 y 403 escritos como `ProblemDetail`, y advice MVC con detalle fijo y `instance` constante |
-| R10 | Correo: reservas atómicas, cuota diaria, transporte Mailjet y endpoint de envío |
+| R10 | Correo: reservas atómicas, cuota diaria, transporte Mailjet, endpoint de envío y cabecera `Content-Language: es` |
 | `canRespond` | Disponibilidad de respuesta calculada con la misma política que el `PUT` |
 | R11 | WhatsApp asistido: generar enlaces y confirmar el envío. Telegram aplazado |
 
@@ -103,6 +103,8 @@ Aparcada. Desbloqueada por el proveedor de correo (R10). Decisiones ya tomadas, 
   contadores de cuota de correo.
 - **`GET /api/auth/me`** y `emailVerified` en las respuestas de registro y login, para que el frontend sepa
   quién es el usuario al recargar.
+- **Rutas:** verify-email, forgot-password y reset-password son públicas (POST, con CSRF); resend-verification
+  y me exigen sesión. Se añaden a SecurityConfig una a una, porque /api/auth/** no es público en bloque.
 - **Bypass local:** `app.auth.auto-verify-email`, falso por defecto, verifica la cuenta al registrarla para
   que los recorridos `.http` sigan funcionando con direcciones `@example.com`. La aplicación se niega a
   arrancar si está activo y `app.public-base-url` no apunta a localhost.
@@ -115,7 +117,7 @@ Aparcada. Desbloqueada por el proveedor de correo (R10). Decisiones ya tomadas, 
 
 - **Telegram.** Sin endpoint. El enlace `t.me/share/url=` del diseño original está mal formado y la hipótesis
   de que abre un selector de chat y no un contacto concreto sigue sin verificar.
-- **Frontend Angular.** No empezado. Notas acumuladas en §6.
+- **Frontend Angular.** No empezado. Notas acumuladas en §8.
 
 ---
 
@@ -176,8 +178,9 @@ invitados, porque no tienen vida independiente del evento y comparten agregado y
 regla de negocio y debe poder probarse sin Spring. Un evento ajeno da 404, no 403.
 
 **MongoDB con colecciones separadas por patrón de escritura**, no por entidad: `users`; `events`, con
-opciones e invitados embebidos y un solo escritor; `responses`, un documento por respuesta, la única
-escritura concurrente; y `wall_posts` en el futuro, nunca embebido porque crece sin límite.
+opciones e invitados embebidos; `responses`, un documento por respuesta de invitado, que es la escritura
+concurrente que justificó separarlas; las escrituras concurrentes sobre `events` (aperturas, reservas de
+envío, confirmaciones) son parciales y atómicas. `wall_posts` en el futuro, nunca embebido porque crece sin límite.
 
 **Las respuestas van fuera del evento.** Embebidas, veinte invitados contestando a la vez se pisarían.
 
@@ -211,7 +214,10 @@ exista la app móvil.
 token de la ruta y no una cookie que el navegador envíe solo. La cookie `XSRF-TOKEN` se emite en el primer
 `GET` y se compara el valor crudo con la cabecera. Un rechazo CSRF es 403.
 
-**Rutas públicas:** `/api/invitations/**`, `/api/auth/**` y `/actuator/health`. Todo lo demás exige sesión.
+**Rutas públicas:** `/api/invitations/**`, `POST /api/auth/register`, `POST /api/auth/login` y
+`/actuator/health`. Swagger y OpenAPI también lo son (D-SWAGGER-PUBLIC). El matcher real de Actuator permite
+`/actuator/**`, no solo health: cualquier otro endpoint que se exponga bajo esa ruta tampoco exigirá sesión.
+Todo lo demás exige sesión. Las escrituras públicas siguen sujetas a CSRF salvo `/api/invitations/**`.
 
 **El enlace de la sala se filtra en el servidor.** Si viajara en la respuesta confiando en que Angular no lo
 pinte, sería legible desde las herramientas del navegador. Solo se devuelve con el evento publicado y
@@ -245,7 +251,6 @@ primera versión completa del backend; después se vuelve a ramas `feat/` y `fix
 | Volver a ramas `feat/` y `fix/` | Nada | Se acordó trabajar en `main` hasta cerrar el backend; con el MVP cerrado, decidir si se vuelve a ramas ya, antes de R12 y del frontend |
 | RF-3.9: notificar un cambio de ubicación tras publicar | Nada | Sacarlo del alcance, o abrir una excepción para editar la ubicación de un evento publicado |
 | Causa del emoji roto en WhatsApp | Nada | Medir con `searchParams.get("text")`; ver §5 |
-| Cabecera `Content-Language: es` en el correo | Nada | Gmail ofrece traducirlo por considerarlo inglés |
 | Remitente `gtog@gtog.es`: buzón con alguien detrás, o `no-reply@` | Nada | El cuerpo dice que no admite respuestas |
 | `FINISHED`: automático por fecha o manual | Nada | D-FINISHED |
 | Eliminar un borrador | Nada | D-DELETE-DRAFT |
