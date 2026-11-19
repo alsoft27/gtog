@@ -80,8 +80,8 @@ Spring Security mantiene la sesión en `HttpSession` (servidor). El cliente reci
 (HttpOnly, SameSite=Lax). El Angular SPA recibe también la cookie CSRF via `CookieCsrfTokenRepository`
 (no HttpOnly) y debe incluir el token en el header `X-XSRF-TOKEN` en todas las peticiones de escritura.
 
-La decisión de usar sesión en lugar de JWT es reversible cuando llegue la app móvil. Ver
-`docs/plan-r5-usuario-seguridad.md` para la justificación completa.
+La decisión de usar sesión en lugar de JWT es reversible cuando llegue la app móvil.
+Ver docs/plan-iteracion-1.md, sección Decisiones tomadas, para la justificación.
 
 `UserDetailsServiceAdapter` (en `user/infrastructure/out/security`) implementa `UserDetailsService` y devuelve
 `AuthenticatedUser`, que extiende `UserDetails` con los campos `userId`, `name` y `timeZone` — así los

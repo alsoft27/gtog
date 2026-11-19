@@ -1,10 +1,10 @@
 # gtog
 
-Antes de implementar, lee docs/mvp-alcance-iteracion-1.md y el modelo del agregado que toques.
+Antes de implementar, lee docs/definicion-funcional.md y el modelo del agregado que toques.
 
 Backend de **gtog**, una aplicación de organización de eventos. El anfitrión crea un evento, invita por correo, WhatsApp o Telegram, y cada invitado responde desde un enlace único **sin crear cuenta**.
 
-La especificación funcional está en `docs/mvp-alcance-iteracion-1.md`. **Léela antes de implementar cualquier funcionalidad nueva.** Si algo de este archivo contradice la especificación, gana la especificación y avísame del conflicto.
+La especificación funcional está en `docs/definicion-funcional.md`. **Léela antes de implementar cualquier funcionalidad nueva.** Si algo de este archivo contradice la especificación, gana la especificación y avísame del conflicto.
 
 ---
 
@@ -12,9 +12,14 @@ La especificación funcional está en `docs/mvp-alcance-iteracion-1.md`. **Léel
 
 - Antes de escribir código, presenta un plan y espera mi aprobación.
 - Trabajamos por rebanadas verticales: dominio, puerto, adaptador, controlador y test, funcionando de punta a punta antes de pasar a la siguiente.
-- Lee `docs/plan-iteracion-1.md` para conocer el estado y la deuda, y `docs/modelo-evento.md` y `docs/modelo-usuario.md` para el detalle de los agregados.
-- Las decisiones y sus razones están en `docs/gtog-estado-y-decisiones.md`. Si propones contradecir alguna, léela primero y explica por qué hay que revisarla. No la cambies sin avisar.
-- Si estas instrucciones, los documentos y el código divergen, avísame; no decidas por tu cuenta cuál gana. La revisión inicial está en `docs/revision-inicial-2026-11-13.md`; es un diagnóstico histórico; las decisiones posteriores aprobadas se reflejan en estas instrucciones y en los documentos del proyecto.
+- Consulta los cinco documentos del proyecto:
+    - `docs/definicion-funcional.md`: contexto funcional, alcance y requisitos.
+    - `docs/plan-iteracion-1.md`: estado, decisiones, deuda y desarrollo pendiente.
+    - `docs/modelo-evento.md`: contrato técnico del agregado de evento.
+    - `docs/modelo-invitado.md`: contrato técnico del invitado dentro de event.
+    - `docs/modelo-usuario.md`: contrato técnico del agregado de usuario.
+- Las decisiones y sus razones están en `docs/plan-iteracion-1.md`, sección Decisiones tomadas. Si propones contradecir alguna, léela primero y explica por qué hay que revisarla. No la cambies sin avisar.
+- Si estas instrucciones, los documentos y el código divergen, avísame; no decidas por tu cuenta cuál gana. Las decisiones aprobadas se reflejan en estas instrucciones y en los documentos del proyecto.
 
 ---
 
@@ -258,7 +263,7 @@ y la URL ya filtrada; UID basado en el evento, nunca en el token; DTSTAMP obteni
 - Códigos: `201` al crear con cabecera `Location`, `204` al borrar, `409` en conflicto de estado, `422` cuando una regla de negocio rechaza la petición.
 - Errores con **`ProblemDetail`** (RFC 7807), gestionados en `shared`: advice de dominio con prioridad alta y advice MVC con menor prioridad para errores de framework y fallback. Los filtros de seguridad escriben el mismo formato directamente. No inventes un formato de error propio.
 
-**CSRF en login y registro: deliberado.** Tanto `POST /api/auth/login` como `POST /api/auth/register` requieren un token CSRF válido, enviado en `X-XSRF-TOKEN`. No los excluyas de la protección: excluir el login permitiría que un atacante autenticase a la víctima en la cuenta del atacante (login-CSRF). Esta decisión prevalece sobre la propuesta anterior de excluirlos en `docs/plan-r5-usuario-seguridad.md`.
+**CSRF en login y registro: deliberado.** Tanto `POST /api/auth/login` como `POST /api/auth/register` requieren un token CSRF válido, enviado en `X-XSRF-TOKEN`. No los excluyas de la protección: excluir el login permitiría que un atacante autenticase a la víctima en la cuenta del atacante (login-CSRF). Ver `docs/plan-iteracion-1.md`, sección Decisiones tomadas, para la justificación.
 
 Desde R8, **solo `/api/invitations/**` está excluido de CSRF**: su credencial es el token de la ruta, no una cookie; no hay credencial ambiental que un tercero pueda aprovechar. No amplíes la exclusión a `/api/**`. Los errores de invitación usan instancia constante `/api/invitations` y `Cache-Control: no-store`; nunca conserves mensajes ni causas de errores Mongo que incluyan tokens.
 

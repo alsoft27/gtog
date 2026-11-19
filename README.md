@@ -4,7 +4,7 @@ Backend de **gtog**, una aplicación de organización de eventos. El anfitrión 
 WhatsApp o Telegram, y cada invitado responde desde un enlace único, sin crear cuenta.
 
 Este repositorio es solo el backend. La especificación funcional completa vive en
-[`docs/mvp-alcance-iteracion-1.md`](docs/mvp-alcance-iteracion-1.md).
+[`docs/definicion-funcional.md`](docs/definicion-funcional.md).
 
 ---
 
@@ -92,8 +92,9 @@ distintas del modelo de dominio, traducidas por mappers.
 
 | Documento | Contenido |
 |---|---|
-| [`docs/mvp-alcance-iteracion-1.md`](docs/mvp-alcance-iteracion-1.md) | Especificación funcional de la iteración 1 |
-| [`docs/definicion-funcional-app-eventos.md`](docs/definicion-funcional-app-eventos.md) | Definición funcional completa de la aplicación |
+| [`docs/definicion-funcional.md`](docs/definicion-funcional.md) | Contexto funcional, alcance y requisitos del MVP y visión posterior |
 | [`docs/plan-iteracion-1.md`](docs/plan-iteracion-1.md) | Estado del plan: qué está cerrado, deuda técnica abierta, rebanadas pendientes |
 | [`docs/modelo-evento.md`](docs/modelo-evento.md) | Modelo de datos del evento: campos, reglas de negocio, excepciones, endpoints |
+| [`docs/modelo-invitado.md`](docs/modelo-invitado.md) | Invitados, respuestas, consulta pública y envío de invitaciones |
+| [`docs/modelo-usuario.md`](docs/modelo-usuario.md) | Cuenta del anfitrión, autenticación y cuota de correo |
 | [`AGENTS.md`](AGENTS.md) | Convenciones de arquitectura, código y flujo de trabajo del proyecto |

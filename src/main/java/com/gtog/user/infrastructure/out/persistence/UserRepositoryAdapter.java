@@ -27,7 +27,7 @@ public class UserRepositoryAdapter implements UserRepositoryPort {
 			return userMapper.toDomain(saved);
 		} catch (DuplicateKeyException e) {
 			// El mensaje de MongoDB incluye el nombre del índice violado (p.ej. "email_1").
-			// Fragilidad documentada como D-DUP-KEY en el plan de R5.
+			// Fragilidad documentada como D-DUP-KEY en docs/plan-iteracion-1.md.
 			if (e.getMessage() != null && e.getMessage().contains("email")) {
 				throw new EmailAlreadyRegisteredException(user.getEmail());
 			}
