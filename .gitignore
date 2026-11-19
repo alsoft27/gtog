@@ -37,3 +37,4 @@ build/
 application-local.properties
 /execution-logs/
 /http-client.private.env.json
+.DS_Store
