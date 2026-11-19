@@ -107,6 +107,7 @@ public final class Guest {
 	public String getName() { return name; }
 	public String getEmail() { return email; }
 	public String getPhoneE164() { return phoneE164; }
+	public boolean hasValidPhoneE164() { return phoneE164 != null && E164_PATTERN.matcher(phoneE164).matches(); }
 	public String getToken() { return token; }
 	public InvitationStatus getInvitationStatus() { return invitationStatus; }
 	public DeliveryChannel getDeliveryChannel() { return deliveryChannel; }

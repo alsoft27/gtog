@@ -1,6 +1,6 @@
 # gtog — Plan de la iteración 1
 
-Estado a 18 de noviembre de 2026. R10 cerrada: reservas, transporte y endpoint de correo implementados. Siguiente: R11.
+Estado a 19 de noviembre de 2026. R11 en curso, solo WhatsApp: generación de enlaces implementada; confirmación pendiente del commit 2. Telegram queda fuera de R11.
 
 ---
 
@@ -32,9 +32,10 @@ Estado a 18 de noviembre de 2026. R10 cerrada: reservas, transporte y endpoint d
 | R10 — Transporte de correo (commit 2) | EmailSenderPort, mensaje fijo en español y adaptador SMTP Mailjet con el starter existente. TLS obligatorio, timeouts, activación con configuración y adaptador capturador exclusivo de tests. Indicador de salud desactivado y comprobado con el informe de condiciones de Boot 4.1. 29 tests nuevos; endpoint pendiente. |
 | R10 — Endpoint de correo (commit 3) | POST /api/events/{id}/invitations/send: propiedad, CSRF, lote síncrono, resultados individuales y dailyLimit final; no-store exacto. Corte tras tres fallos de proveedor o cuota agotada, compensaciones y SENT/recorded=false explícito. Clasificación SMTP conservadora, sin confundir remitente y destinatario. 44 tests nuevos (10 de dominio, 26 con servidor real y 8 de clasificación SMTP), siempre con correo falso. R10 cerrada; siguiente: R11. |
 | Invitación — Disponibilidad de respuesta | InvitationResponse añade canRespond, calculado con ResponseAcceptancePolicy compartida con PUT. Ventana PUBLISHED, plazo inclusive, fin exclusivo y permiso de cambio si ya existe respuesta. canChangeResponse conserva su significado. Sin consultas previas nuevas ni cambios en insert/upsert. 17 tests nuevos: 4 de dominio y 13 de coherencia GET/PUT con Clock fijo. |
+| R11 — Generación WhatsApp (commit 1) | POST /api/events/{id}/invitations/whatsapp-links: autenticado, CSRF, propiedad y solo PUBLISHED. READY con url/message o SKIPPED por invitado. Una lectura de respuestas por lote, ninguna escritura ni llamada a reservas/cuotas. Máximo independiente 100, UTF-8 con %20/%0A, recorte de título/lugar a 100 grafemas y URL máxima conservadora de 2000 caracteres. 67 tests nuevos; confirmación pendiente. |
 | Infraestructura | Java 25, Spring Boot 4.1, Maven por defecto, MongoDB Atlas, OpenAPI |
 
-**Verificación actual:** `mvn clean verify` pasa con **639 tests**, 0 fallos, 0 errores y 0 omitidos. R10 añade 125 sobre los 495 anteriores: 52 del commit 1, 29 del commit 2 y 44 del commit 3. El diagnóstico SMTP añade 2 casos y canRespond añade 17 (4 de dominio y 13 de coherencia GET/PUT). Los commits se verifican por separado y ninguna prueba envía correo real.
+**Verificación actual:** `mvn clean verify` pasa con **706 tests**, 0 fallos, 0 errores y 0 omitidos. R11, commit 1, añade 67 sobre los 639 anteriores: 18 de dominio, 19 de aplicación/formateo, 1 de configuración y 29 HTTP con servidor real. Los tests del correo se mantienen sin modificar y siguen en verde. Ninguna prueba abre WhatsApp ni envía correo o mensajes reales.
 
 **Lo que eso valida:** la arquitectura hexagonal funciona en la práctica, el mapeo entre `Event` y `EventDocument` es asumible, y el circuito completo de desarrollo está operativo. Además, `Event.create(...)`/`reconstitute(...)` cambiaron de firma en las tres rebanadas seguidas, así que desde R3 `Event` se construye con dos builders internos (`Event.builder()` para eventos nuevos, `Event.reconstituteBuilder()` para rehidratar) en vez de factory methods con parámetros posicionales — ver `docs/modelo-evento.md`.
 
@@ -57,6 +58,7 @@ Esto no es una lista de pendientes cualquiera: son cosas que ya están mal a pro
 | D-CONFIRMED-LINK | **Confirmación de asistencia provisional en R7** | `InvitationViewFactory.guestHasConfirmed(...)` usa la respuesta propia: solo confirma si la opción todavía existe y tiene `countsAsAttendance = true`. Sin respuesta, opción inexistente o "No asisto", false. El filtro se comparte en GET y PUT sin consultas adicionales. | **Saldada en R8, commit 2.** |
 | D-EMAIL-NOT-SENT | **Cita al responder pendiente** | **Saldada para invitaciones en R10.** La cita al responder sigue fuera de R10: el email de la respuesta solo se almacena, no se usa para ningún envío; cualquier uso futuro requiere aprobación expresa y doble confirmación de su dueño. | Cita: sin rebanada aprobada |
 | D-BOUNCES | **Sin procesamiento de rebotes ni quejas del proveedor** | SENT significa aceptado por SMTP, no entregado. No se procesan rebotes ni quejas; las direcciones inválidas pueden afectar a la reputación del dominio. | Antes del despliegue público |
+| D-WHATSAPP-TRUST | **SENT por WhatsApp es declarativo** | El anfitrión afirma haber enviado el mensaje desde su propia cuenta. gtog no puede verificar el envío ni la entrega. Generar enlaces no marca nada; la confirmación se implementará en el commit 2 de R11. | Límite aceptado; mostrarlo en el frontend |
 | D-REGISTER-RATE-LIMIT | **Registro y login sin límite de peticiones** | Limitar abuso de creación de cuentas e intentos de autenticación antes del despliegue público. Las cuotas de correo no sustituyen esta protección. | Antes del despliegue público |
 | D-RATE-LIMIT | **Endpoint público sin límite de peticiones** | La entropía del token hace inviable adivinarlo, pero no protege frente a abuso o tráfico repetido sobre un enlace conocido. No hay rate limiting en R7. | Pendiente de planificación |
 | D-REFERRER | **Política de Referer del frontend** | La página del invitado lleva la credencial en la URL. Para evitar filtrarla al cargar un mapa de Google u otros recursos externos, el frontend debe servir la página con `Referrer-Policy: no-referrer`. La cabecera de la API no sustituye la política del documento del frontend. | Frontend, al integrar la página del invitado |
@@ -272,7 +274,7 @@ Las lecturas en todos los estados no modifican documentos ni version. El listado
 Spring Security, sin no-store propio; solo el 200 del panel fija ese valor exacto. OpenAPI documenta los cuatro
 contadores. D-LIST-SCALE documenta la limitación de volumen en memoria y ausencia de paginación.
 
-**R9 cerrada. R10 también cerrada; siguiente punto: R11, enlaces de WhatsApp y Telegram.**
+**R9 y R10 cerradas. R11, solo WhatsApp, en curso; Telegram queda fuera de esta rebanada.**
 
 Registrar manualmente respuestas recibidas por otro medio queda fuera del MVP. Si se incorpora después,
 GuestResponse ganará un campo source; su ausencia significará invitado, sin migración. No se añade ese campo
@@ -391,10 +393,63 @@ El correo de GuestResponse sigue opcional y almacenado, nunca mostrado al anfitr
 La cita al responder queda pendiente: cualquier uso futuro exige aprobación expresa y confirmar la dirección
 mediante doble confirmación antes de escribirle. No se debilita el test de privacidad del panel de R9.
 
-**R11. Enlaces de WhatsApp y Telegram**
-El backend construye el enlace profundo y lo devuelve; el envío lo hace el anfitrión. R11 implementará `SENT` con actualización posicional atómica e incremento de version. `OPENED` ya está implementado en R7: marcar `SENT` nunca puede sobrescribir un `OPENED` ni hacerlo retroceder.
+**R11. WhatsApp asistido — en curso, dos commits; Telegram fuera de alcance**
 
-RF-2.14 (envío en bloque por WhatsApp/Telegram): el endpoint puede devolver una lista de enlaces profundos para que el frontend los abra en secuencia asistida. No hay trabajo adicional de backend salvo exponer el endpoint en forma de lista.
+**Commit 1 implementado:** POST /api/events/{id}/invitations/whatsapp-links. Autenticado y con CSRF;
+propiedad comprobada en aplicación (404 si es ajeno). Solo PUBLISHED; DRAFT, CANCELLED y FINISHED → 409.
+El GET público de la invitación de un DRAFT sigue devolviendo 404: son operaciones distintas.
+Cuerpo opcional {guestIds:[...]}; ausencia de cuerpo/lista/null selecciona todos en orden de alta.
+Lista vacía, ids repetidos o máximo superado → 422; id ajeno al evento → 404 antes de procesar nada.
+Selección explícita en su orden. app.invitations.max-whatsapp-links-per-request=100, independiente del correo.
+
+GenerateWhatsAppLinksService consulta responses una vez para todo el lote por el puerto existente.
+Salta NO_PHONE, ALREADY_ANSWERED, INVALID_PHONE o MESSAGE_TOO_LONG sin abortar a los restantes. Comprueba
+el formato E.164 almacenado, sin renormalizar ni reparar Mongo. Devuelve {results:[{guestId,status,reason?,url?,message?}]}:
+READY lleva url y texto plano; SKIPPED solo motivo. Cache-Control: no-store exacto; no registrar las credenciales.
+No hay puertos de escritura, reservas de invitado, cuotas de anfitrión ni reutilización del motor de R10.
+
+Texto fijo en español: saludo, anfitrión, título, inicio/fin con zona, lugar presencial o solo plataforma
+online y enlace <app.public-base-url>/r/{token}. Nunca secretos de sala ni los dos pies del correo.
+InvitationMessageFormatter comparte fechas, zona, lugar y limpieza de controles con InvitationEmailComposer;
+sus tests se conservan sin modificar. InvitationLinkFactory comparte la construcción y validación de la base.
+Título y lugar compuesto (nombre — dirección) se recortan a 100 clústeres de grafemas, incluidos los tres
+puntos de "...", mediante BreakIterator de Java 25. Se conservan enteros familia ZWJ, bandera y tono de piel.
+URL https://wa.me/<E164 sin +>?text=<texto>, codificada en UTF-8 con espacios %20, saltos %0A y signo + literal %2B.
+La cota conservadora se comprueba sobre la URL final codificada: 2000 se admite y 2001 se salta.
+No se ha verificado que sea el límite real de WhatsApp. Los tests usan URLDecoder estándar y comparan
+carácter a carácter el mensaje decodificado, incluidos & # % + comillas, tildes, ñ y emoji; el token aparece una vez.
+Las pruebas HTTP comparan íntegros events/responses/users y version antes/después; no cambia ningún estado.
+
+Auditoría del commit 1: la petición HTTP completa captura stdout/stderr con OutputCaptureExtension y
+comprueba expresamente ausencia de token, URL completa y message en los logs. El caso online siembra
+dos invitados y genera solo para uno; el cuerpo completo no contiene datos del otro ni secretos de sala.
+La codificación incluye el ejemplo con C++, &, #, %, comillas y 'cena'. El límite de 2000 incluye todo el
+prefijo https://wa.me/<número>?text= y el mensaje codificado, no solo el parámetro text.
+
+**Commit 2 aprobado, pendiente:** POST /api/events/{id}/invitations/whatsapp-sent, cuerpo obligatorio con guestIds
+explícitos y el mismo máximo. Misma seguridad, propiedad y publicación. Confirmar no exige generar primero.
+Primera actualización con $elemMatch por id, NOT_SENT y presencia de phoneE164: fija SENT, WHATSAPP y sentAt
+del Clock, e incrementa version. Segunda actualización condicionada: OPENED y sentAt nulo, con teléfono;
+completa WHATSAPP/sentAt sin cambiar OPENED e incrementa version. Ambas devuelven MARKED.
+Un OPENED con envío registrado devuelve ALREADY_OPENED sin escribir; un SENT conserva canal/fecha del primer
+envío y devuelve ALREADY_SENT. Sin teléfono → NO_PHONE, impuesto en los filtros, sin lectura previa para decidirlo.
+Sin coincidencia se reconsulta; un invitado retirado entre validación y escritura → NOT_FOUND sin abortar el lote.
+Si el evento deja de estar PUBLISHED a mitad del lote se devuelve 409 aunque haya marcas previas: se acepta
+porque la operación es idempotente, sin transacciones ni rollback del lote.
+
+En cualquier orden de apertura y confirmación debe quedar OPENED con canal y fecha registrados. Se probarán
+ambos órdenes, repetición sin cambiar sentAt, NO_PHONE con documento intacto, dos confirmaciones con hilos
+reales, carrera con apertura, guardado de versión anterior → 409 y panel R9 con canal/estado.
+Mutación temporal pendiente: quitar NOT_SENT de la primera actualización debe hacer fallar el test OPENED;
+restaurar antes de verificar y crear el segundo commit. Esta lógica todavía no está implementada.
+
+**Frontend futuro:** abrir enlaces de uno en uno tras un gesto del usuario; varios popups pueden bloquearse.
+Confirmar después de cada envío y mostrar message como alternativa de copia si WhatsApp no abre.
+D-WHATSAPP-TRUST: SENT será una declaración del anfitrión, nunca una verificación del proveedor.
+
+**Telegram aplazado:** no hay endpoint ni implementación en R11. El formato actual del MVP está mal formado;
+la hipótesis de que el enlace de compartir abre un selector de chat en vez de un contacto concreto queda
+sin verificar. No se propone ni implementa una corrección de Telegram en esta rebanada.
 
 ### Bloque E — Identidad completa
 

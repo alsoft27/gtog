@@ -1,7 +1,8 @@
 # Modelo de datos: Invitado
 
-Estado tras R10 a 18 de noviembre de 2026. Gestión de invitados, consulta pública, respuestas, panel,
-calendario y envío por SMTP implementados. Los enlaces asistidos de WhatsApp y Telegram corresponden a R11.
+Estado a 19 de noviembre de 2026. R11 incorpora generación asistida de enlaces WhatsApp, sin escrituras;
+su confirmación queda pendiente del commit 2. Telegram está fuera de R11. Se mantienen gestión de invitados,
+consulta pública, respuestas, panel, calendario, canRespond y envío SMTP de las rebanadas anteriores.
 
 La preparación de R8 (commit 0) añade el plazo editable por el anfitrión mediante
 `PUT /api/events/{id}/response-deadline`: DRAFT, o PUBLISHED estrictamente antes del inicio. null lo elimina;
@@ -31,7 +32,8 @@ comparte agregado y documento. No existe colección ni hexágono `guest` separad
 
 **La respuesta no vive aquí. `ANSWERED` no es un valor del enum ni se almacena.** El panel de R9 lo deriva
 desde los invitados vivos y sus documentos de respuesta. OPENED está implementado desde R7; R10 incorpora
-reservas, escritura de SENT y envío SMTP. Los otros canales quedan para R11.
+reservas, escritura de SENT y envío SMTP. R11 genera enlaces WhatsApp sin cambiar ese estado; la confirmación
+se implementará en el commit 2. Telegram queda aplazado.
 
 `Guest.create(...)` valida y normaliza contactos, genera el id y aplica el estado inicial.
 `editContact(...)` devuelve un invitado con los contactos sustituidos y conserva identidad, token y todo el
@@ -117,6 +119,48 @@ alternativa. También un `save()` antiguo del evento falla por bloqueo optimista
 Referencias: [índices multiclave únicos](https://www.mongodb.com/docs/manual/core/indexes/index-types/index-multikey/),
 [índices parciales](https://www.mongodb.com/docs/manual/core/index-partial/) y
 [actualizaciones atómicas](https://www.mongodb.com/docs/manual/core/write-operations-atomicity/).
+
+## WhatsApp asistido (R11, commit 1)
+
+Guest sigue embebido en events, sin campos nuevos ni estado de generación persistido.
+`POST /api/events/{id}/invitations/whatsapp-links` requiere sesión, CSRF y propiedad en aplicación.
+Solo PUBLISHED; los demás estados → 409. El enlace público de un DRAFT conserva su 404.
+Sin cuerpo, guestIds ausente o null, selecciona todos en orden de alta. La lista explícita conserva su orden.
+Antes de procesar se valida: vacío/repetidos/máximo → 422, invitado ajeno → 404. El máximo propio es
+app.invitations.max-whatsapp-links-per-request=100; no se usa el límite del correo.
+
+GenerateWhatsAppLinksService lee las respuestas del evento una sola vez y usa sus tokens para excluir
+a quienes ya respondieron, sin utilizar el email de la respuesta. NO_PHONE precede a ALREADY_ANSWERED y
+después INVALID_PHONE; la comprobación del E.164 almacenado usa el mismo patrón del dominio de Guest,
+sin renormalizar ni lanzar excepción por datos antiguos inválidos. Un invitado saltado no aborta el lote.
+
+200 con {results:[{guestId,status,reason?,url?,message?}]}, no-store exacto. READY lleva enlace y texto;
+SKIPPED lleva NO_PHONE, ALREADY_ANSWERED, INVALID_PHONE o MESSAGE_TOO_LONG, sin url/message.
+Los dígitos de wa.me son phoneE164 sin '+'. El texto se codifica en UTF-8 con %20, %0A y %2B para '+' literal;
+la decodificación estándar reproduce exactamente message. El token solo se incorpora al enlace /r/{token}
+del mensaje. No se registran estos datos; los resultados de dominio ocultan su contenido en toString.
+
+InvitationMessageFormatter comparte con el correo fechas locales, zona, lugar y neutralización de controles,
+sin modificar los tests del correo. El texto WhatsApp incluye saludo, anfitrión, título, inicio/fin y lugar
+o plataforma; no incluye URL de la sala, contraseña, instrucciones ni los pies propios del correo.
+Título y lugar compuesto se recortan a 100 grafemas totales con '...' mediante BreakIterator de Java 25;
+no se parten familia ZWJ, banderas ni modificadores de piel. La URL final codificada admite hasta 2000
+caracteres inclusive; por encima se salta. Es una cota conservadora, no un límite real verificado de WhatsApp.
+
+Generar no escribe ningún documento ni modifica version, invitationStatus, canal, fechas o cuotas.
+No usa el motor de reservas de correo. Los tests HTTP comparan documentos completos de events/responses/users
+antes y después, incluidos datos previos de envío/apertura; un spy verifica una lectura de respuestas.
+El frontend deberá abrir de uno en uno tras un gesto del usuario y ofrecer message para copia alternativa.
+
+**Confirmación aprobada, pendiente del commit 2:** el único endpoint que escribirá será whatsapp-sent.
+Desde NOT_SENT fijará SENT, WHATSAPP y sentAt; en OPENED sin sentAt completará canal/fecha sin rebajar OPENED.
+Las dos escrituras serán condicionadas y parciales, con incremento de version y teléfono requerido en el
+filtro. Sin teléfono → NO_PHONE y documento intacto. Un OPENED con envío registrado mantendrá sus datos.
+La carrera con la apertura debe conservar OPENED, canal y fecha en ambos órdenes. Si el evento se cierra
+a mitad de lote se admite un 409 con marcas anteriores, porque confirmar será idempotente.
+Todo esto está documentado para el siguiente commit, no implementado en este. D-WHATSAPP-TRUST recoge
+que SENT será declarativo: el envío real pertenece a la cuenta del anfitrión y gtog no puede verificarlo.
+Telegram queda fuera de R11; su formato de enlace y la hipótesis del selector de chat están sin verificar.
 
 ## Reservas de correo (R10, commit 1)
 
