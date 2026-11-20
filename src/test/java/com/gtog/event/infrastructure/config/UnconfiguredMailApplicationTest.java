@@ -18,6 +18,7 @@ import com.gtog.user.infrastructure.out.persistence.UserMongoRepository;
 import static org.assertj.core.api.Assertions.assertThat;
 
 // Contexto completo, sin perfil test ni credenciales y sin conexiones SMTP o Mongo.
+@com.gtog.AuthBypassDisabled
 @SpringBootTest(properties = {
 		"spring.profiles.active=", "MAILJET_API_KEY=", "MAILJET_SECRET_KEY=", "app.mail.from=",
 		"spring.autoconfigure.exclude=org.springframework.boot.mongodb.autoconfigure.MongoAutoConfiguration,"

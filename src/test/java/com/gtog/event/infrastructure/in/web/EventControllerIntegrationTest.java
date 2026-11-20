@@ -33,6 +33,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+@com.gtog.AuthBypassDisabled
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
@@ -85,6 +86,7 @@ class EventControllerIntegrationTest {
 		host.setEmail(TEST_HOST_EMAIL);
 		host.setPasswordHash(TEST_HASHED_PASSWORD);
 		host.setTimeZone("Europe/Madrid");
+		host.setEmailVerified(true);
 		userMongoRepository.save(host);
 		UserDocument otherHost = new UserDocument();
 		otherHost.setId("host-id-2");
@@ -92,6 +94,7 @@ class EventControllerIntegrationTest {
 		otherHost.setEmail(TEST_OTHER_HOST_EMAIL);
 		otherHost.setPasswordHash(TEST_HASHED_PASSWORD);
 		otherHost.setTimeZone("Europe/Madrid");
+		otherHost.setEmailVerified(true);
 		userMongoRepository.save(otherHost);
 	}
 

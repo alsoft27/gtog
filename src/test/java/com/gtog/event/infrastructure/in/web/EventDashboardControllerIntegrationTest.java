@@ -32,6 +32,7 @@ import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
+@com.gtog.AuthBypassDisabled
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
@@ -67,6 +68,7 @@ class EventDashboardControllerIntegrationTest {
 			user.setEmail(i == 1 ? "host@example.com" : "other@example.com");
 			user.setPasswordHash("unused-test-hash");
 			user.setTimeZone("Europe/Madrid");
+		user.setEmailVerified(true);
 			users.save(user);
 		}
 		event = events.save(event(EventStatus.PUBLISHED));

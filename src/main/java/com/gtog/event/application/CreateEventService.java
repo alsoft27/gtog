@@ -6,18 +6,23 @@ import com.gtog.event.domain.model.Event;
 import com.gtog.event.domain.port.in.CreateEventCommand;
 import com.gtog.event.domain.port.in.CreateEventUseCase;
 import com.gtog.event.domain.port.out.EventRepositoryPort;
+import com.gtog.event.domain.port.out.HostEmailVerificationPort;
+import com.gtog.event.domain.model.EmailNotVerifiedException;
 
 @Service
 public class CreateEventService implements CreateEventUseCase {
 
 	private final EventRepositoryPort eventRepositoryPort;
+	private final HostEmailVerificationPort verification;
 
-	public CreateEventService(EventRepositoryPort eventRepositoryPort) {
+	public CreateEventService(EventRepositoryPort eventRepositoryPort, HostEmailVerificationPort verification) {
 		this.eventRepositoryPort = eventRepositoryPort;
+		this.verification = verification;
 	}
 
 	@Override
 	public Event createEvent(CreateEventCommand command) {
+		if (!verification.isVerified(command.hostId())) { throw new EmailNotVerifiedException(); }
 		Event event = Event.builder()
 				.hostId(command.hostId())
 				.title(command.title())

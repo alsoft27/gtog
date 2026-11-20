@@ -1,4 +1,5 @@
 # R10 — Prueba manual de correo REAL. Archivo independiente de rest-api.http.
+# R12: necesita APP_AUTH_AUTOVERIFYEMAIL=true en la aplicación; sin ella, el primer POST /api/events devuelve 403 con code=EMAIL_NOT_VERIFIED.
 # Arranca tú el backend con Mailjet, MAIL_FROM verificado y PUBLIC_BASE_URL del frontend.
 # Selecciona en IntelliJ un entorno de http-client.private.env.json que defina realRecipient.
 # No escribas aquí la dirección real ni las credenciales. El fichero privado está ignorado por Git.

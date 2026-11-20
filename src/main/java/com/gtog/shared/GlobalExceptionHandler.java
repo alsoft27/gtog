@@ -40,6 +40,9 @@ import com.gtog.event.domain.model.EventNotPublishableException;
 import com.gtog.event.domain.model.ModalityConflictException;
 import com.gtog.user.domain.model.EmailAlreadyRegisteredException;
 import com.gtog.user.domain.model.UserDomainException;
+import com.gtog.user.domain.model.InvalidAuthTokenException;
+import com.gtog.user.domain.model.AuthAccountUnavailableException;
+import com.gtog.event.domain.model.EmailNotVerifiedException;
 
 // Todas las excepciones de dominio heredan de EventDomainException o UserDomainException; el dominio no sabe de codigos HTTP.
 // Este advice traduce las excepciones de dominio: los @ExceptionHandler mas especificos
@@ -47,6 +50,20 @@ import com.gtog.user.domain.model.UserDomainException;
 @RestControllerAdvice
 @Order(Ordered.HIGHEST_PRECEDENCE)
 public class GlobalExceptionHandler {
+	@ExceptionHandler(EmailNotVerifiedException.class)
+	public ResponseEntity<ProblemDetail> handleEmailNotVerified(EmailNotVerifiedException exception) {
+		ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.FORBIDDEN, "Email verification required");
+		problem.setInstance(URI.create("/api/events")); problem.setProperty("code", "EMAIL_NOT_VERIFIED");
+		return ResponseEntity.status(HttpStatus.FORBIDDEN).contentType(MediaType.APPLICATION_PROBLEM_JSON).cacheControl(CacheControl.noStore()).body(problem);
+	}
+	@ExceptionHandler(InvalidAuthTokenException.class)
+	public ResponseEntity<ProblemDetail> handleAuthToken(InvalidAuthTokenException exception) { return authProblem(HttpStatus.BAD_REQUEST, "Invalid or expired token"); }
+	@ExceptionHandler(AuthAccountUnavailableException.class)
+	public ResponseEntity<ProblemDetail> handleAuthAccount(AuthAccountUnavailableException exception) { return authProblem(HttpStatus.UNAUTHORIZED, "Authentication required"); }
+	private ResponseEntity<ProblemDetail> authProblem(HttpStatus status, String detail) {
+		ProblemDetail problem = ProblemDetail.forStatusAndDetail(status, detail); problem.setInstance(URI.create("/api/auth"));
+		return ResponseEntity.status(status).contentType(MediaType.APPLICATION_PROBLEM_JSON).cacheControl(CacheControl.noStore()).body(problem);
+	}
 
 	@ExceptionHandler(InvitationNotFoundException.class)
 	public ResponseEntity<ProblemDetail> handleInvitationNotFound(InvitationNotFoundException exception) {

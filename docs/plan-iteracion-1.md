@@ -9,13 +9,13 @@ decidió y por qué, qué está pendiente de decidir y qué deuda hay. Qué hace
 
 ## 1. Dónde estamos
 
-El backend del MVP está implementado de R1 a R11. **R12 está en curso:** el commit 1 corrige la sesión del
-login manual; verificación de correo y recuperación de contraseña siguen pendientes de los commits 2 y 3.
-RF-1.2 y RF-1.3 siguen sin cumplirse y R12 es un bloqueador de
-despliegue público. El frontend Angular no se ha empezado.
+El backend del MVP está implementado de R1 a R11. **R12 está en curso:** commits 1 (sesión manual) y 2
+(verificación y puerta de creación) implementados. RF-1.2 está cumplida; queda RF-1.3, recuperación de
+contraseña, para el commit 3. R12 sigue pendiente de cierre y bloquea el despliegue público.
+El frontend Angular no se ha empezado.
 
-`mvn clean verify`: 767 tests, 0 fallos, 0 errores, 0 omitidos en la última ejecución completa. El commit 1
-de R12 añade pruebas de identidad del principal y de sesión con servidor real. Repetirlo desde
+`mvn clean verify`: 810 tests, 0 fallos, 0 errores, 0 omitidos en la última ejecución completa, también
+con APP_AUTH_AUTOVERIFYEMAIL=true en el entorno para comprobar el aislamiento del bypass en tests. Repetirlo desde
 la terminal antes de dar por cerrado cualquier cambio. Stack: Java 25, Spring Boot 4.1, MongoDB Atlas,
 Maven por defecto, springdoc-openapi, iCal4j 4.2.0, libphonenumber 9.0.43, Mailjet por SMTP.
 
@@ -38,12 +38,15 @@ Maven por defecto, springdoc-openapi, iCal4j 4.2.0, libphonenumber 9.0.43, Mailj
 | R10 | Correo: reservas atómicas, cuota diaria, transporte Mailjet, endpoint de envío y cabecera `Content-Language: es` |
 | `canRespond` | Disponibilidad de respuesta calculada con la misma política que el `PUT` |
 | R11 | WhatsApp asistido: generar enlaces y confirmar el envío. Telegram aplazado |
-| R12 — Sesiones (commit 1) | Login manual con rotación de id y registro compartido, sin renovar XSRF-TOKEN. SessionInvalidationPort, igualdad del principal por userId y expiración con 401 ProblemDetail directo, instance constante y no-store exacto. Verificación y recuperación todavía pendientes |
+| R12 — Sesiones (commit 1) | Login manual con rotación de id y registro compartido, sin renovar XSRF-TOKEN. SessionInvalidationPort, igualdad del principal por userId y expiración con 401 ProblemDetail directo, instance constante y no-store exacto |
+| R12 — Verificación (commit 2) | Tokens solo como hash, consumo atómico, correo asíncrono y cuota propia; verify-email, resend-verification y /me. Puerta de creación desde la base de datos y bypass solo local con guarda. Falta recuperación en el commit 3 |
 
 ### Endpoints
 
 ```
 POST   /api/auth/register          POST   /api/auth/login          POST   /api/auth/logout
+POST   /api/auth/verify-email      POST   /api/auth/resend-verification
+GET    /api/auth/me
 
 POST   /api/events                 GET    /api/events              GET    /api/events/{id}
 PUT    /api/events/{id}            PUT    /api/events/{id}/response-options
@@ -73,6 +76,14 @@ Archivos `.http` ejecutables con el cliente HTTP de IntelliJ, contra un servidor
 - `rest-api-mail.http` y `rest-api-whatsapp.http`: manuales, con `{{realRecipient}}` y `{{realPhone}}` de
   `http-client.private.env.json`, que está ignorado por Git. No se ejecutan con "Run all": el paso de
   confirmación de WhatsApp debe lanzarse solo después de enviar el mensaje.
+- Desde R12, los tres recorridos anteriores necesitan APP_AUTH_AUTOVERIFYEMAIL=true en la configuración
+  de ejecución de la aplicación: sus anfitriones @example.com no tienen buzón y, sin verificar, el primer
+  POST /api/events devuelve 403 con code=EMAIL_NOT_VERIFIED. Equivale a app.auth.auto-verify-email=true:
+  verifica al registrar y omite el correo de verificación. No se configura en la aplicación real, en JUnit
+  ni en su plantilla del IDE; la guarda exige app.public-base-url con host localhost o 127.0.0.1.
+- `rest-api-verify.http` es la excepción: se ejecuta SIN APP_AUTH_AUTOVERIFYEMAIL, con realRecipient y
+  verificationToken del entorno privado. Tras login comprueba /me=emailVerified:false, con un mensaje que
+  detecta el bypass; luego verifica y crea en la misma sesión. Pendiente de ejecución manual con correo real.
 
 ---
 
@@ -102,8 +113,8 @@ Estas comprobaciones son manuales; los tests automáticos no confirman por sí s
 
 ### R12 — Verificación de correo y recuperación de contraseña
 
-En curso. Commit 1 de sesiones implementado; quedan commit 2 (verificación y puerta de creación) y
-commit 3 (recuperación). Desbloqueada por el proveedor de correo (R10). Decisiones ya tomadas:
+En curso. Commits 1 de sesiones y 2 de verificación implementados; queda el commit 3 de recuperación.
+Desbloqueada por el proveedor de correo (R10). Decisiones ya tomadas:
 
 - **Puerta:** sin correo verificado no se puede crear un evento (`POST /api/events`). Sí se puede registrar,
   iniciar sesión, listar y consultar. La comprobación lee `emailVerified` de la base de datos en cada
@@ -114,6 +125,14 @@ commit 3 (recuperación). Desbloqueada por el proveedor de correo (R10). Decisio
   `EMAIL_VERIFICATION` y `PASSWORD_RESET`. TTL de Mongo sobre `expiresAt` más validación de la caducidad en
   código, porque Mongo borra con retraso. Consumo atómico de un solo uso. Caducidad configurable: 24 h la
   verificación, 1 h el restablecimiento.
+- **Correo de verificación (commit 2):** crear la cuenta es síncrono y mantiene 201/409/422. Todo el flujo
+  de correo (buscar, reservar, emitir y enviar) va en el ejecutor, con respuesta inalterada ante fallo o
+  saturación, sin reintento. app.auth.mail-executor.core-size=2, max-size=4 y queue-capacity=100; saturación
+  a WARN, clase y correlación, nunca dirección ni mensaje original. Tests con ejecutor síncrono y transporte falso.
+- **Límites propios:** authEmailSends, authEmailWindowStartedAt y lastAuthEmailAt en users, ausentes como
+  0/null. Reserva con pipeline y Clock, 1 emisión cada 5 minutos y 5 por ventana de 24 h, incluidos los
+  umbrales exactos; cuenta la emisión inicial. app.auth.mail-cooldown=PT5M y app.auth.mail-max-per-day=5.
+  No utiliza ni altera emailSendsInWindow/windowStartedAt de invitaciones.
 - **Enlaces** con el token en el fragmento (`#token=...`), nunca en la query: no llega al servidor, a los logs
   de acceso ni al `Referer`. Correos en texto plano, con texto fijo y sin datos escritos por el usuario.
 - **Olvidé mi contraseña:** responde siempre 202 con el mismo cuerpo y cabeceras, exista o no la cuenta. El
@@ -132,8 +151,13 @@ commit 3 (recuperación). Desbloqueada por el proveedor de correo (R10). Decisio
 - **Rutas:** verify-email, forgot-password y reset-password son públicas (POST, con CSRF); resend-verification
   y me exigen sesión. Se añaden a SecurityConfig una a una, porque /api/auth/** no es público en bloque.
 - **Bypass local:** `app.auth.auto-verify-email`, falso por defecto, verifica la cuenta al registrarla para
-  que los recorridos `.http` sigan funcionando con direcciones `@example.com`. La aplicación se niega a
-  arrancar si está activo y `app.public-base-url` no apunta a localhost.
+  que los recorridos `.http` sigan funcionando con direcciones `@example.com`, sin correo de verificación.
+  Su variable es APP_AUTH_AUTOVERIFYEMAIL. La aplicación se niega a arrancar si está activo y
+  `app.public-base-url` no apunta a localhost o 127.0.0.1; el rechazo nombra propiedad y host sin credenciales.
+  El WARN nombra propiedad y variable e indica que no es para producción. Un nombre mal escrito no avisa:
+  no activa nada. Tests de binding con TestPropertyValues.Type.SYSTEM_ENVIRONMENT y guardas de arranque.
+  Los tests fijan el bypass con propiedades explícitas o @AuthBypassDisabled; la suite se verifica también
+  con APP_AUTH_AUTOVERIFYEMAIL=true en el entorno para comprobar que no los altera.
 - **Sesión del login manual (commit 1 implementado):** antes, AuthController solo guardaba el contexto en
   HttpSession; el test con servidor real midió login 200 y el mismo id de la sesión previa. Ahora aplica
   ChangeSessionIdAuthenticationStrategy y RegisterSessionAuthenticationStrategy compartidas con la cadena.
@@ -251,7 +275,8 @@ invalidar A no afecta a B e invalidar B sí lo rechaza. Logout y expiración eli
 token de la ruta y no una cookie que el navegador envíe solo. La cookie `XSRF-TOKEN` se emite en el primer
 `GET` y se compara el valor crudo con la cabecera. Un rechazo CSRF es 403.
 
-**Rutas públicas:** `/api/invitations/**`, `POST /api/auth/register`, `POST /api/auth/login` y
+**Rutas públicas:** `/api/invitations/**`, `POST /api/auth/register`, `POST /api/auth/login`,
+`POST /api/auth/verify-email` y
 `/actuator/health`. Swagger y OpenAPI también lo son (D-SWAGGER-PUBLIC). El matcher real de Actuator permite
 `/actuator/**`, no solo health: cualquier otro endpoint que se exponga bajo esa ruta tampoco exigirá sesión.
 Todo lo demás exige sesión. Las escrituras públicas siguen sujetas a CSRF salvo `/api/invitations/**`.
@@ -350,6 +375,8 @@ salud de Mongo), D-7 (opciones en eventos publicados, R8), D-CONFIRMED-LINK (R8)
 - **Enumeración en registro:** el registro revela si un correo ya existe (409); es aceptado y se compensa
   con el límite por IP, D-REGISTER-RATE-LIMIT, aún pendiente. El contrato aprobado de forgot-password no lo
   revela; se implementará en el commit 3 de R12.
+- **Correo de autenticación:** una caída del proveedor de correo gasta intentos del límite de autenticación
+  del usuario. La reserva se conserva, se registra clase y correlación y no hay reintentos automáticos.
 - **Lote cancelado a mitad:** la confirmación de WhatsApp devuelve 409 conservando las marcas previas. Es
   aceptable porque la operación es idempotente.
 
@@ -357,7 +384,7 @@ salud de Mongo), D-7 (opciones en eventos publicados, R8), D-CONFIRMED-LINK (R8)
 
 ## 7. Bloqueadores de despliegue público
 
-- R12: verificación del correo del anfitrión.
+- R12: completar la recuperación de contraseña; la verificación del correo del anfitrión está implementada.
 - D-REGISTER-RATE-LIMIT y D-RATE-LIMIT: límites de peticiones.
 - D-BOUNCES: procesar rebotes y quejas.
 - D-SWAGGER-PUBLIC y D-SECURE-COOKIE.

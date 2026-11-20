@@ -84,6 +84,16 @@ La base de datos es **MongoDB Atlas**, no local. Hace falta la variable de entor
 - `src/test/resources/application-test.properties` usa `${MONGODB_URI}` con la base `gtog_test`, distinta de la de desarrollo.
 - En Spring Boot 4 el prefijo de propiedad es `spring.mongodb`, no `spring.data.mongodb` (ese era el de la rama 3.x). Las propiedades son `spring.mongodb.uri` y `spring.mongodb.database`.
 
+Desde R12, POST /api/events devuelve 403 con code=EMAIL_NOT_VERIFIED si el correo del anfitrión no está
+verificado. Los recorridos .http registran anfitriones @example.com, que no tienen buzón: el primer POST
+/api/events de cada recorrido dará 403. Para desarrollo local, añade APP_AUTH_AUTOVERIFYEMAIL=true a la
+configuración de ejecución de la aplicación (equivale a app.auth.auto-verify-email=true): verifica la cuenta
+al registrarla y no envía correo de verificación. Para la aplicación real y para los tests, déjala sin definir.
+No la añadas a la configuración de ejecución de JUnit ni a la plantilla de JUnit del IDE.
+La aplicación se niega a arrancar si está activa y app.public-base-url no apunta a localhost o 127.0.0.1.
+Para probar la verificación real, arranca sin esa variable y usa rest-api-verify.http, con una dirección real
+del entorno privado y el token del fragmento del correo. No ejecutes ese recorrido automáticamente.
+
 ---
 
 ## Arquitectura
@@ -125,13 +135,14 @@ Las cinco reglas que hacen que esto sea hexagonal de verdad y no tres carpetas c
 
 ## Modelo de datos
 
-Cuatro colecciones. La separación es deliberada: **configuración, transacciones y contenido tienen patrones de escritura y curvas de crecimiento distintas.**
+La separación de colecciones es deliberada: **configuración, transacciones, credenciales y contenido tienen patrones de escritura y curvas de crecimiento distintas.**
 
 | Colección | Contenido | Escritura |
 |---|---|---|
 | `users` | Cuentas de anfitrión | Poco frecuente |
 | `events` | El evento como un todo: fechas, lugar o acceso en línea, opciones de respuesta y la lista de invitados embebida | La hace el anfitrión, poco frecuente, un solo escritor |
 | `responses` | **Un documento por respuesta de invitado** | La hacen los invitados, concurrente, a ráfagas tras el envío |
+| `auth_tokens` | Hash SHA-256 de tokens de autenticación, usuario, propósito y caducidad | Emisión y consumo atómicos; nunca el token en claro |
 | `wall_posts` *(iteración 2)* | Contenido social, referenciando el evento | La hacen los invitados, crecimiento sin límite |
 
 ### `events`
@@ -161,6 +172,12 @@ Que un invitado cambie su respuesta es un **upsert sobre esa clave única**, no 
 ### `wall_posts` (iteración 2)
 
 Referencia `eventId`. Nunca embebido en el evento: fotos y comentarios crecen sin límite y acabarían chocando con el tamaño máximo de documento. Los comentarios sí pueden ir embebidos en su publicación; los contadores de reacciones se actualizan con `$inc`, nunca leyendo y reescribiendo.
+
+Desde R12, auth_tokens tiene índice único del hash y de (userId, purpose), más TTL sobre expiresAt. Emitir
+sustituye por upsert; consumir usa find-and-delete por hash, propósito y expiresAt > ahora, desde Clock.
+La verificación es pública con CSRF; /me y resend-verification requieren sesión. La puerta de creación
+consulta HostEmailVerificationPort en cada POST /api/events, nunca el flag de la sesión. Los contadores
+authEmailSends/authEmailWindowStartedAt/lastAuthEmailAt son propios: no reutilizar la cuota de invitaciones.
 
 ### Consistencia: derivar en lugar de duplicar
 
@@ -324,6 +341,7 @@ Estas reglas son el contrato final del producto, no necesariamente lo que el có
 - Dominio y casos de uso: tests unitarios planos, sin contexto de Spring. Deben ser rápidos, y la arquitectura hexagonal es justamente lo que lo permite: si un test de caso de uso necesita Spring, las dependencias están mal.
 - Adaptadores y flujos completos: tests de integración con `@SpringBootTest @ActiveProfiles("test")` contra MongoDB Atlas (base `gtog_test`). La conexión está en `src/test/resources/application-test.properties`. Hace falta `MONGODB_URI` en el entorno antes de lanzar los tests (ver sección Comandos). Nada de Mongo embebido.
 - También en los tests de integración, inyecta los beans por constructor en campos `final`, con `@TestConstructor(autowireMode = ALL)`, sin `@Autowired` en campos. `@MockitoBean` y `@MockitoSpyBean` se mantienen para declarar los dobles del contexto.
+- Los tests fijan explícitamente el bypass con propiedades de SpringBootTest o con @AuthBypassDisabled. Nunca configures APP_AUTH_AUTOVERIFYEMAIL en JUnit; el ejecutor de correo de autenticación es síncrono y el transporte es falso en tests.
 - Los tests de integración limpian las colecciones que usan antes de cada test (`@BeforeEach`) para no depender del orden de ejecución.
 - Nombres descriptivos en inglés: `doesNotAllowDeletingOptionWithAttachedResponses()`.
 - Cada regla de la sección anterior necesita al menos un test que la cubra. La de concurrencia necesita un test con escrituras en paralelo.

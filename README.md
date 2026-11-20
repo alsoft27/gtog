@@ -53,6 +53,22 @@ Este repositorio es solo el backend. La especificación funcional completa vive 
    mvn clean verify
    ```
 
+Desde R12, `POST /api/events` devuelve **403 con `code=EMAIL_NOT_VERIFIED`** si el correo del anfitrión no
+está verificado. Los recorridos `.http` registran anfitriones `@example.com`, que no tienen buzón: sin el
+bypass local, ese será el resultado del primer `POST /api/events` de cada recorrido.
+
+Para ejecutarlos en desarrollo local, añade **`APP_AUTH_AUTOVERIFYEMAIL=true`** a la configuración de
+ejecución de la aplicación en el IDE. Equivale a `app.auth.auto-verify-email=true`: verifica la cuenta al
+registrarla y no envía correo de verificación. Para la aplicación real y para los tests, deja la variable
+sin definir; no la añadas a la configuración ni a la plantilla de JUnit del IDE.
+Un error al escribir su nombre **no produce ningún aviso: simplemente no hace nada**, y el primer evento
+seguirá rechazado con 403 y `EMAIL_NOT_VERIFIED`.
+
+La aplicación se niega a arrancar con el bypass activo si `app.public-base-url` no apunta a `localhost` o
+`127.0.0.1`. Para probar la verificación real, arranca sin esa variable y usa `rest-api-verify.http` con
+`{{realRecipient}}` del entorno privado del cliente HTTP. Ese recorrido comprueba tras el login que
+`/api/auth/me` sigue mostrando `emailVerified=false` antes de verificar. No se ejecuta automáticamente.
+
 Con la aplicación arrancada:
 
 - Documentación OpenAPI (JSON): `http://localhost:8080/v3/api-docs`

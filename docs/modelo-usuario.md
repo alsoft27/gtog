@@ -1,8 +1,8 @@
 # Modelo de datos: Usuario
 
-Estado tras R5, R10 y el commit 1 de R12: registro, login, logout, autenticación por sesión,
-protección contra fijación e invalidación de sesiones y cuota atómica del anfitrión.
-La verificación de correo y la recuperación de contraseña siguen pendientes de los commits 2 y 3 de R12.
+Estado tras R5, R10 y los commits 1 y 2 de R12: registro, login, logout, protección e invalidación de
+sesiones, cuota del anfitrión, verificación de correo y puerta de creación. La recuperación de contraseña
+sigue pendiente del commit 3 de R12.
 
 ---
 
@@ -19,10 +19,18 @@ Vive en `com.gtog.user.domain.model.User`. Clase plana sin anotaciones de framew
 | `timeZone` | `String` | Zona horaria IANA del anfitrión, usada como zona por defecto al crear eventos. Obligatoria. |
 | `emailSendsInWindow` | `int` | Reservas de correo en la ventana de 24 h; ausente equivale a 0 |
 | `windowStartedAt` | `Instant`, nullable | Inicio UTC de la ventana; ausente equivale a null |
+| `emailVerified` | `boolean` | Ausente equivale a false; solo se exige al crear eventos |
+| `authEmailSends` | `int` | Emisiones de autenticación en su ventana propia; ausente equivale a 0 |
+| `authEmailWindowStartedAt` | `Instant`, nullable | Inicio de la ventana de autenticación; no es windowStartedAt |
+| `lastAuthEmailAt` | `Instant`, nullable | Última reserva de autenticación; controla el enfriamiento |
 
 Dos factory methods:
 - `User.register(name, email, password, timeZone)` — valida todas las reglas, normaliza el email, genera el id.
 - `User.reconstitute(id, name, email, password, timeZone)` — rehidrata sin revalidar.
+
+Las sobrecargas conservan verificación y ambos grupos de contadores. El registro síncrono valida, hashea e
+inserta la cuenta antes del 201; la política local puede marcarla verificada al crearla. El flujo completo
+de correo se encola después, sin alterar la respuesta por errores de envío o saturación.
 
 ### Reglas de negocio y sus excepciones
 
@@ -36,8 +44,9 @@ Dos factory methods:
 | La zona horaria debe ser válida según `ZoneId.of(...)` | `InvalidUserTimeZoneException` | 422 |
 
 Todas las excepciones de dominio heredan de `UserDomainException`. El `@RestControllerAdvice`
-(`GlobalExceptionHandler`) mapea `UserDomainException` → 422 y `EmailAlreadyRegisteredException` → 409
-(más específica, gana).
+(`GlobalExceptionHandler`) mapea las reglas a 422 y `EmailAlreadyRegisteredException` a 409. Los handlers
+específicos de autenticación producen 400 genérico para token inválido/caducado/usado y 401 para una cuenta
+que ya no existe, con instance constante `/api/auth` y no-store exacto.
 
 ---
 
@@ -63,8 +72,11 @@ en el login — ambos comparten la misma instancia (`@Bean PasswordEncoder` en `
 
 `UserDocument` (en `user/infrastructure/out/persistence`) — campos: `id`, `name`, `email`, `passwordHash`
 (string), `timeZone`, `emailSendsInWindow` (`Integer`, ausente leído como 0) y `windowStartedAt`
-(`Instant`, nullable, ausente leído como null). Los últimos campos mantienen la cuota de correo del
-anfitrión. `UserMapper` traduce en ambos sentidos; `Password.fromHash(...)` rehidrata el objeto de valor al leer de Mongo.
+(`Instant`, nullable, ausente leído como null), más `emailVerified` (`Boolean`, ausente leído como false),
+`authEmailSends` (`Integer`, ausente leído como 0), `authEmailWindowStartedAt` y `lastAuthEmailAt`
+(`Instant`, nullable). Los dos grupos de cuotas son independientes. `UserMapper` conserva todos los campos;
+`Password.fromHash(...)` rehidrata el objeto de valor al leer de Mongo. El alta inserta; verificar solo hace
+$set de emailVerified, sin save del documento existente y sin tocar cuotas.
 
 Índice creado en el arranque (`MongoIndexInitializer`):
 
@@ -139,12 +151,60 @@ de la autenticación de Spring Security.
 
 | Método | Ruta | Body | Respuesta |
 |---|---|---|---|
-| `POST` | `/api/auth/register` | `RegisterUserRequest` (`name`, `email`, `rawPassword`, `timeZone`) | `201` + `Location: /api/users/{id}` + `AuthUserResponse` (`id`, `name`, `email`, `timeZone`), `409` (email duplicado), `422` (regla de dominio) |
+| `POST` | `/api/auth/register` | `RegisterUserRequest` (`name`, `email`, `rawPassword`, `timeZone`) | `201` + `Location: /api/users/{id}` + `AuthUserResponse` (`id`, `name`, `email`, `timeZone`, `emailVerified`), `409` (email duplicado), `422` (regla de dominio) |
 | `POST` | `/api/auth/login` | `LoginRequest` (`email`, `password`) | `200` + `AuthUserResponse`, `401` (credenciales incorrectas) |
 | `POST` | `/api/auth/logout` | — | `204` |
+| `POST` | `/api/auth/verify-email` | `{token}` | Público con CSRF: 200 sin cuerpo; token inválido/caducado/usado → mismo 400 |
+| `POST` | `/api/auth/resend-verification` | — | Sesión y CSRF: 204 uniforme, también verificado, limitado o envío fallido |
+| `GET` | `/api/auth/me` | — | Sesión: AuthUserResponse vigente, incluido emailVerified leído de la base; no-store exacto |
 
 Todos los endpoints de `/api/events/**` requieren sesión activa → 401 si no la hay.
 `/api/invitations/**` es público (resuelto por token de invitado).
+
+Login también devuelve emailVerified. Los nuevos endpoints y /me usan Cache-Control: no-store exacto.
+Un GET anónimo de /me devuelve 401 y emite XSRF-TOKEN: enviarlo como cookie y X-XSRF-TOKEN permite alcanzar
+verify-email (400 para un token inventado), sin sesión ni csrf() de MockMvc. Solo ese POST nuevo se abre
+explícitamente; /api/auth/** no es público en bloque y la exclusión de CSRF sigue limitada a invitaciones.
+
+## Verificación de correo (R12, commit 2)
+
+AuthTokenPurpose distingue EMAIL_VERIFICATION y PASSWORD_RESET; este último se usará en el commit 3.
+La colección auth_tokens guarda id, userId, purpose, hash SHA-256 y expiresAt, nunca el token en claro.
+SecureAuthTokenGenerator usa 32 bytes de SecureRandom y base64url sin relleno. El token vive solo en memoria,
+en el correo y en el cuerpo de la petición; los DTOs sensibles ocultan su contenido en toString.
+MongoIndexInitializer crea índices únicos de hash y (userId, purpose), y TTL sobre expiresAt. Emitir
+sustituye el anterior con un upsert atómico; consumir usa un solo find-and-delete por hash, propósito y
+expiresAt > ahora. La caducidad se comprueba sin depender del borrado TTL y todos los instantes vienen del Clock.
+
+El enlace es <app.public-base-url><app.auth.verify-email-path>#token=<token>, con ruta /verify-email y TTL
+app.auth.verification-ttl=PT24H. El asunto y cuerpo son texto fijo español, sin nombre, correo ni otros datos
+escritos por el usuario, y contienen «Si no lo has pedido, ignóralo.». /me y la puerta de creación leen de
+nuevo emailVerified; la sesión no decide el permiso. HostEmailVerificationPort pertenece al dominio de event,
+y HostEmailVerificationAdapter a user/infrastructure/out/persistence. El rechazo es 403 ProblemDetail con
+instance /api/events y code=EMAIL_NOT_VERIFIED. No impide consultar ni iniciar sesión.
+
+VerificationEmailService encola búsqueda, reserva, emisión y envío, no solo SMTP. Su ejecutor acotado tiene
+app.auth.mail-executor.core-size=2, max-size=4 y queue-capacity=100, sin CallerRunsPolicy. La saturación se
+registra a WARN con clase y correlación, sin dirección ni mensaje original y sin reintento; la respuesta
+permanece igual. Los tests usan SynchronousAuthMailExecutor en src/test con perfil test y correo capturado,
+nunca SMTP real.
+
+AuthEmailSenderPort pertenece a user. AuthEmailSenderAdapter, solo en infraestructura, reutiliza
+com.gtog.event.domain.port.out.EmailSenderPort y convierte AuthEmail a InvitationEmail para aprovechar el
+SMTP existente. Dominio y aplicación de user no importan event; no se mueve el transporte ni se usan sus cuotas.
+
+La reserva de autenticación es un findAndModify con pipeline, enfriamiento inclusivo de 5 minutos
+(app.auth.mail-cooldown=PT5M) y máximo 5 por ventana de 24 horas (app.auth.mail-max-per-day=5), contando el correo
+inicial. Los límites se omiten en silencio. No hay lectura seguida de escritura para reservar y no se usa
+$$NOW: el instante procede del Clock. Una caída del proveedor gasta intentos del límite de autenticación del
+usuario: no se compensa ni se reintenta. Se registra ERROR AUTH_MAIL_SEND_FAILED con clase y correlación.
+
+app.auth.auto-verify-email=false por defecto. Solo para recorridos locales, APP_AUTH_AUTOVERIFYEMAIL=true
+verifica al registrar y omite el correo. La guarda rechaza hosts distintos de localhost o 127.0.0.1, nombrando
+la propiedad y el host sin volcar credenciales; el WARN nombra propiedad, variable y la prohibición de producción.
+Los tests fijan el bypass explícitamente; la variable no se añade a la ejecución ni plantilla de JUnit.
+rest-api-verify.http es manual, con realRecipient y verificationToken del entorno privado, sin bypass;
+tras login comprueba /me=false, verifica y crea en la misma sesión. No se ejecuta automáticamente.
 
 ---
 
@@ -179,6 +239,5 @@ cualquier uso futuro requiere aprobación expresa y doble confirmación de su du
 
 ## Fuera de alcance por ahora
 
-- Verificación de correo electrónico (`RF-1.2`): R12.
-- Recuperación de contraseña (`RF-1.3`): R12.
+- Recuperación de contraseña (`RF-1.3`): commit 3 de R12.
 - Roles de usuario (hoy solo existe el rol de anfitrión).

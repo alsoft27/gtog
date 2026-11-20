@@ -1,0 +1,101 @@
+# R12 — Verificación real de correo. Ejecutar manualmente y SIN APP_AUTH_AUTOVERIFYEMAIL.
+# Arranca la aplicación con Mailjet y el bypass desactivado. No ejecutar Run All: hay que esperar al correo.
+# Selecciona el entorno de http-client.private.env.json con realRecipient, una dirección aún no registrada.
+# Tras 01, abre el correo y copia solo el valor que sigue a #token= en su enlace; no necesitas Angular.
+# Pégalo en la variable verificationToken del entorno privado del cliente y continúa desde 02.
+# No pegues tokens ni direcciones reales en este archivo versionado; no crees el fichero privado desde el agente.
+
+@baseUrl = http://localhost:8080
+@password = VerificationSmoke2026!
+
+### 00 — Preparar CSRF y fechas locales del evento
+# @no-cookie-jar
+< {%
+    ["gtogVerifyCsrf", "gtogVerifySession"].forEach(function (name) { client.global.clear(name); });
+    const date = new Date(); date.setDate(date.getDate() + 7);
+    const day = date.getFullYear() + "-" + String(date.getMonth() + 1).padStart(2, "0") + "-" + String(date.getDate()).padStart(2, "0");
+    client.global.set("gtogVerifyStartsAt", day + "T18:00:00"); client.global.set("gtogVerifyEndsAt", day + "T20:00:00");
+%}
+GET {{baseUrl}}/actuator/health
+
+> {%
+    client.assert(response.status === 200, "Health failed");
+    const cookie = response.cookiesByName("XSRF-TOKEN")[0]; client.assert(!!cookie && !!cookie.value, "Missing CSRF cookie");
+    client.global.set("gtogVerifyCsrf", cookie.value);
+%}
+
+### 01 — Registrar la dirección real: envía el correo de verificación
+# @no-cookie-jar
+POST {{baseUrl}}/api/auth/register
+Content-Type: application/json
+Cookie: XSRF-TOKEN={{gtogVerifyCsrf}}
+X-XSRF-TOKEN: {{gtogVerifyCsrf}}
+
+{ "name": "Anfitrión de verificación", "email": "{{realRecipient}}", "rawPassword": "{{password}}", "timeZone": "Europe/Madrid" }
+
+> {%
+    client.assert(response.status === 201, "Registration failed; realRecipient must not be registered already");
+    client.assert(response.body.emailVerified === false, "La aplicación está arrancada con APP_AUTH_AUTOVERIFYEMAIL=true; este recorrido exige arrancarla sin ella.");
+%}
+
+### 02 — Login permitido aunque el correo siga sin verificar
+# @no-cookie-jar
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+Cookie: XSRF-TOKEN={{gtogVerifyCsrf}}
+X-XSRF-TOKEN: {{gtogVerifyCsrf}}
+
+{ "email": "{{realRecipient}}", "password": "{{password}}" }
+
+> {%
+    client.assert(response.status === 200, "Login failed");
+    const cookie = response.cookiesByName("JSESSIONID")[0]; client.assert(!!cookie && !!cookie.value, "Missing session");
+    client.global.set("gtogVerifySession", cookie.value);
+%}
+
+### 03 — Confirmar antes de verificar que el bypass está desactivado
+# @no-cookie-jar
+GET {{baseUrl}}/api/auth/me
+Cookie: XSRF-TOKEN={{gtogVerifyCsrf}}; JSESSIONID={{gtogVerifySession}}
+
+> {%
+    client.assert(response.status === 200, "Me failed");
+    client.assert(response.body.emailVerified === false, "La aplicación está arrancada con APP_AUTH_AUTOVERIFYEMAIL=true; este recorrido exige arrancarla sin ella.");
+    client.assert(response.headers.valueOf("Cache-Control") === "no-store", "Unexpected Cache-Control");
+%}
+
+### 04 — Pegar el token del correo en verificationToken del entorno privado antes de ejecutar
+# @no-cookie-jar
+POST {{baseUrl}}/api/auth/verify-email
+Content-Type: application/json
+Cookie: XSRF-TOKEN={{gtogVerifyCsrf}}; JSESSIONID={{gtogVerifySession}}
+X-XSRF-TOKEN: {{gtogVerifyCsrf}}
+
+{ "token": "{{verificationToken}}" }
+
+> {%
+    client.assert(response.status === 200, "Verification failed; use the latest unexpired token from the email fragment");
+    client.assert(response.headers.valueOf("Cache-Control") === "no-store", "Unexpected Cache-Control");
+%}
+
+### 05 — Me refleja la verificación en la misma sesión
+# @no-cookie-jar
+GET {{baseUrl}}/api/auth/me
+Cookie: XSRF-TOKEN={{gtogVerifyCsrf}}; JSESSIONID={{gtogVerifySession}}
+
+> {% client.assert(response.status === 200 && response.body.emailVerified === true, "Verification not reflected in the existing session"); %}
+
+### 06 — Crear un evento sin volver a iniciar sesión
+# @no-cookie-jar
+POST {{baseUrl}}/api/events
+Content-Type: application/json
+Cookie: XSRF-TOKEN={{gtogVerifyCsrf}}; JSESSIONID={{gtogVerifySession}}
+X-XSRF-TOKEN: {{gtogVerifyCsrf}}
+
+{
+  "title": "Evento tras verificar el correo",
+  "startsAt": "{{gtogVerifyStartsAt}}", "endsAt": "{{gtogVerifyEndsAt}}", "timeZone": "Europe/Madrid", "modality": "IN_PERSON",
+  "venue": { "placeName": "Sala", "address": "Madrid", "latitude": 40.4168, "longitude": -3.7038, "placeId": "manual-verification-place" }
+}
+
+> {% client.assert(response.status === 201, "Event creation failed after verifying email"); %}

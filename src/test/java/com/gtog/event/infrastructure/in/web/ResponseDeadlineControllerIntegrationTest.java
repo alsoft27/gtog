@@ -53,6 +53,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+@com.gtog.AuthBypassDisabled
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
@@ -93,6 +94,7 @@ class ResponseDeadlineControllerIntegrationTest {
 			host.setEmail(i == 1 ? "host@example.com" : "other@example.com");
 			host.setPasswordHash("unused-test-hash");
 			host.setTimeZone("Europe/Madrid");
+		host.setEmailVerified(true);
 			users.save(host);
 		}
 		fixedTime(NOW);

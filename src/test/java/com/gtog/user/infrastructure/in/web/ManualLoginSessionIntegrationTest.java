@@ -35,6 +35,7 @@ import com.jayway.jsonpath.JsonPath;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+@com.gtog.AuthBypassDisabled
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ActiveProfiles("test")
 @TestConstructor(autowireMode = TestConstructor.AutowireMode.ALL)
@@ -58,7 +59,7 @@ class ManualLoginSessionIntegrationTest {
 		}
 		mongo.remove(new Query(), UserDocument.class);
 		mongo.remove(new Query(), EventDocument.class);
-		mongo.insert(new UserDocument("host-session", "Host", "session-host@example.com", passwords.encode("password12"), "Europe/Madrid"));
+		mongo.insert(com.gtog.UserTestFixtures.verified("host-session", "Host", "session-host@example.com", passwords.encode("password12"), "Europe/Madrid"));
 	}
 
 	@Test void aLoginWithAnExistingSessionChangesItsId() throws Exception {
@@ -115,7 +116,7 @@ class ManualLoginSessionIntegrationTest {
 	}
 
 	@Test void invalidationDoesNotExpireAnotherUsersSession() throws Exception {
-		mongo.insert(new UserDocument("other-host", "Other", "other-session@example.com", passwords.encode("password12"), "Europe/Madrid"));
+		mongo.insert(com.gtog.UserTestFixtures.verified("other-host", "Other", "other-session@example.com", passwords.encode("password12"), "Europe/Madrid"));
 		Browser target = authenticatedBrowser();
 		Browser anonymous = anonymousBrowser();
 		var otherLogin = login(anonymous, "other-session@example.com");
@@ -135,7 +136,7 @@ class ManualLoginSessionIntegrationTest {
 	}
 
 	@Test void switchingAccountsOnTheSameSessionMovesRegistrationAndInvalidationToTheNewUser() throws Exception {
-		mongo.insert(new UserDocument("other-host", "Other", "other-session@example.com", passwords.encode("password12"), "Europe/Madrid"));
+		mongo.insert(com.gtog.UserTestFixtures.verified("other-host", "Other", "other-session@example.com", passwords.encode("password12"), "Europe/Madrid"));
 		Browser firstUser = authenticatedBrowser();
 		assertThat(events(firstUser).statusCode()).isEqualTo(200);
 		assertThat(registry.getAllSessions(principal("host-session"), false)).extracting(session -> session.getSessionId())

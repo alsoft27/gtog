@@ -1,4 +1,5 @@
 # R11 — Prueba manual de WhatsApp. Independiente de rest-api.http: no ejecutar como recorrido automático.
+# R12: necesita APP_AUTH_AUTOVERIFYEMAIL=true en la aplicación; sin ella, el primer POST /api/events devuelve 403 con code=EMAIL_NOT_VERIFIED.
 # Arranca tú el backend y selecciona un entorno de http-client.private.env.json con realPhone (E.164).
 # No crees ni versiones ese fichero desde este recorrido. No escribas aquí teléfonos reales ni credenciales.
 # Ejecuta 00–06 en orden. El único client.log imprime la URL del paso 06: contiene el token; no la compartas.

@@ -15,6 +15,10 @@ public class UserDocument {
 	private String timeZone;
 	private Integer emailSendsInWindow;
 	private Instant windowStartedAt;
+	private Boolean emailVerified;
+	private Integer authEmailSends;
+	private Instant authEmailWindowStartedAt;
+	private Instant lastAuthEmailAt;
 
 	public UserDocument() {
 	}
@@ -28,6 +32,14 @@ public class UserDocument {
 	}
 
 	public String getId() { return id; }
+	public boolean isEmailVerified() { return Boolean.TRUE.equals(emailVerified); }
+	public void setEmailVerified(boolean value) { emailVerified = value; }
+	public int getAuthEmailSends() { return authEmailSends == null ? 0 : authEmailSends; }
+	public void setAuthEmailSends(int value) { authEmailSends = value; }
+	public Instant getAuthEmailWindowStartedAt() { return authEmailWindowStartedAt; }
+	public void setAuthEmailWindowStartedAt(Instant value) { authEmailWindowStartedAt = value; }
+	public Instant getLastAuthEmailAt() { return lastAuthEmailAt; }
+	public void setLastAuthEmailAt(Instant value) { lastAuthEmailAt = value; }
 	public int getEmailSendsInWindow() { return emailSendsInWindow == null ? 0 : emailSendsInWindow; }
 	public void setEmailSendsInWindow(int value) { emailSendsInWindow = value; }
 	public Instant getWindowStartedAt() { return windowStartedAt; }

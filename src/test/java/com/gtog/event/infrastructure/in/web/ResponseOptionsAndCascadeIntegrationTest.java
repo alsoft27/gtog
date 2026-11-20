@@ -41,6 +41,7 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
+@com.gtog.AuthBypassDisabled
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
@@ -95,6 +96,7 @@ class ResponseOptionsAndCascadeIntegrationTest {
 			user.setEmail(i == 1 ? "host@example.com" : "other@example.com");
 			user.setPasswordHash("unused-test-hash");
 			user.setTimeZone("Europe/Madrid");
+		user.setEmailVerified(true);
 			users.save(user);
 		}
 		when(clock.instant()).thenReturn(Clock.fixed(NOW, ZoneOffset.UTC).instant());

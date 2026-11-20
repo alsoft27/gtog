@@ -20,7 +20,7 @@ public class UserDetailsServiceAdapter implements UserDetailsService {
 	public UserDetails loadUserByUsername(String email) throws UsernameNotFoundException {
 		return userRepository.findByEmail(email)
 				.map(user -> new AuthenticatedUser(
-						user.getId(), user.getName(), user.getEmail(), user.getPassword().hash(), user.getTimeZone()))
+						user.getId(), user.getName(), user.getEmail(), user.getPassword().hash(), user.getTimeZone(), user.isEmailVerified()))
 				.orElseThrow(() -> new UsernameNotFoundException("No user with email: " + email));
 	}
 }

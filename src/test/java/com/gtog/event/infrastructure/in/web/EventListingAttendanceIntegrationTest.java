@@ -42,6 +42,7 @@ import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
+@com.gtog.AuthBypassDisabled
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
@@ -75,6 +76,7 @@ class EventListingAttendanceIntegrationTest {
 		user.setEmail("host@example.com");
 		user.setPasswordHash("unused-test-hash");
 		user.setTimeZone("Europe/Madrid");
+		user.setEmailVerified(true);
 		users.save(user);
 		event = events.save(event(EventStatus.PUBLISHED));
 	}

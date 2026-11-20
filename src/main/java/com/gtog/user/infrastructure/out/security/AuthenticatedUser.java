@@ -14,18 +14,24 @@ public class AuthenticatedUser implements UserDetails {
 	private final String email;
 	private final String passwordHash;
 	private final String timeZone;
+	private final boolean emailVerified;
 
 	public AuthenticatedUser(String userId, String name, String email, String passwordHash, String timeZone) {
+		this(userId, name, email, passwordHash, timeZone, false);
+	}
+	public AuthenticatedUser(String userId, String name, String email, String passwordHash, String timeZone, boolean emailVerified) {
 		this.userId = userId;
 		this.name = name;
 		this.email = email;
 		this.passwordHash = passwordHash;
 		this.timeZone = timeZone;
+		this.emailVerified = emailVerified;
 	}
 
 	public String getUserId() { return userId; }
 	public String getName() { return name; }
 	public String getTimeZone() { return timeZone; }
+	public boolean isEmailVerified() { return emailVerified; }
 
 	@Override public boolean equals(Object other) {
 		return this == other || other instanceof AuthenticatedUser user && Objects.equals(userId, user.userId);

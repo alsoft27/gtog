@@ -16,6 +16,11 @@ import com.gtog.event.domain.model.ResponseOption;
 import com.gtog.event.domain.model.Venue;
 import com.gtog.event.domain.port.in.CreateEventCommand;
 import com.gtog.event.domain.port.out.EventRepositoryPort;
+import com.gtog.event.domain.port.out.HostEmailVerificationPort;
+import com.gtog.event.domain.model.EmailNotVerifiedException;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.mock;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
@@ -25,6 +30,7 @@ class CreateEventServiceTest {
 
 	@Mock
 	private EventRepositoryPort eventRepositoryPort;
+	@Mock private HostEmailVerificationPort verification;
 
 	@Test
 	void createsADraftEventAndDelegatesPersistenceToTheRepositoryPort() {
@@ -64,7 +70,8 @@ class CreateEventServiceTest {
 		ArgumentCaptor<Event> eventCaptor = ArgumentCaptor.forClass(Event.class);
 		when(eventRepositoryPort.save(eventCaptor.capture())).thenReturn(savedEvent);
 
-		CreateEventService service = new CreateEventService(eventRepositoryPort);
+		when(verification.isVerified(command.hostId())).thenReturn(true);
+		CreateEventService service = new CreateEventService(eventRepositoryPort, verification);
 		Event result = service.createEvent(command);
 
 		assertThat(result).isSameAs(savedEvent);
@@ -73,5 +80,11 @@ class CreateEventServiceTest {
 		assertThat(eventPassedToRepository.getTitle()).isEqualTo(command.title());
 		assertThat(eventPassedToRepository.getStatus()).isEqualTo(EventStatus.DRAFT);
 		assertThat(eventPassedToRepository.getVersion()).isNull();
+	}
+	@Test void anUnverifiedHostCannotCreateOrWriteAnEvent() {
+		CreateEventCommand command = mock(CreateEventCommand.class);
+		when(command.hostId()).thenReturn("unverified");
+		assertThatThrownBy(() -> new CreateEventService(eventRepositoryPort, verification).createEvent(command)).isInstanceOf(EmailNotVerifiedException.class);
+		verifyNoInteractions(eventRepositoryPort);
 	}
 }

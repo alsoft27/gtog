@@ -39,6 +39,7 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
+@com.gtog.AuthBypassDisabled
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
@@ -63,7 +64,7 @@ class EmailSendReservationIntegrationTest {
 	}
 	@BeforeEach void setUp() {
 		mongo.remove(new Query(), EventDocument.class); mongo.remove(new Query(), GuestResponseDocument.class); mongo.remove(new Query(), UserDocument.class);
-		mongo.save(new UserDocument("host-1", "Host", "host@example.com", "unused", "Europe/Madrid"));
+		mongo.save(com.gtog.UserTestFixtures.verified("host-1", "Host", "host@example.com", "unused", "Europe/Madrid"));
 		event = events.save(com.gtog.event.GuestTestFixtures.event("event-id", EventStatus.PUBLISHED, null, guest(101)));
 	}
 	private Guest currentGuest() { return events.findById(event.getId()).orElseThrow().getGuests().getFirst(); }

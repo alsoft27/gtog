@@ -33,6 +33,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+@com.gtog.AuthBypassDisabled
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
@@ -64,6 +65,7 @@ class AuthControllerIntegrationTest {
 		hostA.setEmail(HOST_A_EMAIL);
 		hostA.setPasswordHash(HASHED_PASSWORD);
 		hostA.setTimeZone("Europe/Madrid");
+		hostA.setEmailVerified(true);
 		userMongoRepository.save(hostA);
 
 		UserDocument hostB = new UserDocument();
@@ -72,6 +74,7 @@ class AuthControllerIntegrationTest {
 		hostB.setEmail(HOST_B_EMAIL);
 		hostB.setPasswordHash(HASHED_PASSWORD);
 		hostB.setTimeZone("Europe/Madrid");
+		hostB.setEmailVerified(true);
 		userMongoRepository.save(hostB);
 	}
 

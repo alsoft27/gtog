@@ -32,6 +32,7 @@ import static com.gtog.event.InvitationTestFixtures.NOW;
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
+@com.gtog.AuthBypassDisabled
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
 		properties = "app.invitations.max-whatsapp-links-per-request=100")
 @ActiveProfiles("test")
@@ -58,7 +59,7 @@ class WhatsAppSentIntegrationTest {
 	@BeforeEach void setUp() throws Exception {
 		mongo.remove(new Query(), EventDocument.class); mongo.remove(new Query(), GuestResponseDocument.class); users.deleteAll();
 		when(clock.instant()).thenReturn(NOW);
-		users.save(new UserDocument("host-1", "Anfitrión", "host@example.com", passwords.encode("password12"), "Europe/Madrid"));
+		users.save(com.gtog.UserTestFixtures.verified("host-1", "Anfitrión", "host@example.com", passwords.encode("password12"), "Europe/Madrid"));
 		event = seed("event-id", "host-1", EventStatus.PUBLISHED, guest(101, InvitationStatus.NOT_SENT, null));
 		String csrf = cookie(send("GET", "/actuator/health", "", Map.of()), "XSRF-TOKEN");
 		var login = send("POST", "/api/auth/login", "{\"email\":\"host@example.com\",\"password\":\"password12\"}",

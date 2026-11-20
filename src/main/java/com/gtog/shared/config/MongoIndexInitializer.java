@@ -11,6 +11,8 @@ import org.springframework.stereotype.Component;
 
 import com.gtog.event.infrastructure.out.persistence.EventDocument;
 import com.gtog.event.infrastructure.out.persistence.GuestResponseDocument;
+import com.gtog.user.infrastructure.out.persistence.AuthTokenDocument;
+import java.time.Duration;
 
 // Los indices se crean aqui en el arranque, no con @Indexed en los documentos: asi se sabe que existe
 // en produccion mirando una sola clase, sin tener que rastrear anotaciones repartidas por el modelo.
@@ -32,5 +34,8 @@ public class MongoIndexInitializer {
 				.on("guestToken", Sort.Direction.ASC).unique().named("response_per_guest"));
 		mongoTemplate.indexOps(GuestResponseDocument.class).createIndex(new Index().on("eventId", Sort.Direction.ASC));
 		mongoTemplate.indexOps("users").createIndex(new Index().on("email", Sort.Direction.ASC).unique());
+		mongoTemplate.indexOps(AuthTokenDocument.class).createIndex(new Index().on("hash", Sort.Direction.ASC).unique().named("auth_token_hash"));
+		mongoTemplate.indexOps(AuthTokenDocument.class).createIndex(new Index().on("userId", Sort.Direction.ASC).on("purpose", Sort.Direction.ASC).unique().named("auth_token_per_purpose"));
+		mongoTemplate.indexOps(AuthTokenDocument.class).createIndex(new Index().on("expiresAt", Sort.Direction.ASC).expire(Duration.ZERO).named("auth_token_expiry"));
 	}
 }

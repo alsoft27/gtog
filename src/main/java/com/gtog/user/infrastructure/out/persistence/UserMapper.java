@@ -17,6 +17,10 @@ public class UserMapper {
 				user.getTimeZone());
 		document.setEmailSendsInWindow(user.getEmailSendsInWindow());
 		document.setWindowStartedAt(user.getWindowStartedAt());
+		document.setEmailVerified(user.isEmailVerified());
+		document.setAuthEmailSends(user.getAuthEmailSends());
+		document.setAuthEmailWindowStartedAt(user.getAuthEmailWindowStartedAt());
+		document.setLastAuthEmailAt(user.getLastAuthEmailAt());
 		return document;
 	}
 
@@ -26,6 +30,7 @@ public class UserMapper {
 				document.getName(),
 				document.getEmail(),
 				Password.fromHash(document.getPasswordHash()),
-				document.getTimeZone(), document.getEmailSendsInWindow(), document.getWindowStartedAt());
+				document.getTimeZone(), document.getEmailSendsInWindow(), document.getWindowStartedAt(), document.isEmailVerified(),
+				document.getAuthEmailSends(), document.getAuthEmailWindowStartedAt(), document.getLastAuthEmailAt());
 	}
 }

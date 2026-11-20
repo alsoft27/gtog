@@ -49,7 +49,7 @@ public class AuthController {
 	}
 
 	@Operation(summary = "Registra un anfitrion",
-			description = "Crea la cuenta con email unico y zona horaria IANA valida. No inicia sesion. "
+			description = "Crea la cuenta con email unico y zona horaria IANA valida. No inicia sesion. El correo de verificación se procesa de forma asíncrona; su fallo no cambia el 201. "
 					+ "Requiere el token CSRF en la cabecera X-XSRF-TOKEN.")
 	@ApiResponses({
 			@ApiResponse(responseCode = "201", description = "Usuario registrado. Location identifica al usuario "
@@ -105,6 +105,6 @@ public class AuthController {
 				context);
 		AuthenticatedUser principal = (AuthenticatedUser) auth.getPrincipal();
 		return ResponseEntity.ok(new AuthUserResponse(
-				principal.getUserId(), principal.getName(), principal.getUsername(), principal.getTimeZone()));
+				principal.getUserId(), principal.getName(), principal.getUsername(), principal.getTimeZone(), principal.isEmailVerified()));
 	}
 }

@@ -87,11 +87,12 @@ public class EventController {
 	}
 
 	@Operation(summary = "Crea un evento", description = "El anfitrion crea un evento nuevo. El evento se crea en "
-			+ "estado DRAFT; las opciones de respuesta y los invitados se anaden en peticiones posteriores.")
+			+ "estado DRAFT; las opciones de respuesta y los invitados se anaden en peticiones posteriores. Requiere correo verificado, comprobado en la base de datos en cada creación.")
 	@ApiResponses({
 			@ApiResponse(responseCode = "201", description = "Evento creado. La cabecera Location apunta al recurso.",
 					content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
 							schema = @Schema(implementation = EventResponse.class))),
+			@ApiResponse(responseCode = "403", description = "CSRF inválido o correo no verificado (code=EMAIL_NOT_VERIFIED).", content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE, schema = @Schema(implementation = ProblemDetail.class))),
 			@ApiResponse(responseCode = "400", description = "La peticion no cumple el formato esperado: falta un "
 					+ "campo obligatorio o tiene un tipo invalido.",
 					content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,

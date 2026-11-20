@@ -1,4 +1,5 @@
 # Recorrido funcional R1–R9: evento, invitados, respuesta publica y panel (no exhaustivo).
+# R12: necesita APP_AUTH_AUTOVERIFYEMAIL=true en la aplicación; sin ella, el primer POST /api/events devuelve 403 con code=EMAIL_NOT_VERIFIED.
 # Arranca tu el backend. Ejecuta 00–33 en orden con las flechas verdes del HTTP Client.
 # Solo si todas las pruebas anteriores pasan, ejecuta el bloque opcional 34–37.
 # Run All Requests tambien ejecuta el bloque opcional; no lo uses para omitir esa revision.

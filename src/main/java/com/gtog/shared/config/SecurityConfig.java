@@ -63,6 +63,7 @@ public class SecurityConfig {
 			.addFilterAt(new ConcurrentSessionFilter(sessionRegistry, expiredStrategy), ConcurrentSessionFilter.class)
 			.authorizeHttpRequests(auth -> auth
 				.requestMatchers(HttpMethod.POST, "/api/auth/register", "/api/auth/login").permitAll()
+				.requestMatchers(HttpMethod.POST, "/api/auth/verify-email").permitAll()
 				.requestMatchers("/actuator/**", "/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
 				.requestMatchers("/api/invitations/**").permitAll()
 				.anyRequest().authenticated())

@@ -4,8 +4,8 @@ Qué hace la aplicación y qué requisitos cumple. El estado de la implementaci�
 están en `plan-iteracion-1.md`; el contrato técnico de cada agregado, en `modelo-evento.md`,
 `modelo-invitado.md` y `modelo-usuario.md`.
 
-**Estado:** el backend del MVP (iteración 1) está implementado salvo R12 (verificación de correo y
-recuperación de contraseña). El frontend Angular no se ha empezado.
+**Estado:** el backend del MVP (iteración 1) incluye la verificación de correo de R12; queda la recuperación
+de contraseña, pendiente del commit 3 de R12. El frontend Angular no se ha empezado.
 
 ---
 
@@ -101,7 +101,7 @@ está en los modelos.
 | ID | Requisito | Estado |
 |---|---|---|
 | RF-1.1 | Registro e inicio de sesión con correo y contraseña | ✓ R5 |
-| RF-1.2 | Verificación de correo antes de crear eventos | R12 |
+| RF-1.2 | Verificación de correo antes de crear eventos, comprobada desde la base de datos en cada creación | ✓ R12 |
 | RF-1.3 | Recuperación de contraseña | R12 |
 | RF-1.4 | Perfil mínimo: nombre, correo y zona horaria IANA | ✓ |
 | RF-1.5 | Listado de eventos con estado y contadores (`totalGuests`, `answered`, `pending`, `attending`) | ✓ R9 |
@@ -175,6 +175,12 @@ ve el enlace de la sala.
 
 **Crear y publicar.** Datos básicos → modalidad y ubicación → opciones de respuesta → invitados → publicar →
 enviar invitaciones por el canal de cada invitado.
+
+Antes de crear, el anfitrión verifica su correo mediante el enlace enviado al registrarse. El token viaja
+en el fragmento del enlace y se consume una sola vez al enviarlo a POST /api/auth/verify-email, con CSRF.
+El registro sigue devolviendo 201 aunque falle el correo; se puede reenviar con sesión y límites propios.
+Sin verificar se puede iniciar sesión, listar y consultar, pero crear devuelve 403 y EMAIL_NOT_VERIFIED.
+Verificar permite crear en la misma sesión; /api/auth/me refleja el estado vigente de la base de datos.
 
 **Responder una invitación.**
 

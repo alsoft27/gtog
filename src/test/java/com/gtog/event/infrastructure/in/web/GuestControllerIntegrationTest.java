@@ -58,6 +58,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+@com.gtog.AuthBypassDisabled
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
@@ -98,6 +99,7 @@ class GuestControllerIntegrationTest {
 			host.setName("Host " + i);
 			host.setPasswordHash(PASSWORD_HASH);
 			host.setTimeZone("Europe/Madrid");
+		host.setEmailVerified(true);
 			users.save(host);
 		}
 		events.save(event("event-1", EventStatus.DRAFT, null));
