@@ -19,12 +19,16 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.core.session.SessionRegistry;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.session.NullAuthenticatedSessionStrategy;
+import org.springframework.security.web.authentication.session.SessionAuthenticationStrategy;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.csrf.CsrfFilter;
 import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
 import org.springframework.security.web.csrf.DeferredCsrfToken;
 import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
+import org.springframework.security.web.session.ConcurrentSessionFilter;
 import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
@@ -32,6 +36,7 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 import org.springframework.web.filter.OncePerRequestFilter;
 import com.gtog.shared.security.ProblemDetailAccessDeniedHandler;
 import com.gtog.shared.security.ProblemDetailAuthenticationEntryPoint;
+import com.gtog.shared.security.ProblemDetailSessionExpiredStrategy;
 
 @Configuration
 @EnableWebSecurity
@@ -42,15 +47,20 @@ public class SecurityConfig {
 
 	@Bean
 	public SecurityFilterChain securityFilterChain(HttpSecurity http, ProblemDetailAccessDeniedHandler accessDeniedHandler,
-			ProblemDetailAuthenticationEntryPoint authenticationEntryPoint) throws Exception {
+			ProblemDetailAuthenticationEntryPoint authenticationEntryPoint, SessionAuthenticationStrategy sessionAuthenticationStrategy,
+			SessionRegistry sessionRegistry, ProblemDetailSessionExpiredStrategy expiredStrategy) throws Exception {
 		http
 			.cors(cors -> cors.configurationSource(corsConfigurationSource()))
 			.csrf(csrf -> csrf
 				// La credencial publica es el token de la ruta, no una cookie: no hay credencial ambiental aprovechable.
 				.ignoringRequestMatchers("/api/invitations/**")
 				.csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
-				.csrfTokenRequestHandler(new CsrfTokenRequestAttributeHandler()))
+				.csrfTokenRequestHandler(new CsrfTokenRequestAttributeHandler())
+				// Se conserva el valor crudo y la cookie existente: autenticar no ejecuta CsrfAuthenticationStrategy.
+				.sessionAuthenticationStrategy(new NullAuthenticatedSessionStrategy()))
+			.sessionManagement(session -> session.sessionAuthenticationStrategy(sessionAuthenticationStrategy))
 			.addFilterAfter(new CsrfCookieFilter(), CsrfFilter.class)
+			.addFilterAt(new ConcurrentSessionFilter(sessionRegistry, expiredStrategy), ConcurrentSessionFilter.class)
 			.authorizeHttpRequests(auth -> auth
 				.requestMatchers(HttpMethod.POST, "/api/auth/register", "/api/auth/login").permitAll()
 				.requestMatchers("/actuator/**", "/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()

@@ -1,6 +1,6 @@
 # gtog — Plan, decisiones y deuda técnica
 
-Estado a 19 de noviembre de 2026. Es el documento para retomar el proyecto: dónde estamos, qué queda, qué se
+Estado a 20 de noviembre de 2026. Es el documento para retomar el proyecto: dónde estamos, qué queda, qué se
 decidió y por qué, qué está pendiente de decidir y qué deuda hay. Qué hace la aplicación está en
 `definicion-funcional.md`; el contrato técnico de cada agregado, en `modelo-evento.md`, `modelo-invitado.md` y
 `modelo-usuario.md`. Las instrucciones para el agente están en `AGENTS.md`.
@@ -9,11 +9,13 @@ decidió y por qué, qué está pendiente de decidir y qué deuda hay. Qué hace
 
 ## 1. Dónde estamos
 
-El backend del MVP está implementado de R1 a R11. **R12 (verificación de correo y recuperación de
-contraseña) está aparcada**, por lo que RF-1.2 y RF-1.3 siguen sin cumplirse y R12 es un bloqueador de
+El backend del MVP está implementado de R1 a R11. **R12 está en curso:** el commit 1 corrige la sesión del
+login manual; verificación de correo y recuperación de contraseña siguen pendientes de los commits 2 y 3.
+RF-1.2 y RF-1.3 siguen sin cumplirse y R12 es un bloqueador de
 despliegue público. El frontend Angular no se ha empezado.
 
-`mvn clean verify`: 756 tests, 0 fallos, 0 errores, 0 omitidos en la última ejecución completa. Repetirlo desde
+`mvn clean verify`: 766 tests, 0 fallos, 0 errores, 0 omitidos en la última ejecución completa. El commit 1
+de R12 añade pruebas de identidad del principal y de sesión con servidor real. Repetirlo desde
 la terminal antes de dar por cerrado cualquier cambio. Stack: Java 25, Spring Boot 4.1, MongoDB Atlas,
 Maven por defecto, springdoc-openapi, iCal4j 4.2.0, libphonenumber 9.0.43, Mailjet por SMTP.
 
@@ -36,6 +38,7 @@ Maven por defecto, springdoc-openapi, iCal4j 4.2.0, libphonenumber 9.0.43, Mailj
 | R10 | Correo: reservas atómicas, cuota diaria, transporte Mailjet, endpoint de envío y cabecera `Content-Language: es` |
 | `canRespond` | Disponibilidad de respuesta calculada con la misma política que el `PUT` |
 | R11 | WhatsApp asistido: generar enlaces y confirmar el envío. Telegram aplazado |
+| R12 — Sesiones (commit 1) | Login manual con rotación de id y registro compartido, sin renovar XSRF-TOKEN. SessionInvalidationPort, igualdad del principal por userId y expiración con 401 ProblemDetail directo, instance constante y no-store exacto. Verificación y recuperación todavía pendientes |
 
 ### Endpoints
 
@@ -99,7 +102,8 @@ Estas comprobaciones son manuales; los tests automáticos no confirman por sí s
 
 ### R12 — Verificación de correo y recuperación de contraseña
 
-Aparcada. Desbloqueada por el proveedor de correo (R10). Decisiones ya tomadas, para no reabrirlas:
+En curso. Commit 1 de sesiones implementado; quedan commit 2 (verificación y puerta de creación) y
+commit 3 (recuperación). Desbloqueada por el proveedor de correo (R10). Decisiones ya tomadas:
 
 - **Puerta:** sin correo verificado no se puede crear un evento (`POST /api/events`). Sí se puede registrar,
   iniciar sesión, listar y consultar. La comprobación lee `emailVerified` de la base de datos en cada
@@ -130,9 +134,13 @@ Aparcada. Desbloqueada por el proveedor de correo (R10). Decisiones ya tomadas, 
 - **Bypass local:** `app.auth.auto-verify-email`, falso por defecto, verifica la cuenta al registrarla para
   que los recorridos `.http` sigan funcionando con direcciones `@example.com`. La aplicación se niega a
   arrancar si está activo y `app.public-base-url` no apunta a localhost.
-- **Prerrequisito:** el login es manual en `AuthController`, así que ni cambia el identificador de sesión
-  (fijación de sesión) ni registra la sesión en un `SessionRegistry`. Hay que comprobarlo y corregirlo antes de
-  construir encima, porque la invalidación de sesiones tras restablecer depende de ello.
+- **Sesión del login manual (commit 1 implementado):** antes, AuthController solo guardaba el contexto en
+  HttpSession; el test con servidor real midió login 200 y el mismo id de la sesión previa. Ahora aplica
+  ChangeSessionIdAuthenticationStrategy y RegisterSessionAuthenticationStrategy compartidas con la cadena.
+  La composición excluye CsrfAuthenticationStrategy: el login no emite ni renueva XSRF-TOKEN. El principal
+  se compara por userId. SessionInvalidationPort marca expiradas todas sus sesiones; el filtro invalida
+  HttpSession al siguiente acceso y escribe 401 ProblemDetail directamente, instance `/api/errors` y
+  no-store exacto, sin redirección ni sendError. HttpSessionEventPublisher limpia y actualiza el registro.
 - Plan en tres commits: sesión del login manual, verificación con la puerta de creación, y recuperación.
 
 ### Aplazado
@@ -260,8 +268,8 @@ defecto de Boot incluye la ruta pedida, y en las invitaciones esa ruta lleva el 
 
 Código, rutas e identificadores en inglés; documentación y comentarios en español. Jakarta valida formato; las
 reglas de negocio se validan en el dominio y salen como 422. Sin Lombok. Tests de integración contra una base
-de datos real, nunca embebida. Se trabaja por rebanada vertical, directamente sobre `main` hasta tener la
-primera versión completa del backend; después se vuelve a ramas `feat/` y `fix/`.
+de datos real, nunca embebida. Se trabaja por rebanada vertical, directamente sobre `main` hasta el primer
+despliegue, por decisión del usuario. Entonces se reconsiderará el uso de ramas `feat/` y `fix/`.
 
 ---
 
@@ -269,8 +277,6 @@ primera versión completa del backend; después se vuelve a ramas `feat/` y `fix
 
 | Decisión | Bloquea | Notas |
 |---|---|---|
-| Retomar R12 | Despliegue público | Aparcada; decisiones ya tomadas en §2 |
-| Volver a ramas `feat/` y `fix/` | Nada | Se acordó trabajar en `main` hasta cerrar el backend; con el MVP cerrado, decidir si se vuelve a ramas ya, antes de R12 y del frontend |
 | RF-3.9: notificar un cambio de ubicación tras publicar | Nada | Sacarlo del alcance, o abrir una excepción para editar la ubicación de un evento publicado |
 | Causa del emoji roto en WhatsApp | Nada | Medir con `searchParams.get("text")`; ver §5 |
 | Remitente `gtog@gtog.es`: buzón con alguien detrás, o `no-reply@` | Nada | El cuerpo dice que no admite respuestas |
@@ -332,7 +338,11 @@ salud de Mongo), D-7 (opciones en eventos publicados, R8), D-CONFIRMED-LINK (R8)
 - **Errores que genera Tomcat antes de llegar a Spring** siguen viéndose como 401 para un anónimo.
 - **Logs en DEBUG:** con `org.springframework.web` en DEBUG o `spring.mvc.log-resolved-exception`, la ruta de
   invitación con su token puede aparecer en los logs del framework.
-- **Invalidación de sesiones:** válida solo con una instancia y sesiones en memoria.
+- **Invalidación de sesiones:** implementada con SessionRegistry desde el commit 1 de R12, válida solo
+  con una instancia y sesiones en memoria. El filtro rechaza cada sesión expirada en su siguiente acceso.
+- **Enumeración en registro:** el registro revela si un correo ya existe (409); es aceptado y se compensa
+  con el límite por IP, D-REGISTER-RATE-LIMIT, aún pendiente. El contrato aprobado de forgot-password no lo
+  revela; se implementará en el commit 3 de R12.
 - **Lote cancelado a mitad:** la confirmación de WhatsApp devuelve 409 conservando las marcas previas. Es
   aceptable porque la operación es idempotente.
 

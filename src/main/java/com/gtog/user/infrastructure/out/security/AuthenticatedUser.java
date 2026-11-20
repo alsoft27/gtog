@@ -2,6 +2,7 @@ package com.gtog.user.infrastructure.out.security;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.Objects;
 
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -25,6 +26,11 @@ public class AuthenticatedUser implements UserDetails {
 	public String getUserId() { return userId; }
 	public String getName() { return name; }
 	public String getTimeZone() { return timeZone; }
+
+	@Override public boolean equals(Object other) {
+		return this == other || other instanceof AuthenticatedUser user && Objects.equals(userId, user.userId);
+	}
+	@Override public int hashCode() { return Objects.hashCode(userId); }
 
 	@Override public String getUsername() { return email; }
 	@Override public String getPassword() { return passwordHash; }

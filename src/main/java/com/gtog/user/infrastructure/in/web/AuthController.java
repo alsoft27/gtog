@@ -3,6 +3,7 @@ package com.gtog.user.infrastructure.in.web;
 import java.net.URI;
 
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 
 import io.swagger.v3.oas.annotations.Operation;
@@ -21,6 +22,7 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
+import org.springframework.security.web.authentication.session.SessionAuthenticationStrategy;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -37,10 +39,13 @@ public class AuthController {
 
 	private final RegisterUserUseCase registerUserUseCase;
 	private final AuthenticationManager authenticationManager;
+	private final SessionAuthenticationStrategy sessionAuthenticationStrategy;
 
-	public AuthController(RegisterUserUseCase registerUserUseCase, AuthenticationManager authenticationManager) {
+	public AuthController(RegisterUserUseCase registerUserUseCase, AuthenticationManager authenticationManager,
+			SessionAuthenticationStrategy sessionAuthenticationStrategy) {
 		this.registerUserUseCase = registerUserUseCase;
 		this.authenticationManager = authenticationManager;
+		this.sessionAuthenticationStrategy = sessionAuthenticationStrategy;
 	}
 
 	@Operation(summary = "Registra un anfitrion",
@@ -72,7 +77,8 @@ public class AuthController {
 	}
 
 	@Operation(summary = "Inicia sesion",
-			description = "Autentica al anfitrion con email y contrasena y guarda la sesion en el servidor. "
+			description = "Autentica al anfitrion, cambia el identificador de una sesion previa y registra la sesion en el servidor. "
+					+ "No emite ni renueva la cookie CSRF al autenticar. "
 					+ "Requiere el token CSRF en la cabecera X-XSRF-TOKEN para evitar login-CSRF.")
 	@ApiResponses({
 			@ApiResponse(responseCode = "200", description = "Sesion autenticada.",
@@ -87,13 +93,16 @@ public class AuthController {
 					content = @Content) })
 	@PostMapping("/login")
 	public ResponseEntity<AuthUserResponse> login(@Valid @RequestBody LoginRequest request,
-			HttpServletRequest httpRequest) {
+			HttpServletRequest httpRequest, HttpServletResponse httpResponse) {
 		Authentication auth = authenticationManager.authenticate(
 				new UsernamePasswordAuthenticationToken(request.email(), request.password()));
-		SecurityContextHolder.getContext().setAuthentication(auth);
+		sessionAuthenticationStrategy.onAuthentication(auth, httpRequest, httpResponse);
+		var context = SecurityContextHolder.createEmptyContext();
+		context.setAuthentication(auth);
+		SecurityContextHolder.setContext(context);
 		httpRequest.getSession(true).setAttribute(
 				HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY,
-				SecurityContextHolder.getContext());
+				context);
 		AuthenticatedUser principal = (AuthenticatedUser) auth.getPrincipal();
 		return ResponseEntity.ok(new AuthUserResponse(
 				principal.getUserId(), principal.getName(), principal.getUsername(), principal.getTimeZone()));

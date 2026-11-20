@@ -1,7 +1,8 @@
 # Modelo de datos: Usuario
 
-Estado tras R5 y R10: registro, login, logout, autenticación por sesión y
-cuota atómica del anfitrión. Sin verificación de correo ni recuperación de contraseña (R12).
+Estado tras R5, R10 y el commit 1 de R12: registro, login, logout, autenticación por sesión,
+protección contra fijación e invalidación de sesiones y cuota atómica del anfitrión.
+La verificación de correo y la recuperación de contraseña siguen pendientes de los commits 2 y 3 de R12.
 
 ---
 
@@ -90,6 +91,28 @@ Comportamiento medido con servidor real:
 - La comparación usa el valor crudo de la cookie, enviado también en la cabecera `X-XSRF-TOKEN`.
 - Un rechazo CSRF devuelve 403 con `ProblemDetail`, también para una petición anónima.
 - El logout expira tanto `JSESSIONID` como `XSRF-TOKEN`; el siguiente GET vuelve a emitir una cookie CSRF nueva.
+
+Desde el commit 1 de R12, el login manual ejecuta la estrategia compartida con la cadena de seguridad antes
+de guardar un contexto de autenticación nuevo: `ChangeSessionIdAuthenticationStrategy` cambia el id de una
+sesión previa y `RegisterSessionAuthenticationStrategy` registra el nuevo id en `SessionRegistry`.
+`UserSessionConfig` define esa composición. La estrategia adicional de CSRF es `NullAuthenticatedSessionStrategy`,
+no `CsrfAuthenticationStrategy`: autenticar no emite ni renueva `XSRF-TOKEN` ni cambia su comparación.
+Antes, el controlador solo guardaba el contexto en la sesión: una medición con servidor real devolvió
+login 200 y el mismo id de sesión, y el test de rotación falló. Tras la corrección cambia el id y el anterior
+no permite acceder a los eventos.
+
+`AuthenticatedUser.equals/hashCode` usa únicamente `userId`; los cambios de perfil o hash no dividen la
+identidad del principal que emplea `SessionRegistry` como clave. `HttpSessionEventPublisher` mantiene el
+registro ante cambio de id, logout y destrucción de sesiones.
+
+El puerto de salida `SessionInvalidationPort.invalidateAll(userId)` pertenece al dominio de user.
+`SessionInvalidationAdapter`, en `user/infrastructure/out/security`, marca expiradas todas las sesiones del
+usuario en el registro, sin afectar a otros usuarios. `ConcurrentSessionFilter` invalida cada `HttpSession`
+en su siguiente acceso; `ProblemDetailSessionExpiredStrategy` escribe directamente 401 ProblemDetail,
+instance constante `/api/errors` y Cache-Control exactamente `no-store`, sin redirección ni sendError.
+Los tests con servidor real comprueban rotación, cookie CSRF conservada, sesiones independientes del mismo
+usuario, invalidación conjunta, aislamiento entre usuarios y limpieza del registro y cookies al hacer logout.
+Límite: solo es válido con una instancia y sesiones en memoria; no hay invalidación distribuida.
 
 La decisión de usar sesión en lugar de JWT es reversible cuando llegue la app móvil.
 Ver docs/plan-iteracion-1.md, sección Decisiones tomadas, para la justificación.

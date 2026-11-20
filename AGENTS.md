@@ -265,6 +265,11 @@ y la URL ya filtrada; UID basado en el evento, nunca en el token; DTSTAMP obteni
 
 **CSRF en login y registro: deliberado.** Tanto `POST /api/auth/login` como `POST /api/auth/register` requieren un token CSRF válido, enviado en `X-XSRF-TOKEN`. No los excluyas de la protección: excluir el login permitiría que un atacante autenticase a la víctima en la cuenta del atacante (login-CSRF). Ver `docs/plan-iteracion-1.md`, sección Decisiones tomadas, para la justificación.
 
+El login manual rota el id de sesión y la registra en SessionRegistry con la estrategia compartida, pero
+no emite ni renueva XSRF-TOKEN. No añadas CsrfAuthenticationStrategy a esa composición. AuthenticatedUser
+se compara por userId. SessionInvalidationPort expira las sesiones del usuario; el filtro invalida HttpSession
+en el siguiente acceso y escribe 401 ProblemDetail con instance constante y no-store exacto. Solo una instancia.
+
 Desde R8, **solo `/api/invitations/**` está excluido de CSRF**: su credencial es el token de la ruta, no una cookie; no hay credencial ambiental que un tercero pueda aprovechar. No amplíes la exclusión a `/api/**`. Los errores de invitación usan instancia constante `/api/invitations` y `Cache-Control: no-store`; nunca conserves mensajes ni causas de errores Mongo que incluyan tokens.
 
 El email opcional de GuestResponse se mantiene almacenado, sin mostrarlo al anfitrión ni a otros invitados y sin usarlo para envíos en R10. No debilites el test de privacidad del panel de R9. Cualquier uso futuro exige aprobación expresa y doble confirmación de la dirección antes de escribirle: el PUT público acepta direcciones sin conocimiento de su dueño. RF-2.15 (plantilla editable) queda fuera del MVP; el correo de invitación será texto fijo en español.
@@ -327,7 +332,7 @@ Estas reglas son el contrato final del producto, no necesariamente lo que el có
 
 ## Git
 
-- Se trabaja directamente sobre `main` hasta completar la primera versión del backend (R1–R12), por decisión del usuario. Al cerrarla se vuelve a ramas `feat/nombre-corto` y `fix/nombre-corto`.
+- Se trabaja directamente sobre `main` hasta el primer despliegue, por decisión del usuario. En ese momento se reconsiderará el uso de ramas `feat/nombre-corto` y `fix/nombre-corto`.
 - Commits convencionales en inglés: `feat(guest): generate unique token on guest creation`.
 - No hagas commit sin que `mvn clean verify` pase en verde antes de cada uno.
 - Sin push salvo petición expresa del usuario.
