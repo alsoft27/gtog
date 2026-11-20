@@ -41,7 +41,8 @@ class AuthVerificationConfigTest {
 	void theBypassStartsWithAnAllowedLocalHost(String base) {
 		runner.withPropertyValues("app.auth.auto-verify-email=true", "app.public-base-url=" + base).run(context -> assertThat(context).hasNotFailed());
 	}
-	@ParameterizedTest @ValueSource(strings = { "https://remote.example", "https://localhost.evil.example", "https://private-user:private-password@remote.example/path" })
+	@ParameterizedTest @ValueSource(strings = { "https://remote.example", "https://localhost.evil.example", "https://private-user:private-password@remote.example/path",
+			"http://localhost.evil.com", "http://localhost@evil.com", "http://127.0.0.1.evil.com" })
 	void theBypassRejectsOtherHostsWithoutLeakingCredentials(String base, CapturedOutput output) {
 		runner.withPropertyValues("app.auth.auto-verify-email=true", "app.public-base-url=" + base).run(context -> {
 			assertThat(context).hasFailed();

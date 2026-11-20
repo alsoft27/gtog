@@ -72,12 +72,21 @@ class EmailVerificationIntegrationTest {
 		assertThat(read(denied, "$.code")).isEqualTo("EMAIL_NOT_VERIFIED"); assertThat(read(denied, "$.instance")).isEqualTo("/api/events");
 		assertThat(read(send("GET", "/api/auth/me", "", auth), "$.emailVerified")).isEqualTo(false);
 		mongo.updateFirst(Query.query(Criteria.where("id").is(userId)), new Update().set("emailSendsInWindow", 7).set("windowStartedAt", NOW), UserDocument.class);
+		var quotaBefore = users.findById(userId).orElseThrow();
+		when(clock.instant()).thenReturn(NOW.plusSeconds(300));
+		assertThat(send("POST", "/api/auth/resend-verification", "", auth).statusCode()).isEqualTo(204);
+		assertThat(mail.messages()).hasSize(2); raw = token();
+		var quotaAfterResend = users.findById(userId).orElseThrow();
+		assertThat(quotaAfterResend.getEmailSendsInWindow()).isEqualTo(quotaBefore.getEmailSendsInWindow());
+		assertThat(quotaAfterResend.getWindowStartedAt()).isEqualTo(quotaBefore.getWindowStartedAt());
 		var result = verify(raw, auth); assertThat(result.statusCode()).isEqualTo(200); assertThat(result.body()).isEmpty(); noStore(result);
 		assertThat(send("POST", "/api/events", EVENT, auth).statusCode()).isEqualTo(201);
 		var me = send("GET", "/api/auth/me", "", auth); assertThat(me.statusCode()).isEqualTo(200); noStore(me);
 		assertThat(read(me, "$.emailVerified")).isEqualTo(true);
-		var stored = users.findById(userId).orElseThrow(); assertThat(stored.getEmailSendsInWindow()).isEqualTo(7); assertThat(stored.getWindowStartedAt()).isEqualTo(NOW);
-		assertThat(stored.getAuthEmailSends()).isEqualTo(1); assertThat(output.getAll()).doesNotContain(raw);
+		var stored = users.findById(userId).orElseThrow();
+		assertThat(stored.getEmailSendsInWindow()).isEqualTo(quotaBefore.getEmailSendsInWindow());
+		assertThat(stored.getWindowStartedAt()).isEqualTo(quotaBefore.getWindowStartedAt());
+		assertThat(stored.getAuthEmailSends()).isEqualTo(2); assertThat(output.getAll()).doesNotContain(raw);
 	}
 	@Test void capturedVerificationMailIsFixedAndOnlyTheHashIsPersisted() throws Exception {
 		register(); String raw = token(); var message = mail.messages().getFirst(); URI link = URI.create(message.body().lines().filter(line -> line.startsWith("http")).findFirst().orElseThrow());
@@ -165,10 +174,20 @@ class EmailVerificationIntegrationTest {
 	}
 	@Test void aReplacementRevokesThePreviousTokenWithoutCreatingAnotherDocument() throws Exception {
 		register(); String old = token(); var auth = login(); when(clock.instant()).thenReturn(NOW.plusSeconds(300));
+		var before = mongo.getCollection("auth_tokens").find(new Document("userId", userId).append("purpose", "EMAIL_VERIFICATION")).first();
+		assertThat(before).isNotNull();
+		assertThat(before.getString("hash")).isEqualTo(AuthToken.hash(old));
+		assertThat(before.toJson()).doesNotContain(old);
 		assertThat(send("POST", "/api/auth/resend-verification", "", auth).statusCode()).isEqualTo(204);
 		assertThat(mongo.count(new Query(), AuthTokenDocument.class)).isEqualTo(1);
+		String replacement = token(); assertThat(replacement).isNotEqualTo(old);
+		var after = mongo.getCollection("auth_tokens").find(new Document("userId", userId).append("purpose", "EMAIL_VERIFICATION")).first();
+		assertThat(after).isNotNull();
+		assertThat(after.get("_id")).isEqualTo(before.get("_id"));
+		assertThat(after.getString("hash")).isEqualTo(AuthToken.hash(replacement)).isNotEqualTo(before.getString("hash"));
+		assertThat(after.toJson()).doesNotContain(old, replacement);
 		assertThat(verify(old, anonymous()).statusCode()).isEqualTo(400);
-		assertThat(verify(token(), anonymous()).statusCode()).isEqualTo(200);
+		assertThat(verify(replacement, anonymous()).statusCode()).isEqualTo(200);
 	}
 	@Test void aPasswordResetTokenCannotVerifyEmail() throws Exception {
 		register(); String raw = "D".repeat(43); tokens.replace(new AuthToken(userId, AuthTokenPurpose.PASSWORD_RESET, AuthToken.hash(raw), NOW.plusSeconds(3600)));

@@ -14,8 +14,9 @@ El backend del MVP está implementado de R1 a R11. **R12 está en curso:** commi
 contraseña, para el commit 3. R12 sigue pendiente de cierre y bloquea el despliegue público.
 El frontend Angular no se ha empezado.
 
-`mvn clean verify`: 810 tests, 0 fallos, 0 errores, 0 omitidos en la última ejecución completa, también
-con APP_AUTH_AUTOVERIFYEMAIL=true en el entorno para comprobar el aislamiento del bypass en tests. Repetirlo desde
+`mvn clean verify`: 813 tests, 0 fallos, 0 errores, 0 omitidos en la última ejecución completa, sin
+APP_AUTH_AUTOVERIFYEMAIL. La suite anterior de 810 pasó tanto con la variable activa como sin definir;
+los tres casos nuevos son los hosts engañosos de la auditoría del bypass. Repetirlo desde
 la terminal antes de dar por cerrado cualquier cambio. Stack: Java 25, Spring Boot 4.1, MongoDB Atlas,
 Maven por defecto, springdoc-openapi, iCal4j 4.2.0, libphonenumber 9.0.43, Mailjet por SMTP.
 
@@ -158,6 +159,11 @@ Desbloqueada por el proveedor de correo (R10). Decisiones ya tomadas:
   no activa nada. Tests de binding con TestPropertyValues.Type.SYSTEM_ENVIRONMENT y guardas de arranque.
   Los tests fijan el bypass con propiedades explícitas o @AuthBypassDisabled; la suite se verifica también
   con APP_AUTH_AUTOVERIFYEMAIL=true en el entorno para comprobar que no los altera.
+  Auditoría del commit 2: la suite original sin esa variable pasa los mismos 810 tests que con ella activa.
+  Se añaden los hosts engañosos localhost.evil.com, localhost@evil.com y 127.0.0.1.evil.com; al retirar
+  temporalmente la guarda fallaron los seis casos de arranque rechazado. La guarda quedó restaurada, sin
+  cambios de producción. Se refuerzan la lectura directa del hash y la sustitución del mismo documento
+  auth_tokens, y la comparación de la cuota de invitaciones antes y después de reenviar y verificar.
 - **Sesión del login manual (commit 1 implementado):** antes, AuthController solo guardaba el contexto en
   HttpSession; el test con servidor real midió login 200 y el mismo id de la sesión previa. Ahora aplica
   ChangeSessionIdAuthenticationStrategy y RegisterSessionAuthenticationStrategy compartidas con la cadena.
