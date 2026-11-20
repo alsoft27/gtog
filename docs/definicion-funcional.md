@@ -4,8 +4,9 @@ Qué hace la aplicación y qué requisitos cumple. El estado de la implementaci�
 están en `plan-iteracion-1.md`; el contrato técnico de cada agregado, en `modelo-evento.md`,
 `modelo-invitado.md` y `modelo-usuario.md`.
 
-**Estado:** el backend del MVP (iteración 1) incluye la verificación de correo de R12; queda la recuperación
-de contraseña, pendiente del commit 3 de R12. El frontend Angular no se ha empezado.
+**Estado:** el backend del MVP (iteración 1) está implementado de R1 a R12, incluida la verificación de correo
+y la recuperación de contraseña. El frontend Angular no se ha empezado; los bloqueadores de despliegue
+público siguen en el plan.
 
 ---
 
@@ -93,7 +94,7 @@ eliminar. Ambas limitaciones son deuda anotada en el plan.
 
 ## 5. Requisitos del MVP
 
-Estado: ✓ implementado · R12 pendiente · F frontend · ✗ fuera o aplazado. El detalle de cada comportamiento
+Estado: ✓ implementado · F frontend · ✗ fuera o aplazado. El detalle de cada comportamiento
 está en los modelos.
 
 ### Cuenta y acceso
@@ -102,7 +103,7 @@ está en los modelos.
 |---|---|---|
 | RF-1.1 | Registro e inicio de sesión con correo y contraseña | ✓ R5 |
 | RF-1.2 | Verificación de correo antes de crear eventos, comprobada desde la base de datos en cada creación | ✓ R12 |
-| RF-1.3 | Recuperación de contraseña | R12 |
+| RF-1.3 | Recuperación de contraseña | ✓ R12 |
 | RF-1.4 | Perfil mínimo: nombre, correo y zona horaria IANA | ✓ |
 | RF-1.5 | Listado de eventos con estado y contadores (`totalGuests`, `answered`, `pending`, `attending`) | ✓ R9 |
 | RF-1.6 | Diseño responsivo; la página del invitado se diseña primero para móvil | F |
@@ -181,6 +182,14 @@ en el fragmento del enlace y se consume una sola vez al enviarlo a POST /api/aut
 El registro sigue devolviendo 201 aunque falle el correo; se puede reenviar con sesión y límites propios.
 Sin verificar se puede iniciar sesión, listar y consultar, pero crear devuelve 403 y EMAIL_NOT_VERIFIED.
 Verificar permite crear en la misma sesión; /api/auth/me refleja el estado vigente de la base de datos.
+
+**Recuperar el acceso (RF-1.3).** forgot-password recibe el correo y responde siempre 202, exista o no la
+cuenta y aunque esté limitada. El flujo de búsqueda y envío es asíncrono. El correo fijo lleva un enlace
+con el token en el fragmento, válido durante una hora y de un solo uso. reset-password valida primero la
+contraseña; si es demasiado corta, devuelve 422 y conserva el token. Si es válida, consume el token antes
+de calcular y guardar el hash. El éxito verifica también el correo, borra los demás tokens de autenticación
+del usuario e invalida sus sesiones abiertas, sin iniciar sesión. Un fallo posterior al consumo obliga a
+pedir otro enlace. Ambas operaciones son públicas y requieren CSRF.
 
 **Responder una invitación.**
 

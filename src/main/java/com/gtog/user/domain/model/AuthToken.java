@@ -7,6 +7,7 @@ import java.time.Instant;
 import java.util.HexFormat;
 
 public record AuthToken(String userId, AuthTokenPurpose purpose, String hash, Instant expiresAt) {
+	public static boolean isWellFormed(String raw) { return raw != null && raw.matches("[A-Za-z0-9_-]{43}"); }
 	public static String hash(String raw) {
 		try { return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(raw.getBytes(StandardCharsets.UTF_8))); }
 		catch (NoSuchAlgorithmException exception) { throw new IllegalStateException("SHA-256 unavailable"); }

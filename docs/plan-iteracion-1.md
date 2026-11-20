@@ -9,14 +9,15 @@ decidió y por qué, qué está pendiente de decidir y qué deuda hay. Qué hace
 
 ## 1. Dónde estamos
 
-El backend del MVP está implementado de R1 a R11. **R12 está en curso:** commits 1 (sesión manual) y 2
-(verificación y puerta de creación) implementados. RF-1.2 está cumplida; queda RF-1.3, recuperación de
-contraseña, para el commit 3. R12 sigue pendiente de cierre y bloquea el despliegue público.
+El backend del MVP está implementado de R1 a R12. **R12 cerrada:** sesión manual, verificación y puerta
+de creación, y recuperación de contraseña; RF-1.2 y RF-1.3 cumplidas. Siguen pendientes los bloqueadores
+de despliegue público de §7 y la deuda abierta de §6, incluida D-UNVERIFIED-SQUATTING.
 El frontend Angular no se ha empezado.
 
-`mvn clean verify`: 813 tests, 0 fallos, 0 errores, 0 omitidos en la última ejecución completa, sin
-APP_AUTH_AUTOVERIFYEMAIL. La suite anterior de 810 pasó tanto con la variable activa como sin definir;
-los tres casos nuevos son los hosts engañosos de la auditoría del bypass. Repetirlo desde
+`mvn clean verify`: 842 tests, 0 fallos, 0 errores, 0 omitidos en la última ejecución completa, sin
+APP_AUTH_AUTOVERIFYEMAIL. El commit 3 añade pruebas unitarias y con servidor real de recuperación;
+la suite original de verificación pasó con y sin la variable, y la auditoría del bypass quedó en verde.
+Repetirlo desde
 la terminal antes de dar por cerrado cualquier cambio. Stack: Java 25, Spring Boot 4.1, MongoDB Atlas,
 Maven por defecto, springdoc-openapi, iCal4j 4.2.0, libphonenumber 9.0.43, Mailjet por SMTP.
 
@@ -40,13 +41,15 @@ Maven por defecto, springdoc-openapi, iCal4j 4.2.0, libphonenumber 9.0.43, Mailj
 | `canRespond` | Disponibilidad de respuesta calculada con la misma política que el `PUT` |
 | R11 | WhatsApp asistido: generar enlaces y confirmar el envío. Telegram aplazado |
 | R12 — Sesiones (commit 1) | Login manual con rotación de id y registro compartido, sin renovar XSRF-TOKEN. SessionInvalidationPort, igualdad del principal por userId y expiración con 401 ProblemDetail directo, instance constante y no-store exacto |
-| R12 — Verificación (commit 2) | Tokens solo como hash, consumo atómico, correo asíncrono y cuota propia; verify-email, resend-verification y /me. Puerta de creación desde la base de datos y bypass solo local con guarda. Falta recuperación en el commit 3 |
+| R12 — Verificación (commit 2) | Tokens solo como hash, consumo atómico, correo asíncrono y cuota propia; verify-email, resend-verification y /me. Puerta de creación desde la base de datos y bypass solo local con guarda |
+| R12 — Recuperación (commit 3) | forgot-password con 202 uniforme y flujo completo en el ejecutor; reset-password valida antes de consumir, hashea después, verifica correo y revoca tokens y sesiones con escrituras parciales |
 
 ### Endpoints
 
 ```
 POST   /api/auth/register          POST   /api/auth/login          POST   /api/auth/logout
 POST   /api/auth/verify-email      POST   /api/auth/resend-verification
+POST   /api/auth/forgot-password   POST   /api/auth/reset-password
 GET    /api/auth/me
 
 POST   /api/events                 GET    /api/events              GET    /api/events/{id}
@@ -112,10 +115,20 @@ Estas comprobaciones son manuales; los tests automáticos no confirman por sí s
 
 ## 2. Lo que queda
 
-### R12 — Verificación de correo y recuperación de contraseña
+### Aplazado
 
-En curso. Commits 1 de sesiones y 2 de verificación implementados; queda el commit 3 de recuperación.
-Desbloqueada por el proveedor de correo (R10). Decisiones ya tomadas:
+- **Telegram.** Sin endpoint. El enlace `t.me/share/url=` del diseño original está mal formado y la hipótesis
+  de que abre un selector de chat y no un contacto concreto sigue sin verificar.
+- **Frontend Angular.** No empezado. Notas acumuladas en §8.
+
+---
+
+## 3. Decisiones tomadas
+
+### R12 — Verificación de correo y recuperación de contraseña (cerrada)
+
+Cerrada en tres commits: sesión manual, verificación con puerta de creación y recuperación de contraseña.
+Decisiones implementadas:
 
 - **Puerta:** sin correo verificado no se puede crear un evento (`POST /api/events`). Sí se puede registrar,
   iniciar sesión, listar y consultar. La comprobación lee `emailVerified` de la base de datos en cada
@@ -144,6 +157,10 @@ Desbloqueada por el proveedor de correo (R10). Decisiones ya tomadas:
 - **Restablecer:** valida la contraseña nueva antes de consumir el token, de modo que una errata no lo gaste.
   Un restablecimiento correcto marca también el correo como verificado, invalida los demás tokens del usuario
   y sus sesiones abiertas. No hay inicio de sesión automático.
+  El hash usa el mismo codificador del registro y se calcula tras consumir. Si falla el hash o la escritura,
+  el token queda gastado y se informa 500 saneado; debe pedirse otro. app.auth.reset-ttl=PT1H y
+  app.auth.reset-password-path=/reset-password. La mutación temporal que movió la búsqueda de forgot-password
+  fuera del ejecutor hizo fallar su test controlado (un caso, un fallo); quedó restaurada sin versionarla.
 - **Token inválido, caducado o usado:** un único 400 genérico con `instance` constante.
 - **Escrituras parciales sobre `users`:** ese documento no tiene control de versión y un `save()` pisaría los
   contadores de cuota de correo.
@@ -172,16 +189,6 @@ Desbloqueada por el proveedor de correo (R10). Decisiones ya tomadas:
   HttpSession al siguiente acceso y escribe 401 ProblemDetail directamente, instance `/api/errors` y
   no-store exacto, sin redirección ni sendError. HttpSessionEventPublisher limpia y actualiza el registro.
 - Plan en tres commits: sesión del login manual, verificación con la puerta de creación, y recuperación.
-
-### Aplazado
-
-- **Telegram.** Sin endpoint. El enlace `t.me/share/url=` del diseño original está mal formado y la hipótesis
-  de que abre un selector de chat y no un contacto concreto sigue sin verificar.
-- **Frontend Angular.** No empezado. Notas acumuladas en §8.
-
----
-
-## 3. Decisiones tomadas
 
 ### Producto
 
@@ -282,7 +289,7 @@ token de la ruta y no una cookie que el navegador envíe solo. La cookie `XSRF-T
 `GET` y se compara el valor crudo con la cabecera. Un rechazo CSRF es 403.
 
 **Rutas públicas:** `/api/invitations/**`, `POST /api/auth/register`, `POST /api/auth/login`,
-`POST /api/auth/verify-email` y
+`POST /api/auth/verify-email`, `POST /api/auth/forgot-password`, `POST /api/auth/reset-password` y
 `/actuator/health`. Swagger y OpenAPI también lo son (D-SWAGGER-PUBLIC). El matcher real de Actuator permite
 `/actuator/**`, no solo health: cualquier otro endpoint que se exponga bajo esa ruta tampoco exigirá sesión.
 Todo lo demás exige sesión. Las escrituras públicas siguen sujetas a CSRF salvo `/api/invitations/**`.
@@ -378,9 +385,12 @@ salud de Mongo), D-7 (opciones en eventos publicados, R8), D-CONFIRMED-LINK (R8)
   invitación con su token puede aparecer en los logs del framework.
 - **Invalidación de sesiones:** implementada con SessionRegistry desde el commit 1 de R12, válida solo
   con una instancia y sesiones en memoria. El filtro rechaza cada sesión expirada en su siguiente acceso.
-- **Enumeración en registro:** el registro revela si un correo ya existe (409); es aceptado y se compensa
-  con el límite por IP, D-REGISTER-RATE-LIMIT, aún pendiente. El contrato aprobado de forgot-password no lo
-  revela; se implementará en el commit 3 de R12.
+- **Enumeración en registro:** el registro revela si un correo ya existe (409); forgot-password no lo revela.
+  Es aceptado y se compensa con el límite por IP, D-REGISTER-RATE-LIMIT, aún pendiente y bloqueador.
+- **Cola de recuperación:** forgot-password no puede limitarse por dirección para correos inexistentes,
+  porque no hay documento donde guardar el contador. Un anónimo puede llenar la cola del ejecutor con
+  direcciones inventadas y hacer que se pierdan correos legítimos. Se mitiga con el límite por IP
+  (D-REGISTER-RATE-LIMIT), que es bloqueador de despliegue.
 - **Correo de autenticación:** una caída del proveedor de correo gasta intentos del límite de autenticación
   del usuario. La reserva se conserva, se registra clase y correlación y no hay reintentos automáticos.
 - **Lote cancelado a mitad:** la confirmación de WhatsApp devuelve 409 conservando las marcas previas. Es
@@ -390,7 +400,6 @@ salud de Mongo), D-7 (opciones en eventos publicados, R8), D-CONFIRMED-LINK (R8)
 
 ## 7. Bloqueadores de despliegue público
 
-- R12: completar la recuperación de contraseña; la verificación del correo del anfitrión está implementada.
 - D-REGISTER-RATE-LIMIT y D-RATE-LIMIT: límites de peticiones.
 - D-BOUNCES: procesar rebotes y quejas.
 - D-SWAGGER-PUBLIC y D-SECURE-COOKIE.

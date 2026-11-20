@@ -153,8 +153,12 @@ public class GlobalExceptionHandler {
 	}
 
 	@ExceptionHandler(UserDomainException.class)
-	public ProblemDetail handleUserDomainException(UserDomainException exception) {
-		return ProblemDetail.forStatusAndDetail(HttpStatus.UNPROCESSABLE_ENTITY, exception.getMessage());
+	public ResponseEntity<ProblemDetail> handleUserDomainException(UserDomainException exception, jakarta.servlet.http.HttpServletRequest request) {
+		String path = request.getRequestURI();
+		if (path.equals("/api/auth/forgot-password") || path.equals("/api/auth/reset-password")) {
+			return authProblem(HttpStatus.UNPROCESSABLE_ENTITY, exception.getMessage());
+		}
+		return ResponseEntity.unprocessableContent().body(ProblemDetail.forStatusAndDetail(HttpStatus.UNPROCESSABLE_ENTITY, exception.getMessage()));
 	}
 
 	@ExceptionHandler(EmailAlreadyRegisteredException.class)

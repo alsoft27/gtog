@@ -178,6 +178,11 @@ sustituye por upsert; consumir usa find-and-delete por hash, propósito y expire
 La verificación es pública con CSRF; /me y resend-verification requieren sesión. La puerta de creación
 consulta HostEmailVerificationPort en cada POST /api/events, nunca el flag de la sesión. Los contadores
 authEmailSends/authEmailWindowStartedAt/lastAuthEmailAt son propios: no reutilizar la cuota de invitaciones.
+Forgot-password valida el formato antes de encolar; búsqueda, reserva, emisión y envío van dentro del
+ejecutor acotado, con 202 uniforme y sin reintentos. Reset-password valida con Password.validateRaw antes
+de consumir; después hashea, actualiza passwordHash/emailVerified parcialmente, borra los demás tokens
+e invalida sesiones, sin login automático. Un fallo tras consumir gasta el token. Conserva CSRF y no-store
+exacto; no abras /api/auth/** en bloque. Ver docs/modelo-usuario.md y los límites del ejecutor en el plan.
 
 ### Consistencia: derivar en lugar de duplicar
 

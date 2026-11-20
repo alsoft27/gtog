@@ -5,4 +5,5 @@ import com.gtog.user.domain.model.AuthMailPolicy;
 
 public interface AuthMailQuotaPort {
 	boolean reserveVerification(String userId, Instant now, AuthMailPolicy policy);
+	boolean reserveReset(String userId, Instant now, AuthMailPolicy policy);
 }

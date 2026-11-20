@@ -8,4 +8,5 @@ import com.gtog.user.domain.model.AuthTokenPurpose;
 public interface AuthTokenRepositoryPort {
 	void replace(AuthToken token);
 	Optional<AuthToken> consume(String hash, AuthTokenPurpose purpose, Instant now);
+	void deleteByUserId(String userId);
 }

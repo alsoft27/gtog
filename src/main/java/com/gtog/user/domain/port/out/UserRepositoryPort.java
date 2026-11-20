@@ -11,4 +11,5 @@ public interface UserRepositoryPort {
 	Optional<User> findByEmail(String email);
 	Optional<User> findById(String userId);
 	boolean markEmailVerified(String userId);
+	boolean updatePasswordAndVerify(String userId, String passwordHash);
 }

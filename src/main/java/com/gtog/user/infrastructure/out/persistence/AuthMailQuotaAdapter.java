@@ -19,6 +19,12 @@ public class AuthMailQuotaAdapter implements AuthMailQuotaPort {
 	private final MongoTemplate mongo;
 	public AuthMailQuotaAdapter(MongoTemplate mongo) { this.mongo = mongo; }
 	@Override public boolean reserveVerification(String userId, Instant now, AuthMailPolicy policy) {
+		return reserve(userId, now, policy, true);
+	}
+	@Override public boolean reserveReset(String userId, Instant now, AuthMailPolicy policy) {
+		return reserve(userId, now, policy, false);
+	}
+	private boolean reserve(String userId, Instant now, AuthMailPolicy policy, boolean unverifiedOnly) {
 		Document count = new Document("$ifNull", List.of("$authEmailSends", 0));
 		Document expired = new Document("$or", List.of(isNull("$authEmailWindowStartedAt"),
 				new Document("$lte", List.of("$authEmailWindowStartedAt", Date.from(now.minus(AuthMailPolicy.WINDOW))))));
@@ -26,7 +32,9 @@ public class AuthMailQuotaAdapter implements AuthMailQuotaPort {
 				new Document("$lte", List.of("$lastAuthEmailAt", Date.from(now.minus(policy.cooldown()))))));
 		Document available = new Document("$and", List.of(cooled,
 				new Document("$or", List.of(expired, new Document("$lt", List.of(count, policy.maxPerDay()))))));
-		var query = new BasicQuery(new Document("_id", userId).append("emailVerified", new Document("$ne", true)).append("$expr", available));
+		Document filter = new Document("_id", userId).append("$expr", available);
+		if (unverifiedOnly) { filter.append("emailVerified", new Document("$ne", true)); }
+		var query = new BasicQuery(filter);
 		Document fields = new Document("authEmailSends", new Document("$cond", List.of(expired, 1, new Document("$add", List.of(count, 1)))))
 				.append("authEmailWindowStartedAt", new Document("$cond", List.of(expired, Date.from(now), "$authEmailWindowStartedAt")))
 				.append("lastAuthEmailAt", Date.from(now));

@@ -53,10 +53,7 @@ public class User {
 		if (name == null || name.isBlank()) {
 			throw new BlankUserNameException();
 		}
-		String normalized = rawEmail == null ? "" : rawEmail.strip().toLowerCase();
-		if (!EMAIL_PATTERN.matcher(normalized).matches()) {
-			throw new InvalidEmailException(rawEmail);
-		}
+		String normalized = normalizeEmail(rawEmail);
 		if (timeZone == null || timeZone.isBlank()) {
 			throw new BlankTimeZoneException();
 		}
@@ -66,6 +63,12 @@ public class User {
 			throw new InvalidUserTimeZoneException(timeZone);
 		}
 		return new User(UUID.randomUUID().toString(), name, normalized, password, timeZone, 0, null, emailVerified, 0, null, null);
+	}
+
+	public static String normalizeEmail(String rawEmail) {
+		String normalized = rawEmail == null ? "" : rawEmail.strip().toLowerCase(java.util.Locale.ROOT);
+		if (!EMAIL_PATTERN.matcher(normalized).matches()) { throw new InvalidEmailException(rawEmail); }
+		return normalized;
 	}
 
 	/** Para rehidratación desde persistencia: acepta los campos tal como se guardaron, sin revalidar. */

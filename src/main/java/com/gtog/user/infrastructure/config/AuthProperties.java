@@ -7,20 +7,26 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public class AuthProperties {
 	private boolean autoVerifyEmail;
 	private Duration verificationTtl = Duration.ofHours(24);
+	private Duration resetTtl = Duration.ofHours(1);
 	private Duration mailCooldown = Duration.ofMinutes(5);
 	private int mailMaxPerDay = 5;
 	private String verifyEmailPath = "/verify-email";
+	private String resetPasswordPath = "/reset-password";
 	private final MailExecutor mailExecutor = new MailExecutor();
 	public boolean isAutoVerifyEmail() { return autoVerifyEmail; }
 	public void setAutoVerifyEmail(boolean value) { autoVerifyEmail = value; }
 	public Duration getVerificationTtl() { return verificationTtl; }
 	public void setVerificationTtl(Duration value) { verificationTtl = value; }
+	public Duration getResetTtl() { return resetTtl; }
+	public void setResetTtl(Duration value) { resetTtl = value; }
 	public Duration getMailCooldown() { return mailCooldown; }
 	public void setMailCooldown(Duration value) { mailCooldown = value; }
 	public int getMailMaxPerDay() { return mailMaxPerDay; }
 	public void setMailMaxPerDay(int value) { mailMaxPerDay = value; }
 	public String getVerifyEmailPath() { return verifyEmailPath; }
 	public void setVerifyEmailPath(String value) { verifyEmailPath = value; }
+	public String getResetPasswordPath() { return resetPasswordPath; }
+	public void setResetPasswordPath(String value) { resetPasswordPath = value; }
 	public MailExecutor getMailExecutor() { return mailExecutor; }
 	public static class MailExecutor {
 		private int coreSize = 2;

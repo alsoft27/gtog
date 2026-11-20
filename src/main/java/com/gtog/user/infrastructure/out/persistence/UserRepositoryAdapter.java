@@ -49,4 +49,8 @@ public class UserRepositoryAdapter implements UserRepositoryPort {
 	@Override public boolean markEmailVerified(String userId) {
 		return mongo.updateFirst(Query.query(Criteria.where("id").is(userId)), new Update().set("emailVerified", true), UserDocument.class).getMatchedCount() == 1;
 	}
+	@Override public boolean updatePasswordAndVerify(String userId, String passwordHash) {
+		return mongo.updateFirst(Query.query(Criteria.where("id").is(userId)),
+				new Update().set("passwordHash", passwordHash).set("emailVerified", true), UserDocument.class).getMatchedCount() == 1;
+	}
 }

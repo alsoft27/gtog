@@ -9,6 +9,7 @@ import org.springframework.context.annotation.Profile;
 import org.springframework.context.annotation.DependsOn;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import com.gtog.user.application.VerificationEmailComposer;
+import com.gtog.user.application.PasswordResetEmailComposer;
 import com.gtog.user.domain.model.AuthMailPolicy;
 import com.gtog.user.domain.model.RegistrationVerificationPolicy;
 
@@ -31,5 +32,9 @@ public class AuthVerificationConfig {
 		executor.setCorePoolSize(options.getCoreSize()); executor.setMaxPoolSize(options.getMaxSize()); executor.setQueueCapacity(options.getQueueCapacity());
 		executor.setThreadNamePrefix("auth-mail-"); executor.setRejectedExecutionHandler(new ThreadPoolExecutor.AbortPolicy());
 		return executor;
+	}
+	@Bean @DependsOn("localEmailVerificationGuard")
+	PasswordResetEmailComposer passwordResetEmailComposer(AuthProperties properties, @Value("${app.public-base-url}") String baseUrl) {
+		return new PasswordResetEmailComposer(baseUrl, properties.getResetPasswordPath());
 	}
 }

@@ -23,4 +23,7 @@ public class AuthTokenRepositoryAdapter implements AuthTokenRepositoryPort {
 		var token = mongo.findAndRemove(Query.query(Criteria.where("hash").is(hash).and("purpose").is(purpose.name()).and("expiresAt").gt(now)), AuthTokenDocument.class);
 		return Optional.ofNullable(token).map(value -> new AuthToken(value.userId(), purpose, value.hash(), value.expiresAt()));
 	}
+	@Override public void deleteByUserId(String userId) {
+		mongo.remove(Query.query(Criteria.where("userId").is(userId)), AuthTokenDocument.class);
+	}
 }

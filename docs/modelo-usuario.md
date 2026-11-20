@@ -1,8 +1,7 @@
 # Modelo de datos: Usuario
 
-Estado tras R5, R10 y los commits 1 y 2 de R12: registro, login, logout, protección e invalidación de
-sesiones, cuota del anfitrión, verificación de correo y puerta de creación. La recuperación de contraseña
-sigue pendiente del commit 3 de R12.
+Estado tras R5, R10 y R12: registro, login, logout, protección e invalidación de sesiones, cuota del anfitrión,
+verificación de correo, puerta de creación y recuperación de contraseña.
 
 ---
 
@@ -140,6 +139,11 @@ controladores pueden leer el id del anfitrión sin una segunda consulta a la bas
 | Caso de uso (`port/in`) | Servicio (`application`) | Qué hace |
 |---|---|---|
 | `RegisterUserUseCase` | `RegisterUserService` | Hashea la contraseña, valida y persiste el usuario. |
+| `VerifyEmailUseCase` | `VerifyEmailService` | Consume el token y verifica con escritura parcial. |
+| `ResendVerificationUseCase` | `VerificationEmailService` | Encola búsqueda, cuota y envío de verificación. |
+| `GetCurrentUserUseCase` | `GetCurrentUserService` | Lee el perfil vigente de la base de datos. |
+| `ForgotPasswordUseCase` | `ForgotPasswordService` | Valida formato; encola búsqueda, cuota, emisión y envío. |
+| `ResetPasswordUseCase` | `ResetPasswordService` | Valida contraseña, consume, hashea, actualiza y revoca tokens y sesiones. |
 
 Login y logout se gestionan directamente en `AuthController` vía `AuthenticationManager` y la configuración
 de logout de `SecurityConfig`, sin caso de uso de dominio separado: no hay lógica de negocio en ellos más allá
@@ -157,18 +161,21 @@ de la autenticación de Spring Security.
 | `POST` | `/api/auth/verify-email` | `{token}` | Público con CSRF: 200 sin cuerpo; token inválido/caducado/usado → mismo 400 |
 | `POST` | `/api/auth/resend-verification` | — | Sesión y CSRF: 204 uniforme, también verificado, limitado o envío fallido |
 | `GET` | `/api/auth/me` | — | Sesión: AuthUserResponse vigente, incluido emailVerified leído de la base; no-store exacto |
+| `POST` | `/api/auth/forgot-password` | `{email}` | Público con CSRF: 202 sin cuerpo uniforme; formato inválido → 422 |
+| `POST` | `/api/auth/reset-password` | `{token, newPassword}` | Público con CSRF: 200 sin cuerpo; token inválido/caducado/usado → mismo 400; contraseña corta → 422 |
 
 Todos los endpoints de `/api/events/**` requieren sesión activa → 401 si no la hay.
 `/api/invitations/**` es público (resuelto por token de invitado).
 
 Login también devuelve emailVerified. Los nuevos endpoints y /me usan Cache-Control: no-store exacto.
 Un GET anónimo de /me devuelve 401 y emite XSRF-TOKEN: enviarlo como cookie y X-XSRF-TOKEN permite alcanzar
-verify-email (400 para un token inventado), sin sesión ni csrf() de MockMvc. Solo ese POST nuevo se abre
-explícitamente; /api/auth/** no es público en bloque y la exclusión de CSRF sigue limitada a invitaciones.
+verify-email y reset-password (400 para un token inventado), y forgot-password (202), sin sesión ni csrf()
+de MockMvc. Se abren esos POST uno a uno; /api/auth/** no es público en bloque y la exclusión de CSRF sigue
+limitada a invitaciones.
 
 ## Verificación de correo (R12, commit 2)
 
-AuthTokenPurpose distingue EMAIL_VERIFICATION y PASSWORD_RESET; este último se usará en el commit 3.
+AuthTokenPurpose distingue EMAIL_VERIFICATION y PASSWORD_RESET; un propósito no sirve para el otro.
 La colección auth_tokens guarda id, userId, purpose, hash SHA-256 y expiresAt, nunca el token en claro.
 SecureAuthTokenGenerator usa 32 bytes de SecureRandom y base64url sin relleno. El token vive solo en memoria,
 en el correo y en el cuerpo de la petición; los DTOs sensibles ocultan su contenido en toString.
@@ -206,6 +213,34 @@ Los tests fijan el bypass explícitamente; la variable no se añade a la ejecuci
 rest-api-verify.http es manual, con realRecipient y verificationToken del entorno privado, sin bypass;
 tras login comprueba /me=false, verifica y crea en la misma sesión. No se ejecuta automáticamente.
 
+## Recuperación de contraseña (R12, commit 3)
+
+ForgotPasswordService comparte el ejecutor acotado y los contadores authEmailSends/authEmailWindowStartedAt/
+lastAuthEmailAt con la verificación; nunca los de invitaciones. Solo valida y normaliza el formato del correo
+antes de encolar. Búsqueda de cuenta, reserva con Clock, emisión y SMTP ocurren dentro de la tarea. Cuenta
+existente, inexistente, en enfriamiento o con el máximo diario devuelven el mismo 202, cuerpo y cabeceras.
+Las cuentas verificadas también pueden reservar para recuperar; la reserva de verificación sigue exigiendo
+emailVerified=false. Una caída SMTP gasta el intento y la saturación descarta la tarea, sin reintento ni
+alterar la respuesta; logs solo clase y correlación. Para cuentas inexistentes no hay documento ni contador:
+pueden llenar la cola; el límite por IP D-REGISTER-RATE-LIMIT es un bloqueador de despliegue.
+
+PasswordResetEmailComposer usa texto fijo en español sin datos escritos por el usuario, con la frase
+«Si no lo has pedido, ignóralo.». AuthEmailLink comparte la construcción del fragmento con la verificación.
+app.auth.reset-ttl=PT1H y app.auth.reset-password-path=/reset-password generan
+<app.public-base-url>/reset-password#token=<token>. No se envía correo real desde ningún test.
+
+ResetPasswordService aplica este orden: Password.validateRaw (misma regla que Password.of), consumo atómico
+del hash PASSWORD_RESET con expiresAt > Clock, PasswordHasherPort (mismo BCrypt del registro) y $set parcial
+de passwordHash/emailVerified=true. Después borra todos los auth_tokens del usuario e invalida sus sesiones
+con SessionInvalidationPort. No inicia sesión ni modifica las cuotas. Si falla el hash o la escritura tras
+consumir, responde 500 saneado y el token queda gastado: hay que pedir otro. No hay transacción multidocumento.
+Los errores de token son el mismo 400, con instance constante; éxito y errores llevan no-store exacto.
+
+Los tests cubren primera carga con cookie real, respuestas uniformes, trabajo aplazado hasta ejecutar la
+tarea, límites con Clock fijo, consumo concurrente, errores tras consumo, separación de propósitos,
+revocación de todos los tokens y de dos sesiones propias conservando la de otro usuario. La mutación temporal
+que adelantó la búsqueda fuera del ejecutor hizo fallar su test; quedó restaurada sin versionarla.
+
 ---
 
 ## Cuota de correo (R10, commit 1)
@@ -228,16 +263,15 @@ campos al rehidratar; no se exponen en AuthUserResponse. Los campos ausentes se 
 
 users no tiene @Version. Sus actualizaciones deben ser parciales: $set/$inc sobre los campos afectados,
 nunca leer y save() del usuario existente, porque pisaría las cuotas concurrentes. La inserción inicial
-de registro se mantiene. R12 debe actualizar emailVerified y la contraseña de esta forma.
+de registro se mantiene. R12 actualiza emailVerified y la contraseña de esta forma.
 
 El endpoint de R10 devuelve dailyLimit desde esta lectura después de todo el lote, no desde una estimación
 en memoria. Un fallo SMTP (incluido EMAIL_NOT_CONFIGURED) compensa primero la cuota del anfitrión y luego
 la reserva del invitado. La aceptación SMTP seguida de fallo al registrar SENT conserva ambas; no reenvía.
-Las cuotas no sustituyen la verificación de correo ni el límite de registro/login: siguen siendo bloqueadores
-del despliegue público. El email opcional de GuestResponse no modifica User ni se usa para enviar nada;
+Las cuotas no sustituyen el límite de registro/login, aún bloqueador del despliegue público. El email
+opcional de GuestResponse no modifica User ni se usa para enviar nada;
 cualquier uso futuro requiere aprobación expresa y doble confirmación de su dueño.
 
 ## Fuera de alcance por ahora
 
-- Recuperación de contraseña (`RF-1.3`): commit 3 de R12.
 - Roles de usuario (hoy solo existe el rol de anfitrión).
