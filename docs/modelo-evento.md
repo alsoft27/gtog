@@ -1,7 +1,12 @@
 # Modelo de datos: Evento
 
-Estado del modelo tras R1–R9: creación de eventos, consulta/listado (R1), opciones de respuesta (R2),
-ubicación/acceso en línea (R3), editar/publicar/cancelar (R4), seguridad/ownership (R5), invitados (R6), consulta pública (R7), plazo editable, registro de respuesta, enlace por confirmación, opciones publicadas, cascada y calendario (R8, commits 0–4), panel y contadores en el listado (R9). Las respuestas viven en `responses`, nunca embebidas en el evento. El muro social sigue pendiente.
+Estado del modelo tras R1–R11: creación de eventos, consulta/listado (R1), opciones de respuesta (R2),
+ubicación/acceso en línea (R3), editar/publicar/cancelar (R4), seguridad/ownership (R5), invitados (R6),
+consulta pública (R7), plazo editable, registro de respuesta, enlace por confirmación, opciones publicadas,
+cascada y calendario (R8), panel y contadores en el listado (R9), reservas atómicas y envío de correo (R10),
+y generación de enlaces y confirmación manual de WhatsApp (R11). La vista pública incluye `canRespond`,
+calculado con la misma política que el PUT de respuesta. Las respuestas viven en `responses`, nunca
+embebidas en el evento. El muro social y Telegram siguen pendientes.
 
 ---
 

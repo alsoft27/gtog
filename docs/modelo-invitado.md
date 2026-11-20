@@ -438,9 +438,9 @@ para elegir insert o upsert. No se añade una consulta de existencia antes del i
 sigue imponiendo una respuesta por invitado. Los flags describen disponibilidad; el PUT conserva también
 las validaciones de opción, comentario y email.
 
-Tests con Clock fijo comparan GET y PUT con cuerpo válido en 13 escenarios: primera respuesta, respuestas
+Las pruebas con Clock fijo comparan GET y PUT con cuerpo válido: primera respuesta, respuestas
 existentes con/sin cambios, plazo vencido/exacto, fin anterior/exacto/posterior, CANCELLED y FINISHED.
-Cuatro tests de dominio cubren la política; las pruebas previas de concurrencia y privacidad se conservan.
+Los tests de dominio cubren la política; las pruebas de concurrencia y privacidad se conservan.
 
 Éxitos y errores conservan `Cache-Control: no-store` exacto; los errores usan instancia constante
 `/api/invitations`. Los mensajes son constantes, sin eco de token, comentario ni email. JSON ilegible produce
@@ -485,33 +485,19 @@ escapes, tildes/emojis, límite por octetos, lectura posterior y correspondencia
 
 ## Verificación
 
-`mvn clean verify`: **426 tests**, sin fallos, errores ni omitidos. R6 incorporó 71 casos y R7 incorporó 31:
-4 de dominio, 9 de aplicación y 18 de integración contra Atlas (`gtog_test`). La preparación de R8 añade
-29: 8 de dominio, 4 de aplicación y 17 de integración, incluida apertura concurrente y cancelación con
-versión anterior al cambio del plazo.
+El total de tests y el estado de su última ejecución se registran únicamente en `docs/plan-iteracion-1.md`.
+La cobertura se organiza por comportamiento:
 
-El commit 1 añade 54: 19 de dominio, 4 de aplicación y 31 de integración. Incluye dos PUT simultáneos con
-hilos reales (un 200 y un 409 sin cambios; dos 200 con cambios, siempre un documento), límite inclusivo del
-plazo y exclusivo del fin, cambios fuera de plazo, errores sin token ni comentario en logs, duplicado real
-sin causa, duplicados de otro índice en insert y upsert, preflight CORS y cabeceras exactas.
-
-El commit 2 añade 7 pruebas de integración a través del GET: confirmación afirmativa y negativa, cambios en
-ambos sentidos, opción inexistente sin error, aislamiento entre invitados y ocultación aun confirmado en
-CANCELLED y FINISHED. Se comprueba el cuerpo completo para detectar URL, contraseña, sala e instrucciones.
-
-El commit 3 añade 35: 16 de dominio, 3 de aplicación y 16 de integración. Incluyen cambios permitidos y
-prohibidos en PUBLISHED, reglas estructurales, DRAFT y estados cerrados, propiedad, ids usados por evento,
-confirmación de borrado, orden real de cascada y sus dos fallos, aislamiento entre respuestas y limpieza de
-una respuesta llegada después de la consulta inicial. Las pruebas anteriores de cascada de R6 se adaptan
-al nuevo orden aprobado. También se comprueba que repetir un id no permita cambiar la marca de asistencia
-de una opción con respuestas, y que estos conflictos produzcan 409 aunque invaliden el tamaño o la asistencia.
-
-El commit 4 añade 25: 5 de aplicación, 6 del adaptador iCalendar y 14 HTTP. Cubren descarga pública sin CSRF,
-privacidad sobre el cuerpo completo, los tres modos de visibilidad comparados con JSON, cambios de asistencia,
-opción inexistente, CANCELLED 409 / FINISHED 200 / 404 indistinguibles, cabeceras exactas incluso con Accept:
-text/calendar, ausencia de escritura OPENED, Clock, UID, zona/DST, configuración y formato RFC 5545.
-
-R7 cubre privacidad comparando el cuerpo completo, fechas locales/UTC, los tres modos de visibilidad con Clock
-fijo y el umbral exacto, estados públicos y borrador, 404 indistinguibles, logs sin tokens, OPENED desde NOT_SENT
-y SENT, revisitas sin escritura, carreras entre aperturas, `$elemMatch` sobre el invitado correcto, version +1,
-conflicto HTTP 409 al cancelar con una versión antigua, cabecera exacta no-store y acceso sin sesión ni CSRF.
+- **R6:** alta, edición y borrado; nombre y contactos válidos, normalización E.164, duplicados, unicidad
+  del token, propiedad, estados editables y escrituras parciales bajo concurrencia.
+- **R7:** vista pública y privacidad del cuerpo completo y los logs; fechas locales/UTC, visibilidad online
+  con Clock fijo, primera apertura idempotente y concurrente, bloqueo optimista y cabeceras exactas.
+- **R8:** plazo y fin del evento, coherencia de `canRespond` con el PUT, respuestas concurrentes, validación
+  y privacidad, enlace por asistencia, opciones publicadas, cascada de borrado y calendario público seguro.
+- **R9:** contadores y filas desde invitados vivos, respuestas huérfanas y opciones desconocidas, correo
+  de respuesta oculto y tokens solo en invitationPath, lectura por lote y ausencia de escrituras en panel/listado.
+- **R10:** reservas y cuotas atómicas, límites temporales, compensaciones, corte del lote, privacidad y
+  composición MIME del correo; transporte falso en tests, sin envíos reales, y fallo al registrar SENT.
+- **R11:** grafemas y codificación de la URL, límites, generación sin escrituras, privacidad y lectura por
+  lote; confirmación idempotente, teléfono requerido, preservación de OPENED/canal/fecha, concurrencia,
+  bloqueo optimista y cierre del evento a mitad del lote.

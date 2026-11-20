@@ -61,8 +61,9 @@ en el login — ambos comparten la misma instancia (`@Bean PasswordEncoder` en `
 ## Persistencia (`users`)
 
 `UserDocument` (en `user/infrastructure/out/persistence`) — campos: `id`, `name`, `email`, `passwordHash`
-(string), `timeZone`. `UserMapper` traduce en ambos sentidos; `Password.fromHash(...)` rehidrata el objeto de
-valor al leer de Mongo.
+(string), `timeZone`, `emailSendsInWindow` (`Integer`, ausente leído como 0) y `windowStartedAt`
+(`Instant`, nullable, ausente leído como null). Los últimos campos mantienen la cuota de correo del
+anfitrión. `UserMapper` traduce en ambos sentidos; `Password.fromHash(...)` rehidrata el objeto de valor al leer de Mongo.
 
 Índice creado en el arranque (`MongoIndexInitializer`):
 
@@ -78,7 +79,17 @@ La violación de este índice (registro con email duplicado) se captura en `User
 
 Spring Security mantiene la sesión en `HttpSession` (servidor). El cliente recibe una cookie `JSESSIONID`
 (HttpOnly, SameSite=Lax). El Angular SPA recibe también la cookie CSRF via `CookieCsrfTokenRepository`
-(no HttpOnly) y debe incluir el token en el header `X-XSRF-TOKEN` en todas las peticiones de escritura.
+(no HttpOnly) y debe incluir el token en el header `X-XSRF-TOKEN` en las peticiones de escritura del
+anfitrión. Solo las rutas públicas `/api/invitations/**` están excluidas de CSRF.
+
+Comportamiento medido con servidor real:
+
+- La cookie `XSRF-TOKEN` se emite en el primer GET fuera de `/api/invitations/**`, por ejemplo
+  `/actuator/health`; no se emite como parte del login correcto.
+- El login usa la cookie existente y no la renueva.
+- La comparación usa el valor crudo de la cookie, enviado también en la cabecera `X-XSRF-TOKEN`.
+- Un rechazo CSRF devuelve 403 con `ProblemDetail`, también para una petición anónima.
+- El logout expira tanto `JSESSIONID` como `XSRF-TOKEN`; el siguiente GET vuelve a emitir una cookie CSRF nueva.
 
 La decisión de usar sesión en lugar de JWT es reversible cuando llegue la app móvil.
 Ver docs/plan-iteracion-1.md, sección Decisiones tomadas, para la justificación.

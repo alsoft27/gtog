@@ -73,6 +73,28 @@ Archivos `.http` ejecutables con el cliente HTTP de IntelliJ, contra un servidor
 
 ---
 
+## Verificaciones manuales con servicios reales
+
+Estas comprobaciones son manuales; los tests automáticos no confirman por sí solos el comportamiento de los servicios reales.
+
+**HECHO:**
+
+- Correo: un envío real llegó a la bandeja de entrada con el asunto (tilde, guion y emoji) y el cuerpo íntegros.
+- El enlace del correo contiene un token que la API acepta: GET de la invitación con respuesta 200.
+- WhatsApp con el invitado ya abierto: la confirmación devolvió MARKED.
+
+**PENDIENTE DE CONFIRMAR:**
+
+- SPF, DKIM y DMARC en PASS, comprobados con «Mostrar original».
+- El registro de actividad de Mailjet.
+- El límite de 3 envíos y el rechazo del siguiente intento con LIMIT_REACHED.
+- El correo de un evento en línea sin la URL de la sala.
+- WhatsApp en orden normal: confirmar y después abrir.
+- El estado final del panel tras cada orden de apertura y confirmación.
+- Que el texto de WhatsApp llegue íntegro.
+
+---
+
 ## 2. Lo que queda
 
 ### R12 — Verificación de correo y recuperación de contraseña
@@ -283,6 +305,7 @@ puede disparar `MESSAGE_TOO_LONG` para todo el evento.
 | D-RATE-LIMIT | Rutas públicas de invitación sin límite | La entropía del token impide adivinarlo, no el tráfico repetido sobre un enlace conocido |
 | D-REFERRER | Política de `Referer` del frontend | La página del invitado lleva el token en la URL: debe servirse con `Referrer-Policy: no-referrer` |
 | D-SWAGGER-PUBLIC | OpenAPI y Swagger UI sin autenticación | Decidir si protegerlos antes de producción |
+| D-ACTUATOR-EXPOSURE | El matcher `/actuator/**` es público entero y `management.endpoint.health.show-details=always`; la decisión de R5 era que solo `/actuator/health` fuera público | Hoy solo health está expuesto por HTTP: el riesgo de abrir otro endpoint aún no es explotable, pero habilitarlo lo dejaría abierto sin aviso. El detalle de health (nombre de la base de datos, estado del disco) ya lo puede ver cualquiera |
 | D-SECURE-COOKIE | `JSESSIONID` sin `Secure` en desarrollo | Verificar que Boot lo activa detrás de HTTPS |
 | D-WHATSAPP-TRUST | `SENT` por WhatsApp es declarativo | Límite aceptado; mostrarlo en el frontend |
 | D-EMAIL-NOT-SENT | La cita al responder no se envía | Sin rebanada aprobada; el correo de la respuesta no se usa |
@@ -321,6 +344,8 @@ salud de Mongo), D-7 (opciones en eventos publicados, R8), D-CONFIRMED-LINK (R8)
 - D-REGISTER-RATE-LIMIT y D-RATE-LIMIT: límites de peticiones.
 - D-BOUNCES: procesar rebotes y quejas.
 - D-SWAGGER-PUBLIC y D-SECURE-COOKIE.
+- D-ACTUATOR-EXPOSURE: arreglo previsto, restringir el matcher público a `/actuator/health` y
+  `/actuator/health/**`, y configurar `management.endpoint.health.show-details=when-authorized`.
 - D-REFERRER del frontend.
 - Dominio y remitente de Mailjet validados, con SPF, DKIM y DMARC en `PASS`, comprobados con un envío real.
 
