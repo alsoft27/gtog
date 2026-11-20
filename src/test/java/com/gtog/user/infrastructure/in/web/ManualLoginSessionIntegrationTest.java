@@ -109,6 +109,7 @@ class ManualLoginSessionIntegrationTest {
 			assertThat(JsonPath.parse(result.body()).read("$.instance", String.class)).isEqualTo("/api/errors");
 			assertThat(JsonPath.parse(result.body()).read("$.detail", String.class)).isEqualTo("Authentication required");
 			assertThat(result.body()).doesNotContain(first.session(), second.session(), "session-host@example.com", "host-session", "/api/events");
+			assertThat(registry.getSessionInformation(browser.session())).isNull();
 		}
 		assertThat(registry.getAllSessions(principal("host-session"), true)).isEmpty();
 	}
@@ -131,6 +132,34 @@ class ManualLoginSessionIntegrationTest {
 		invalidation.invalidateAll("unknown-user");
 		assertThat(events(browser).statusCode()).isEqualTo(200);
 		assertThat(registry.getAllSessions(principal("host-session"), false)).hasSize(1);
+	}
+
+	@Test void switchingAccountsOnTheSameSessionMovesRegistrationAndInvalidationToTheNewUser() throws Exception {
+		mongo.insert(new UserDocument("other-host", "Other", "other-session@example.com", passwords.encode("password12"), "Europe/Madrid"));
+		Browser firstUser = authenticatedBrowser();
+		assertThat(events(firstUser).statusCode()).isEqualTo(200);
+		assertThat(registry.getAllSessions(principal("host-session"), false)).extracting(session -> session.getSessionId())
+				.containsExactly(firstUser.session());
+
+		// B se autentica con la misma cookie de sesion y CSRF que estaba usando A.
+		var secondLogin = login(firstUser, "other-session@example.com");
+		assertThat(secondLogin.statusCode()).isEqualTo(200);
+		assertThat(JsonPath.parse(secondLogin.body()).read("$.id", String.class)).isEqualTo("other-host");
+		Browser secondUser = new Browser(firstUser.csrf(), cookie(secondLogin, "JSESSIONID").orElseThrow());
+		assertThat(secondUser.session()).isNotEqualTo(firstUser.session());
+		assertThat(registry.getSessionInformation(firstUser.session())).isNull();
+		assertThat(registry.getAllSessions(principal("host-session"), true)).isEmpty();
+		assertThat(registry.getAllSessions(principal("other-host"), false)).extracting(session -> session.getSessionId())
+				.containsExactly(secondUser.session());
+		assertThat(events(firstUser).statusCode()).isEqualTo(401);
+
+		invalidation.invalidateAll("host-session");
+		assertThat(events(secondUser).statusCode()).isEqualTo(200);
+		assertThat(registry.getSessionInformation(secondUser.session()).isExpired()).isFalse();
+		invalidation.invalidateAll("other-host");
+		assertThat(events(secondUser).statusCode()).isEqualTo(401);
+		assertThat(registry.getSessionInformation(secondUser.session())).isNull();
+		assertThat(registry.getAllPrincipals()).isEmpty();
 	}
 
 	@Test void logoutRemovesTheSessionFromTheRegistryAndExpiresBothCookies() throws Exception {

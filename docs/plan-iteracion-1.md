@@ -14,7 +14,7 @@ login manual; verificación de correo y recuperación de contraseña siguen pend
 RF-1.2 y RF-1.3 siguen sin cumplirse y R12 es un bloqueador de
 despliegue público. El frontend Angular no se ha empezado.
 
-`mvn clean verify`: 766 tests, 0 fallos, 0 errores, 0 omitidos en la última ejecución completa. El commit 1
+`mvn clean verify`: 767 tests, 0 fallos, 0 errores, 0 omitidos en la última ejecución completa. El commit 1
 de R12 añade pruebas de identidad del principal y de sesión con servidor real. Repetirlo desde
 la terminal antes de dar por cerrado cualquier cambio. Stack: Java 25, Spring Boot 4.1, MongoDB Atlas,
 Maven por defecto, springdoc-openapi, iCal4j 4.2.0, libphonenumber 9.0.43, Mailjet por SMTP.
@@ -239,6 +239,13 @@ se crean en el arranque con un componente idempotente.
 **Sesión de servidor con cookie `HttpOnly`, no JWT.** El único cliente es Angular. Una cookie `HttpOnly`
 elimina la exfiltración por XSS y es más difícil de hacer mal que un JWT en el navegador. Reversible cuando
 exista la app móvil.
+
+**Fijación de sesión en R5.** El login de R5 no rotaba el id de sesión (fijación de sesión). Corregido en
+8252fe8, junto con el registro de sesiones para poder invalidarlas por usuario.
+La auditoría posterior quitó temporalmente la rotación y el registro por separado: fallaron sus tests
+de rotación e invalidación, respectivamente; ambas condiciones se restauraron sin versionar la mutación.
+Con servidor real se comprueba también el cambio A→B usando la misma cookie: el id antiguo deja de servir,
+invalidar A no afecta a B e invalidar B sí lo rechaza. Logout y expiración eliminan los ids del registro.
 
 **CSRF.** Login y registro lo conservan. Solo `/api/invitations/**` se excluye, porque su credencial es el
 token de la ruta y no una cookie que el navegador envíe solo. La cookie `XSRF-TOKEN` se emite en el primer
