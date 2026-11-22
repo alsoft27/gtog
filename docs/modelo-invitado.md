@@ -101,9 +101,9 @@ vacía. `EventMapper` conserva los invitados en las operaciones existentes sobre
 multiclave al indexar el array. El filtro parcial `guests.token: { $type: "string" }` excluye los eventos sin
 tokens, para permitir varios eventos vacíos o anteriores a R6. D-3 queda saldada.
 
-**El índice no impide repetir un token dentro del mismo documento.** Esa regla se comprueba en `Event`; la
-escritura parcial condicionada por versión impide que dos altas concurrentes, validadas sobre el mismo estado,
-introduzcan duplicados. El adaptador añade también una condición de ausencia del token al insertar.
+**El índice no impide repetir un token dentro del mismo documento.** Dominio comprueba los tokens del lote
+y la escritura añade una condición de ausencia de todos ellos. Las altas comprueban también la ausencia de
+correos/teléfonos normalizados dentro de la propia condición atómica, sin comparar una versión esperada.
 
 `EventGuestRepositoryPort` tiene tres operaciones, implementadas con `MongoTemplate`:
 
@@ -127,9 +127,29 @@ solo puede exigirse para una respuesta ya observada. Si la retirada falla, no se
 
 Compatibilidad temporal: updateGuest/removeGuest conservan sus firmas con expectedVersion para mantener
 los tests existentes (salvo las dos expectativas autorizadas), pero ese argumento no condiciona la escritura.
-No se añaden sobrecargas ni constructores alternativos. El alta aún compara la versión; se sustituirá por
-condiciones de contactos y capacidad en el commit 1 del lote. No hay reintentos silenciosos ni save(event)
+addGuest conserva también su firma con expectedVersion: delega en el mismo motor de addGuests con un elemento
+y mantiene el conflicto genérico anterior de una carrera tardía. GuestService conserva su constructor de
+cinco puertos por los tests existentes, sin añadir constructores alternativos. Son las únicas entradas de
+compatibilidad; no duplican normalización ni escritura. No hay reintentos silenciosos ni save(event)
 alternativo. Un save antiguo del documento completo sigue fallando con 409 por bloqueo optimista.
+
+## Alta en lote — dominio y persistencia (commit 1)
+
+GuestBatch es Java sin Spring. Prepara el lote completo con la misma validación de Guest; recopila todos
+los errores de nombre/contactos y marca todos los índices con contactos equivalentes. Solo después genera
+invitados NOT_SENT con sus identidades y tokens. La preparación no escribe ni modifica el evento.
+AddGuestsUseCase pertenece al dominio de event y AddGuestsService comprueba propiedad y estado antes de
+validar la lista. No comprueba emailVerified: la puerta de R12 solo está al crear el evento.
+
+app.guests.max-batch=100 limita la petición; app.guests.max-per-event=500 limita el evento y también el alta
+individual. Esta última conserva DTO, Location y cabeceras; su única extensión es 409 con
+code=CAPACITY_EXCEEDED al alcanzar el tope. No se añade no-store exacto a su respuesta existente.
+
+Mongo ejecuta un único update con id, hostId, DRAFT/PUBLISHED, ausencia de correos, teléfonos y tokens y
+$expr: size(ifNull(guests, [])) <= maxPerEvent - tamañoDelLote. Así dos lotes no consumen las mismas plazas.
+$push/$each conserva el orden e incrementa version una sola vez. No hay bucle de escrituras ni save del
+evento completo. Sin coincidencia se reconsulta para clasificar propietario, estado, duplicados o capacidad.
+Un rechazo no altera el BSON ni version. El endpoint se incorpora en el commit 2.
 
 Referencias: [índices multiclave únicos](https://www.mongodb.com/docs/manual/core/indexes/index-types/index-multikey/),
 [índices parciales](https://www.mongodb.com/docs/manual/core/index-partial/) y

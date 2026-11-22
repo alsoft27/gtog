@@ -43,7 +43,8 @@ public class GuestService implements AddGuestUseCase, UpdateGuestUseCase, Delete
 	public Guest add(AddGuestCommand command) {
 		Event event = ownedEvent(command.hostId(), command.eventId());
 		event.ensureGuestsEditable();
-		Guest guest = event.addGuest(Guest.create(command.name(), command.email(), command.phone(), tokens.generate(), phones));
+		Guest guest = com.gtog.event.domain.model.GuestBatch.prepareIndividual(event,
+				new com.gtog.event.domain.model.GuestInput(command.name(), command.email(), command.phone()), phones, tokens);
 		guests.addGuest(event.getId(), command.hostId(), event.getVersion(), guest);
 		return guest;
 	}

@@ -120,10 +120,10 @@ public class Event {
 			if (existing.getToken().equals(candidate.getToken())) {
 				throw new DuplicateGuestTokenException();
 			}
-			if (candidate.getEmail() != null && candidate.getEmail().equals(existing.getEmail())) {
+			if (candidate.sameEmail(existing)) {
 				throw new DuplicateGuestEmailException();
 			}
-			if (candidate.getPhoneE164() != null && candidate.getPhoneE164().equals(existing.getPhoneE164())) {
+			if (candidate.samePhone(existing)) {
 				throw new DuplicateGuestPhoneException();
 			}
 		}

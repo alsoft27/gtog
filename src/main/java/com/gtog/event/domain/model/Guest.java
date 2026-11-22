@@ -48,6 +48,11 @@ public final class Guest {
 
 	public static Guest create(String name, String email, String phone, String token, PhoneNormalizerPort normalizer) {
 		Contact contact = validatedContact(name, email, phone, normalizer);
+		return fromContact(contact, token);
+	}
+
+	static Guest fromContact(Contact contact, String token) {
+		if (!contact.errors().isEmpty()) { throw contact.errors().getFirst().individualException(); }
 		return new Guest(UUID.randomUUID().toString(), contact.name, contact.email, contact.phoneE164,
 				Objects.requireNonNull(token), InvitationStatus.NOT_SENT, null, null, null);
 	}
@@ -60,30 +65,35 @@ public final class Guest {
 	}
 
 	private static Contact validatedContact(String name, String email, String phone, PhoneNormalizerPort normalizer) {
-		if (name == null || name.isBlank()) {
-			throw new BlankGuestNameException();
-		}
+		Contact contact = validateContact(name, email, phone, normalizer);
+		if (!contact.errors().isEmpty()) { throw contact.errors().getFirst().individualException(); }
+		return contact;
+	}
+
+	static Contact validateContact(String name, String email, String phone, PhoneNormalizerPort normalizer) {
+		var errors = new java.util.ArrayList<GuestErrorCode>();
+		if (name == null || name.isBlank()) { errors.add(GuestErrorCode.BLANK_NAME); }
 		String normalizedEmail = optionalText(email);
 		String normalizedPhone = optionalText(phone);
 		if (normalizedEmail == null && normalizedPhone == null) {
-			throw new MissingGuestContactException();
+			errors.add(GuestErrorCode.NO_CONTACT);
 		}
 		if (normalizedEmail != null) {
 			normalizedEmail = normalizedEmail.toLowerCase(Locale.ROOT);
 			if (!EMAIL_PATTERN.matcher(normalizedEmail).matches()) {
-				throw new InvalidGuestEmailException();
+				errors.add(GuestErrorCode.INVALID_EMAIL); normalizedEmail = null;
 			}
 		}
 		if (normalizedPhone != null) {
-			normalizedPhone = normalizer.normalize(normalizedPhone);
-			if (normalizedPhone == null || !E164_PATTERN.matcher(normalizedPhone).matches()) {
-				throw new InvalidGuestPhoneException();
-			}
+			try {
+				normalizedPhone = normalizer.normalize(normalizedPhone);
+				if (normalizedPhone == null || !E164_PATTERN.matcher(normalizedPhone).matches()) { throw new InvalidGuestPhoneException(); }
+			} catch (InvalidGuestPhoneException exception) { errors.add(GuestErrorCode.INVALID_PHONE); normalizedPhone = null; }
 		}
-		return new Contact(name.strip(), normalizedEmail, normalizedPhone);
+		return new Contact(name == null ? null : name.strip(), normalizedEmail, normalizedPhone, java.util.List.copyOf(errors));
 	}
 
-	private record Contact(String name, String email, String phoneE164) {}
+	static record Contact(String name, String email, String phoneE164, java.util.List<GuestErrorCode> errors) {}
 
 	private static String optionalText(String value) {
 		return value == null || value.isBlank() ? null : value.strip();
@@ -106,6 +116,9 @@ public final class Guest {
 	public Instant getLastEmailSentAt() { return lastEmailSentAt; }
 	public String getName() { return name; }
 	public String getEmail() { return email; }
+	boolean sameEmail(Guest other) { return email != null && email.equals(other.email); }
+	boolean samePhone(Guest other) { return phoneE164 != null && phoneE164.equals(other.phoneE164); }
+	boolean sharesContact(Guest other) { return sameEmail(other) || samePhone(other); }
 	public String getPhoneE164() { return phoneE164; }
 	public boolean hasValidPhoneE164() { return phoneE164 != null && E164_PATTERN.matcher(phoneE164).matches(); }
 	public String getToken() { return token; }

@@ -14,9 +14,9 @@ de creación, y recuperación de contraseña; RF-1.2 y RF-1.3 cumplidas. Siguen 
 de despliegue público de §7 y la deuda abierta de §6, incluida D-UNVERIFIED-SQUATTING.
 El frontend Angular no se ha empezado.
 
-`mvn clean verify`: 854 tests, 0 fallos, 0 errores, 0 omitidos en la última ejecución completa.
-El commit A añade regresiones de edición/borrado, unicidad y reservas; las mutaciones de unicidad y de
-reemplazo completo del invitado hicieron fallar sus tests y quedaron restauradas, sin versionarlas.
+`mvn clean verify`: 875 tests, 0 fallos, 0 errores, 0 omitidos en la última ejecución completa.
+El commit 1 añade el núcleo del lote y recupera el reproductor del alta, ahora en verde. Las mutaciones
+de duplicados y capacidad hicieron fallar sus tests concurrentes y quedaron restauradas, sin versionarlas.
 Repetirlo desde
 la terminal antes de dar por cerrado cualquier cambio. Stack: Java 25, Spring Boot 4.1, MongoDB Atlas,
 Maven por defecto, springdoc-openapi, iCal4j 4.2.0, libphonenumber 9.0.43, Mailjet por SMTP.
@@ -44,6 +44,7 @@ Maven por defecto, springdoc-openapi, iCal4j 4.2.0, libphonenumber 9.0.43, Mailj
 | R12 — Verificación (commit 2) | Tokens solo como hash, consumo atómico, correo asíncrono y cuota propia; verify-email, resend-verification y /me. Puerta de creación desde la base de datos y bypass solo local con guarda |
 | R12 — Recuperación (commit 3) | forgot-password con 202 uniforme y flujo completo en el ejecutor; reset-password valida antes de consumir, hashea después, verifica correo y revoca tokens y sesiones con escrituras parciales |
 | Invitados — concurrencia (commit A) | Edición con arrayFilters y unicidad explícita, y borrado parcial, sin comparar versión esperada; preservan aperturas y cuotas. Tests autorizados de concurrencia y reserva obsoleta actualizados al nuevo comportamiento |
+| Invitados — lote (commit 1) | Dominio compartido con el alta individual y una escritura atómica para todo el lote, con unicidad y capacidad en el filtro; máximo 100 por petición y 500 por evento. Endpoint pendiente del commit 2 |
 
 ### Endpoints
 
@@ -389,8 +390,7 @@ salud de Mongo), D-7 (opciones en eventos publicados, R8), D-CONFIRMED-LINK (R8)
 - **Versión y escrituras completas:** editar evento, opciones, publicar y cancelar reescriben el documento
   completo y mantienen la comparación de versión esperada. Una apertura concurrente puede causar 409: es el
   resultado seguro y el cliente reintenta. Las escrituras parciales de invitado no necesitan esa comparación;
-  edición y borrado ya no la usan. El alta conserva temporalmente el comportamiento anterior hasta el commit 1
-  del lote. Todas siguen incrementando version para proteger los save completos.
+  alta, edición y borrado ya no la usan. Todas siguen incrementando version para proteger los save completos.
 - **Edición y borrado de invitados:** dos pestañas sobre la misma ficha son de última escritura. Una respuesta
   que llega entre la comprobación y la retirada se borra después del invitado, aunque no se hubiera confirmado.
   Si el invitado desaparece antes de retirarlo, devuelve 404 y no se limpia su respuesta.

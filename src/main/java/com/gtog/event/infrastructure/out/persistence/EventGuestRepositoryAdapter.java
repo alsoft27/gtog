@@ -3,6 +3,11 @@ package com.gtog.event.infrastructure.out.persistence;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.ArrayList;
+import java.util.List;
+import com.gtog.event.domain.model.GuestLimits;
+import com.gtog.event.domain.model.GuestBatch;
+import com.gtog.event.domain.model.GuestBatchRejectedException;
+import com.gtog.event.domain.model.GuestCapacityExceededException;
 
 import org.bson.Document;
 import org.springframework.dao.DuplicateKeyException;
@@ -30,11 +35,13 @@ public class EventGuestRepositoryAdapter implements EventGuestRepositoryPort {
 	private final MongoTemplate mongoTemplate;
 	private final GuestMapper mapper;
 	private final EventMapper eventMapper;
+	private final GuestLimits limits;
 
-	public EventGuestRepositoryAdapter(MongoTemplate mongoTemplate, GuestMapper mapper, EventMapper eventMapper) {
+	public EventGuestRepositoryAdapter(MongoTemplate mongoTemplate, GuestMapper mapper, EventMapper eventMapper, GuestLimits limits) {
 		this.mongoTemplate = mongoTemplate;
 		this.mapper = mapper;
 		this.eventMapper = eventMapper;
+		this.limits = limits;
 	}
 
 	@Override
@@ -51,16 +58,51 @@ public class EventGuestRepositoryAdapter implements EventGuestRepositoryPort {
 
 	@Override
 	public void addGuest(String eventId, String hostId, Long expectedVersion, Guest guest) {
-		Query query = writableEvent(eventId, hostId, expectedVersion);
-		// Un indice multiclave unico no evita repetidos dentro del mismo array.
-		query.addCriteria(Criteria.where("guests.token").ne(guest.getToken()));
+		addGuests(eventId, hostId, List.of(guest), true);
+	}
+
+	@Override public void addGuests(String eventId, String hostId, List<Guest> guests) {
+		addGuests(eventId, hostId, guests, false);
+	}
+
+	private void addGuests(String eventId, String hostId, List<Guest> guests, boolean individual) {
+		Query query = editableEvent(eventId, hostId);
+		var emails = guests.stream().map(Guest::getEmail).filter(java.util.Objects::nonNull).toList();
+		var phones = guests.stream().map(Guest::getPhoneE164).filter(java.util.Objects::nonNull).toList();
+		query.addCriteria(Criteria.where("guests.email").nin(emails).and("guests.phoneE164").nin(phones)
+				.and("guests.token").nin(guests.stream().map(Guest::getToken).toList()));
+		// Comprobar plazas en el filtro: dos lotes no pueden consumir la misma capacidad.
+		query.addCriteria(Criteria.where("$expr").is(new Document("$lte", List.of(
+				new Document("$size", new Document("$ifNull", List.of("$guests", List.of()))), limits.maxPerEvent() - guests.size()))));
 		try {
-			checkUpdated(mongoTemplate.updateFirst(query,
-					new Update().push("guests", mapper.toDocument(guest)).inc("version", 1), EventDocument.class));
+			var result = mongoTemplate.updateFirst(query, new Update().push("guests")
+					.each(guests.stream().map(mapper::toDocument).toArray()).inc("version", 1), EventDocument.class);
+			if (result.getMatchedCount() != 1) { classifyAdditionFailure(eventId, hostId, guests, individual); }
 		} catch (DuplicateKeyException e) {
 			// El unico indice unico de events, aparte de _id, es guests.token. No se propaga el token del error.
 			throw new DuplicateGuestTokenException();
 		}
+	}
+
+	private void classifyAdditionFailure(String eventId, String hostId, List<Guest> guests, boolean individual) {
+		var document = mongoTemplate.findById(eventId, EventDocument.class);
+		if (document == null || !hostId.equals(document.getHostId())) {
+			if (individual) { throw new EventConcurrentModificationException(); }
+			throw new EventNotFoundException(eventId);
+		}
+		Event current = eventMapper.toDomain(document);
+		if (!individual) {
+			current.ensureGuestsEditable();
+			var errors = GuestBatch.existingErrors(current, guests);
+			if (!errors.isEmpty()) { throw new GuestBatchRejectedException(errors, true); }
+		}
+		if (current.getGuests().size() > limits.maxPerEvent() - guests.size()) { throw new GuestCapacityExceededException(); }
+		// El wrapper individual conserva el conflicto generico anterior para una carrera tardia.
+		if (individual) { throw new EventConcurrentModificationException(); }
+		if (current.getGuests().stream().anyMatch(old -> guests.stream().anyMatch(guest -> guest.getToken().equals(old.getToken())))) {
+			throw new DuplicateGuestTokenException();
+		}
+		throw new EventConcurrentModificationException();
 	}
 
 	@Override
@@ -119,14 +161,4 @@ public class EventGuestRepositoryAdapter implements EventGuestRepositoryPort {
 		throw new EventConcurrentModificationException();
 	}
 
-	private Query writableEvent(String eventId, String hostId, Long expectedVersion) {
-		return Query.query(Criteria.where("id").is(eventId).and("hostId").is(hostId)
-				.and("version").is(expectedVersion).and("status").in("DRAFT", "PUBLISHED"));
-	}
-
-	private void checkUpdated(UpdateResult result) {
-		if (result.getMatchedCount() != 1) {
-			throw new EventConcurrentModificationException();
-		}
-	}
 }

@@ -50,6 +50,11 @@ import com.gtog.event.domain.model.EmailNotVerifiedException;
 @RestControllerAdvice
 @Order(Ordered.HIGHEST_PRECEDENCE)
 public class GlobalExceptionHandler {
+	@ExceptionHandler(com.gtog.event.domain.model.GuestCapacityExceededException.class)
+	public ProblemDetail handleGuestCapacity(com.gtog.event.domain.model.GuestCapacityExceededException exception) {
+		ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, "Guest capacity exceeded");
+		problem.setProperty("code", "CAPACITY_EXCEEDED"); return problem;
+	}
 	@ExceptionHandler(EmailNotVerifiedException.class)
 	public ResponseEntity<ProblemDetail> handleEmailNotVerified(EmailNotVerifiedException exception) {
 		ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.FORBIDDEN, "Email verification required");
