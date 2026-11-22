@@ -106,6 +106,25 @@ tokens, para permitir varios eventos vacíos o anteriores a R6. D-3 queda saldad
 y la escritura añade una condición de ausencia de todos ellos. Las altas comprueban también la ausencia de
 correos/teléfonos normalizados dentro de la propia condición atómica, sin comparar una versión esperada.
 
+Ejemplo ilustrativo de escritura parcial, trasladado de AGENTS.md. El filtro real añade las condiciones
+de identidad, propietario y estado que correspondan a la operación; el instante viene del Clock inyectado
+y toda modificación incrementa version. Nunca reescribir el evento entero para actualizar un invitado:
+
+```java
+// correcto
+mongoTemplate.updateFirst(
+    query(where("guests.token").is(token)),
+    new Update().set("guests.$.invitationStatus", OPENED)
+                .set("guests.$.openedAt", clock.instant())
+                .inc("version", 1),
+    EventDocument.class);
+
+// incorrecto: reescribe el documento entero y pierde escrituras concurrentes
+EventDocument event = repository.findByGuestToken(token);
+event.getGuests().stream()...setStatus(OPENED);
+repository.save(event);
+```
+
 `EventGuestRepositoryPort` tiene tres operaciones, implementadas con `MongoTemplate`:
 
 - `addGuest`: `$push` de un invitado.
@@ -357,6 +376,11 @@ estado, canal ni fechas de envío. `Location` identifica `/api/events/{id}/guest
 `GET` individual en esta rebanada. Las anotaciones OpenAPI permanecen en `infrastructure/in/web`.
 
 ## Consulta pública y primera apertura (R7)
+
+Todo ProblemDetail de `/api/invitations/**` pasa por InvitationProblemDetailAdvice después de que Spring
+rellene instance: constante /api/invitations, detalle fijo, sin extensiones con datos de la petición y
+no-store exacto. Las excepciones de dominio durante la rehidratación desde Mongo son errores 500 de
+integridad almacenada, no errores 422 del invitado; no se registra el token ni los datos corruptos.
 
 `GetInvitationUseCase` y `GetInvitationService` resuelven el token mediante `EventRepositoryPort.findByGuestToken`,
 que aprovecha el índice existente. El controlador `InvitationController` no necesita principal autenticado ni

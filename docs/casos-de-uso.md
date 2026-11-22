@@ -4,10 +4,8 @@ Los cuatro casos de uso principales y la secuencia de llamadas que los realiza. 
 `definicion-funcional.md` (qué hace la aplicación) y los modelos (el contrato técnico de cada agregado). El
 contrato exacto de campos está en `/v3/api-docs` y en cada modelo.
 
-Revisión contra controladores, SecurityConfig, dominio y tests del repositorio. Las dos marcas de
-verificación iniciales se resolvieron; otras afirmaciones que necesitan decisión se conservan y se enumeran
-al final, sin cambiar código ni sustituir en silencio el texto original. La matriz final recoge el contrato
-observado para cada método y ruta. Los ejemplos son extractos con valores ficticios, no respuestas completas.
+Revisión contra controladores, SecurityConfig, dominio y tests del repositorio. La matriz final recoge el
+contrato observado para cada método y ruta. Los ejemplos son extractos con valores ficticios, no respuestas completas.
 
 | # | Caso de uso | Actor | Sesión |
 |---|---|---|---|
@@ -20,15 +18,20 @@ observado para cada método y ruta. Los ejemplos son extractos con valores ficti
 
 ## Convenciones comunes
 
-- **JSON** en todo el API, bajo `/api`. Las fechas del evento son hora local sin zona más `timeZone`; el
-  servidor devuelve también los instantes UTC donde importa.
+- **JSON** bajo `/api`, salvo el calendario público, que devuelve `text/calendar`. Los errores usan
+  `application/problem+json`. Las fechas del evento son hora local sin zona más `timeZone`; el servidor
+  devuelve también los instantes UTC donde importa.
 - **CSRF.** Toda petición `POST`, `PUT` o `DELETE` del anfitrión y de `/api/auth` lleva la cookie `XSRF-TOKEN`
-  y su valor en la cabecera `X-XSRF-TOKEN`. La cookie se obtiene con cualquier `GET` anónimo al servidor
-  (por ejemplo la primera carga de la aplicación con `GET /api/auth/me`, que responde 401 con la cookie). Las
-  rutas `/api/invitations/**` no usan CSRF ni sesión: su credencial es el token de la ruta.
+  y su valor en la cabecera `X-XSRF-TOKEN`. La cookie se obtiene, por ejemplo, con `GET /api/auth/me`
+  anónimo (401 con la cookie) o `GET /actuator/health`. Los GET de `/api/invitations/**` no la emiten:
+  esas rutas no usan CSRF ni sesión; su credencial es el token de la ruta.
 - **Sesión.** Cookie `JSESSIONID`, `HttpOnly`. Cambia de identificador al iniciar sesión.
-- **Errores.** `application/problem+json` con `status`, `title`, `detail` fijo e `instance` constante. Nunca
-  contienen tokens ni la ruta pedida.
+- **Errores.** `application/problem+json` con `status`, `title`, `detail` e `instance`. En invitaciones,
+  seguridad y advice MVC, detalle fijo e instancia constante, sin token ni ruta pedida; el saneamiento
+  central de invitaciones cubre cualquier handler MVC que devuelva ProblemDetail. Solo los errores de
+  dominio del anfitrión admiten detalle variable e instancia derivada de su ruta.
+- **Caché.** Invitación pública, lote y panel 200 fijan `no-store` exacto. El alta individual y el listado de
+  invitados conservan la cabecera por defecto de Spring Security; no se exige igualdad exacta para ellos.
 
 | Código | Significado |
 |---|---|
@@ -92,7 +95,7 @@ demás tokens, y **no inicia sesión**: hay que hacer login con la contraseña n
 - El tiempo de respuesta de `forgot-password` no depende de que la cuenta exista: todo el trabajo ocurre en
   segundo plano.
 - En desarrollo local, `APP_AUTH_AUTOVERIFYEMAIL=true` verifica la cuenta al registrarla y no envía correo.
-  La aplicación no arranca con el bypass activo si la URL pública no es `localhost`.
+  La aplicación no arranca con el bypass activo si el host de la URL pública no es exactamente `localhost` o `127.0.0.1`.
 
 ### Ejemplo UC-1
 
@@ -201,8 +204,9 @@ solo el conflicto de capacidad aprobado. El lote sí fija no-store exacto porque
 | WhatsApp, confirmar | `POST /api/events/{id}/invitations/whatsapp-sent` `{guestIds}` | 200 con `MARKED`, `ALREADY_SENT`, `ALREADY_OPENED`, `NO_PHONE` o `NOT_FOUND` por invitado |
 | Cualquier otro medio | copiar el `invitationPath` del invitado | |
 
-En WhatsApp el anfitrión abre la `url`, pulsa enviar él mismo desde su cuenta y solo después confirma. Sin
-`guestIds`, la operación se aplica a todos los invitados del evento.
+En WhatsApp el anfitrión abre la `url`, pulsa enviar él mismo desde su cuenta y solo después confirma.
+Omitir `guestIds` aplica a todos solo en correo y generación de enlaces; confirmar WhatsApp exige cuerpo
+con una lista explícita no vacía.
 
 ### Alternativos y errores
 
@@ -248,7 +252,14 @@ Editar la misma ficha desde dos pestañas usa última escritura, manteniendo las
 
 - Tras publicar, la ubicación no se puede cambiar y las opciones solo se pueden cambiar con los límites de arriba.
 - El correo se envía desde gtog, con límite por invitado (3 envíos, 1 hora entre envíos) y por anfitrión
-  (100 cada 24 horas). El mensaje de WhatsApp sale de la cuenta del anfitrión y no tiene límites.
+  (100 por ventana de 24 horas desde el primer envío), y lote máximo 20. El intervalo de 1 hora es
+  inclusivo; cambiar realmente el correo reinicia la cuota del invitado. No hay reintentos automáticos.
+- Un fallo SMTP compensa las reservas. Tres fallos de proveedor consecutivos cortan el lote; el rechazo
+  claro de un destinatario interrumpe esa racha. Si SMTP acepta pero falla registrar SENT, se conservan
+  reservas y se devuelve `SENT` con `recorded=false`: el panel puede conservar `NOT_SENT`.
+- WhatsApp no usa reservas ni cuota diaria de gtog, pero tiene máximo configurable de 100 invitados por
+  petición (generar o confirmar). La URL completa tiene un tope conservador de 2000 caracteres;
+  sobrepasarlo produce `SKIPPED` con `MESSAGE_TOO_LONG` para ese invitado.
 - Los mensajes nunca contienen la URL de la sala virtual.
 
 ---
@@ -262,7 +273,7 @@ Editar la misma ficha desde dos pestañas usa última escritura, manteniendo las
 | Paso | Llamada | Resultado |
 |---|---|---|
 | 1 | El invitado recibe `<base>/r/{token}` por correo, WhatsApp o copiado | La aplicación extrae el token |
-| 2 | `GET /api/invitations/{token}` | 200 con la vista pública del evento. **La primera vez marca al invitado como `OPENED`** |
+| 2 | `GET /api/invitations/{token}` | 200 con la vista pública del evento. Solo en `PUBLISHED`, la primera visita pasa `NOT_SENT` o `SENT` a `OPENED`; no cambia un `OPENED` ni su fecha |
 | 3 | `PUT /api/invitations/{token}/response` `{responseOptionId, comment?, email?}` | 200 con la vista actualizada, ya con `myResponse` |
 | 4 | `GET /api/invitations/{token}/calendar` | 200, `text/calendar`, descarga `.ics` |
 | 5 | Cambiar de opinión: el mismo `PUT` | 200 si el anfitrión lo permite y el plazo sigue abierto |
@@ -291,7 +302,7 @@ Editar la misma ficha desde dos pestañas usa última escritura, manteniendo las
 | Plazo vencido o evento terminado | PUT | 409 |
 | Ya respondió y el anfitrión no permite cambiar | PUT | 409 |
 | Opción que no es del evento | PUT | 422 |
-| Comentario con comentarios deshabilitados, o de más de 500 caracteres | PUT | 422 |
+| Comentario con contenido cuando están deshabilitados, o de más de 500 caracteres | PUT | 422 |
 | Correo opcional mal formado | PUT | 422 |
 | JSON ilegible | PUT | 400 |
 
@@ -301,8 +312,15 @@ Editar la misma ficha desde dos pestañas usa última escritura, manteniendo las
   fin exacto. Un plazo pasado cierra las respuestas.
 - **Una respuesta por invitado.** Cambiarla es una actualización, no un segundo registro.
 - **El correo opcional de la respuesta** se guarda sin uso: no se muestra al anfitrión ni se le escribe.
-- El calendario no incluye contactos ni token, y respeta el mismo filtro de la sala que la vista.
-- El token no aparece en logs ni en cuerpos de error.
+- Un comentario en blanco se trata como ausente y se guarda como null; solo su contenido se rechaza si
+  `allowComment=false`.
+- El calendario no incluye contactos ni token y respeta el filtro de sala. `FINISHED` devuelve 200 sin
+  enlace de sala; `CANCELLED`, 409. Hoy no hay transición automática ni endpoint que produzca FINISHED.
+- `CANCELLED` y `FINISHED` no marcan OPENED, aunque el GET de la vista devuelva 200.
+- Un dato corrupto al reconstruir el evento desde Mongo devuelve 500 con detalle fijo; no es un 422 del cliente.
+- El token no aparece en cuerpos de error ni en los logs con la configuración normal probada. Activar
+  `org.springframework.web` en DEBUG o `spring.mvc.log-resolved-exception` puede registrar la ruta con el
+  token; no actives esos logs en entornos con credenciales reales.
 
 ### Ejemplo UC-3
 
@@ -354,7 +372,7 @@ no sale en myResponse ni en el resto del cuerpo. FINISHED sigue permitiendo desc
 
 | `invitationStatus` | Significa |
 |---|---|
-| `NOT_SENT` | Nadie lo ha enviado ni lo ha abierto |
+| `NOT_SENT` | No hay envío ni apertura registrados; un SMTP aceptado con `recorded=false` puede conservar este estado |
 | `SENT` | Correo: aceptado por el proveedor, no entregado. WhatsApp: el anfitrión declara haberlo enviado |
 | `OPENED` | El invitado abrió su enlace. Puede constar además un canal de envío |
 
@@ -482,9 +500,9 @@ DownloadInvitationCalendarService, ResponseAcceptancePolicy y sus tests de integ
 
 | Método y ruta completos | Sesión | CSRF | Éxito | Errores |
 |---|---|---|---|---|
-| GET /api/invitations/{token} | No | No | 200 + InvitationResponse, también CANCELLED/FINISHED; no-store exacto | 404 mismo detalle para DRAFT y token desconocido |
-| PUT /api/invitations/{token}/response | No | No | 200 + InvitationResponse actualizada, no-store exacto | 400 cuerpo, 404, 409 estado/plazo/fin/cambio bloqueado, 422 opción/comentario/correo |
-| GET /api/invitations/{token}/calendar | No | No | 200 text/calendar, attachment, no-store exacto; también FINISHED | 404 DRAFT/token desconocido, 409 CANCELLED, 500 generación |
+| GET /api/invitations/{token} | No | No | 200 + InvitationResponse, también CANCELLED/FINISHED; no-store exacto | 404 mismo detalle para DRAFT y token desconocido; 500 datos almacenados inválidos |
+| PUT /api/invitations/{token}/response | No | No | 200 + InvitationResponse actualizada, no-store exacto | 400 cuerpo, 404, 409 estado/plazo/fin/cambio bloqueado, 422 opción/comentario/correo, 500 datos almacenados inválidos |
+| GET /api/invitations/{token}/calendar | No | No | 200 text/calendar, attachment, no-store exacto; también FINISHED | 404 DRAFT/token desconocido, 409 CANCELLED, 500 generación o datos almacenados inválidos |
 
 ### UC-4: consultas del anfitrión
 
@@ -496,36 +514,3 @@ Fuentes: EventController, EventDashboardController, GuestController y los tests 
 | GET /api/events/{id} | Sí | No | 200 + EventResponse | 401, 404 |
 | GET /api/events/{id}/dashboard | Sí | No | 200 + EventDashboardResponse, no-store exacto | 401, 404 |
 | GET /api/events/{id}/guests | Sí | No | 200 + lista GuestInvitationResponse | 401, 404 |
-
-### Reglas contrastadas y observaciones pendientes de decisión
-
-Se conservan las frases originales de los flujos para que el usuario decida cómo corregirlas. Esta lista
-identifica dónde no equivalen al contrato observado; no cambia código ni amplía su comportamiento.
-
-| Afirmación original | Contraste con el código y estado |
-|---|---|
-| «JSON en todo el API» | calendar produce text/calendar (InvitationController.calendar). Pendiente de corregir el alcance de la frase |
-| «cualquier GET anónimo» emite XSRF-TOKEN | CsrfCookieFilter.shouldNotFilter excluye /api/invitations/**. Los GET de /me y health sí permiten el arranque CSRF. Pendiente de acotar la frase |
-| Todos los errores tienen detail fijo, instance constante y no incluyen la ruta | Filtros, advice MVC, invitaciones y lote están saneados. Varios errores de dominio del anfitrión usan exception.getMessage() y no fijan instance (GlobalExceptionHandler.handleEventDomainException, handleEventNotFoundException y handleGuestConflict fuera del lote). No generalizarlo a todo el API sin decidir ese cambio |
-| Bypass solo con localhost | LocalEmailVerificationGuard.afterPropertiesSet también admite el host exacto 127.0.0.1. Pendiente de completar la frase |
-| «Sin guestIds, la operación se aplica a todos» | Válido para send y whatsapp-links; whatsapp-sent exige cuerpo y lista explícita no vacía. Véanse WhatsAppSentRequest y ConfirmWhatsAppSentService. Pendiente de acotar la frase |
-| WhatsApp «no tiene límites» | No usa reservas ni cuota diaria de gtog, pero hay máximo configurable de 100 enlaces/confirmaciones por petición y URL final de hasta 2000 caracteres; exceder la longitud produce SKIPPED/MESSAGE_TOO_LONG. Pendiente de precisar qué límite se quiere expresar |
-| Comentario con comentarios deshabilitados → 422 | GuestResponse.create trata el comentario en blanco como ausente/null; solo rechaza contenido. Pendiente de precisar la frase |
-| «La primera vez marca OPENED» | GetInvitationService solo escribe para PUBLISHED y NOT_SENT/SENT. CANCELLED y FINISHED pueden devolver 200 sin marcar OPENED. Pendiente de precisar la frase |
-| NOT_SENT significa que nadie lo ha enviado | Si SMTP aceptó pero falló registrar SENT, la respuesta del envío es SENT/recorded=false y el panel puede conservar NOT_SENT. Es el límite ya documentado en el plan; el estado no garantiza que nunca haya salido un correo |
-| «El token no aparece en logs» | Las pruebas cubren la configuración normal. El plan mantiene el límite conocido de org.springframework.web en DEBUG o spring.mvc.log-resolved-exception, que pueden registrar la ruta pública con el token. Pendiente de acotar la afirmación |
-
-Límites de correo confirmados por application.properties y EmailSendPolicy: por defecto 3 envíos por
-invitado, intervalo inclusivo de 1 h, ventana del anfitrión de 24 h desde su primer envío con máximo 100,
-y lote máximo 20. Cambiar realmente el correo reinicia la cuota del invitado. Un fallo SMTP compensa;
-si SMTP acepta pero falla registrar SENT, conserva reservas y devuelve SENT/recorded=false. No hay
-reintentos automáticos. Tres fallos de proveedor consecutivos cortan el lote; un rechazo de destinatario
-interrumpe esa racha. Son reglas confirmadas, no una autorización para corregir los textos pendientes.
-
-FINISHED no tiene hoy transición automática ni endpoint que lo produzca; si el estado ya está almacenado,
-la consulta pública y el calendario siguen devolviendo 200. La propuesta de derivarlo en la interfaz no
-puede verificarse en este repositorio, porque el frontend aún no está implementado.
-
-La mención común a no-store no implica igualdad exacta de cabecera para todos los métodos: el alta y el
-listado individual de invitados no la fijan expresamente; Spring Security añade su valor de caché por
-defecto. El lote, el panel 200 y la invitación pública sí fijan el valor exacto. No se cambiaron cabeceras.

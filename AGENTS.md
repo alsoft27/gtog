@@ -4,7 +4,7 @@ Antes de implementar, lee docs/definicion-funcional.md y el modelo del agregado 
 
 Backend de **gtog**, una aplicación de organización de eventos. El anfitrión crea un evento, invita por correo, WhatsApp o Telegram, y cada invitado responde desde un enlace único **sin crear cuenta**.
 
-La especificación funcional está en `docs/definicion-funcional.md`. **Léela antes de implementar cualquier funcionalidad nueva.** Si algo de este archivo contradice la especificación, gana la especificación y avísame del conflicto.
+Si algo de este archivo contradice la especificación, gana la especificación y avísame del conflicto.
 
 ---
 
@@ -15,7 +15,7 @@ La especificación funcional está en `docs/definicion-funcional.md`. **Léela a
 - Consulta los documentos del proyecto:
     - `docs/definicion-funcional.md`: contexto funcional, alcance y requisitos.
     - `docs/plan-iteracion-1.md`: estado, decisiones, deuda y desarrollo pendiente.
-    - `docs/casos-de-uso.md`: recorridos del API, ejemplos y verificación de métodos, seguridad y resultados; incluye divergencias pendientes de decisión.
+    - `docs/casos-de-uso.md`: recorridos del API, ejemplos y verificación de métodos, seguridad y resultados.
     - `docs/modelo-evento.md`: contrato técnico del agregado de evento.
     - `docs/modelo-invitado.md`: contrato técnico del invitado dentro de event.
     - `docs/modelo-usuario.md`: contrato técnico del agregado de usuario.
@@ -47,7 +47,7 @@ Paquete raíz: `com.gtog`. Artefacto: `gtog`.
   preguntas y planes van en español, aunque el código y los identificadores estén
   en inglés.
 
-La especificación está escrita en español y el código no. Usa esta tabla de equivalencias para no acabar con `Invitee`, `Attendee` y `Guest` conviviendo en el mismo proyecto:
+Usa estas equivalencias entre la especificación en español y el código en inglés:
 
 | Especificación | Código |
 |---|---|
@@ -62,6 +62,38 @@ La especificación está escrita en español y el código no. Usa esta tabla de 
 | Modalidad | `Modality` |
 | Canal de envío | `DeliveryChannel` |
 | Muro social | `WallPost` |
+
+---
+
+## Lo que no debes hacer
+
+- **No añadas funcionalidad de iteraciones futuras.** Muro social, votación de varias fechas, acompañantes, check-in y modalidad híbrida están fuera de alcance a propósito. Si crees que algo lo necesita, pregunta antes.
+- **No añadas dependencias sin preguntar.** MapStruct, Lombok, ModelMapper y similares son decisiones de arquitectura, no detalles.
+- **No pongas anotaciones de framework en `domain/`.** Es la forma más fácil de destruir la arquitectura sin darse cuenta.
+- **No generes todas las colecciones y casos de uso de golpe.** Trabajamos por rebanada vertical: dominio, puerto, adaptador, controlador y test, funcionando de punta a punta antes de pasar a la siguiente.
+- **No te fíes de los ejemplos de Spring Boot 3.x.** La rama 4.x movió paquetes y configuración. Si algo no compila como dice el ejemplo que estés siguiendo, suele ser por eso.
+  Casos concretos ya encontrados: `@AutoConfigureMockMvc` pasó a `org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc`; el prefijo de Mongo es `spring.mongodb.*` (no `spring.data.mongodb.*`); el indicador de salud Mongo se desactiva con `management.health.mongodb.enabled` (valor `false` para desactivarlo).
+- **No adivines la especificación.** Si falta un detalle en `docs/`, pregúntame en lugar de inventar un comportamiento razonable.
+
+---
+
+## Reglas de negocio que no se pueden romper
+
+Estas reglas son el contrato final del producto, no necesariamente lo que el código ya impone hoy: algunas dependen de rebanadas que todavía no existen. Cuando una regla tiene una parte pendiente, lo dice explícitamente — si esta sección afirmara algo que el código no cumple sin avisarlo, dejaría de servir para nada.
+
+1. **El enlace de la reunión en línea se filtra en el backend.** Si el invitado no cumple la regla de `LinkVisibility`, el campo se omite de la respuesta. Nunca lo envíes al cliente confiando en que Angular no lo pinte: viajaría en el JSON y sería legible desde las herramientas del navegador. La regla de dominio (`Event.visibleOnlineAccess(...)`, R3) se aplica en la vista pública de GET, PUT y calendario, exclusivamente para eventos `PUBLISHED`. Desde R8, `ON_CONFIRMATION` exige respuesta propia cuya opción tenga `countsAsAttendance = true`; sin respuesta o con opción inexistente, false. Responder "No asisto" no confirma asistencia. D-CONFIRMED-LINK saldada.
+
+2. **El token es la única credencial del invitado.** Criptográficamente aleatorio, largo, con índice único y revocable. Nunca derivado del identificador ni de datos del invitado.
+
+3. **El envío por WhatsApp y Telegram no es automático.** El backend construye el enlace profundo y lo devuelve; el envío real lo hace el anfitrión desde su cliente y lo confirma a mano. No implementes ni propongas integración con la API de WhatsApp Business.
+
+4. **Las opciones de respuesta las define el anfitrión.** No hay enum fijo de respuestas. Entre dos y cinco opciones, ordenadas, con etiquetas únicas y no vacías y al menos una que cuente como asistencia. En DRAFT pueden cambiarse; en PUBLISHED se pueden renombrar y agregar, pero no eliminar una opción con respuestas ni cambiar su `countsAsAttendance` (409 con excepciones propias). La aplicación consulta los ids con respuestas y los pasa al dominio, que no conoce Mongo. CANCELLED y FINISHED bloquean los cambios. D-7 saldada en R8; la carrera entre responder y eliminar una opción queda en D-ORPHAN-OPTION, sin transacciones.
+
+5. **Un evento es presencial o en línea, nunca ambos.** La modalidad híbrida está fuera de alcance a propósito en esta iteración.
+
+6. **Los teléfonos se guardan en E.164 o no se guardan.**
+
+7. **Una respuesta por invitado, impuesta por el índice único** sobre `(eventId, guestToken)`. Cambiar de respuesta es un upsert, no un segundo documento. No lo resuelvas con comprobaciones en la capa de aplicación.
 
 ---
 
@@ -85,15 +117,7 @@ La base de datos es **MongoDB Atlas**, no local. Hace falta la variable de entor
 - `src/test/resources/application-test.properties` usa `${MONGODB_URI}` con la base `gtog_test`, distinta de la de desarrollo.
 - En Spring Boot 4 el prefijo de propiedad es `spring.mongodb`, no `spring.data.mongodb` (ese era el de la rama 3.x). Las propiedades son `spring.mongodb.uri` y `spring.mongodb.database`.
 
-Desde R12, POST /api/events devuelve 403 con code=EMAIL_NOT_VERIFIED si el correo del anfitrión no está
-verificado. Los recorridos .http registran anfitriones @example.com, que no tienen buzón: el primer POST
-/api/events de cada recorrido dará 403. Para desarrollo local, añade APP_AUTH_AUTOVERIFYEMAIL=true a la
-configuración de ejecución de la aplicación (equivale a app.auth.auto-verify-email=true): verifica la cuenta
-al registrarla y no envía correo de verificación. Para la aplicación real y para los tests, déjala sin definir.
-No la añadas a la configuración de ejecución de JUnit ni a la plantilla de JUnit del IDE.
-La aplicación se niega a arrancar si está activa y app.public-base-url no apunta a localhost o 127.0.0.1.
-Para probar la verificación real, arranca sin esa variable y usa rest-api-verify.http, con una dirección real
-del entorno privado y el token del fragmento del correo. No ejecutes ese recorrido automáticamente.
+Bypass local: `APP_AUTH_AUTOVERIFYEMAIL=true` equivale a `app.auth.auto-verify-email=true` (false por defecto); verifica al registrar y omite el correo. Solo con `app.public-base-url` en localhost o 127.0.0.1; nunca en producción ni en JUnit o su plantilla del IDE. Sin él, los recorridos @example.com reciben 403/EMAIL_NOT_VERIFIED al crear. `rest-api-verify.http` exige arrancar sin la variable y no se ejecuta automáticamente. Ver [modelo-usuario.md](docs/modelo-usuario.md#verificación-de-correo-r12-commit-2).
 
 ---
 
@@ -124,7 +148,7 @@ Las cinco reglas que hacen que esto sea hexagonal de verdad y no tres carpetas c
 
 1. **`domain/` no lleva ni una anotación de framework.** Nada de `@Document`, `@Id`, `@Component`, Jackson ni validación de Jakarta. Java plano. Si te encuentras importando `org.springframework` o `org.bson` dentro de `domain/`, para y replantea.
 
-2. **El modelo de dominio y el documento de Mongo son clases distintas.** `Event` vive en `domain/model`; `EventDocument` vive en `infrastructure/out/persistence`, y un mapper traduce entre ambos. Sí, es código extra. Es justamente el propósito: el día que el modelo de persistencia cambie de forma, el dominio no se mueve.
+2. **El modelo de dominio y el documento de Mongo son clases distintas.** `Event` vive en `domain/model`; `EventDocument` vive en `infrastructure/out/persistence`, y un mapper traduce entre ambos.
 
 3. **Las dependencias apuntan solo hacia dentro.** `application` depende de `domain`. `infrastructure` depende de los dos. `domain` no depende de nada.
 
@@ -136,58 +160,19 @@ Las cinco reglas que hacen que esto sea hexagonal de verdad y no tres carpetas c
 
 ## Modelo de datos
 
-La separación de colecciones es deliberada: **configuración, transacciones, credenciales y contenido tienen patrones de escritura y curvas de crecimiento distintas.**
+Los campos, documentos e índices se detallan en [modelo-evento.md](docs/modelo-evento.md#persistencia-events),
+[modelo-invitado.md](docs/modelo-invitado.md#persistencia-y-concurrencia) y
+[modelo-usuario.md](docs/modelo-usuario.md#persistencia-users).
 
-| Colección | Contenido | Escritura |
-|---|---|---|
-| `users` | Cuentas de anfitrión | Poco frecuente |
-| `events` | El evento como un todo: fechas, lugar o acceso en línea, opciones de respuesta y la lista de invitados embebida | La hace el anfitrión, poco frecuente, un solo escritor |
-| `responses` | **Un documento por respuesta de invitado** | La hacen los invitados, concurrente, a ráfagas tras el envío |
-| `auth_tokens` | Hash SHA-256 de tokens de autenticación, usuario, propósito y caducidad | Emisión y consumo atómicos; nunca el token en claro |
-| `wall_posts` *(iteración 2)* | Contenido social, referenciando el evento | La hacen los invitados, crecimiento sin límite |
+- `events` embebe `responseOptions[]` y `guests[]`; la respuesta va en `responses`, nunca en el invitado.
+- Una respuesta por `(eventId, guestToken)`, con índice único; cambiarla es un upsert, no otro documento.
+- `wall_posts` (iteración 2) referencia `eventId`: nunca embebido en el evento. Los comentarios pueden embeberse en la publicación; los contadores usan `$inc`, nunca leer y reescribir.
 
-### `events`
-
-Embebe `responseOptions[]` y `guests[]`. Cada invitado lleva su identidad, datos de contacto, canal de envío y estado de invitación, **pero no su respuesta**.
-
-El documento está acotado: incluso con mil invitados queda muy por debajo del límite de 16 MB. Se lee en casi todas las peticiones y se escribe poco, que es exactamente la forma que le conviene a un documento único.
-
-Índices:
-- `guests.token` — único, multiclave. Es la vía de acceso de toda petición pública de invitación.
-- `hostId` — la consulta del panel del anfitrión.
-
-### `responses`
-
-Un documento por invitado, creado o reemplazado cuando responde:
-
-```
-{ eventId, guestToken, responseOptionId, comment, email, answeredAt, updatedAt }
-```
-
-Índices:
-- `(eventId, guestToken)` — único. Esto es lo que impone "una respuesta por invitado" a nivel de base de datos, no el código.
-- `eventId` — para la agregación del panel.
-
-Que un invitado cambie su respuesta es un **upsert sobre esa clave única**, no un documento nuevo.
-
-### `wall_posts` (iteración 2)
-
-Referencia `eventId`. Nunca embebido en el evento: fotos y comentarios crecen sin límite y acabarían chocando con el tamaño máximo de documento. Los comentarios sí pueden ir embebidos en su publicación; los contadores de reacciones se actualizan con `$inc`, nunca leyendo y reescribiendo.
-
-Desde R12, auth_tokens tiene índice único del hash y de (userId, purpose), más TTL sobre expiresAt. Emitir
-sustituye por upsert; consumir usa find-and-delete por hash, propósito y expiresAt > ahora, desde Clock.
-La verificación es pública con CSRF; /me y resend-verification requieren sesión. La puerta de creación
-consulta HostEmailVerificationPort en cada POST /api/events, nunca el flag de la sesión. Los contadores
-authEmailSends/authEmailWindowStartedAt/lastAuthEmailAt son propios: no reutilizar la cuota de invitaciones.
-Forgot-password valida el formato antes de encolar; búsqueda, reserva, emisión y envío van dentro del
-ejecutor acotado, con 202 uniforme y sin reintentos. Reset-password valida con Password.validateRaw antes
-de consumir; después hashea, actualiza passwordHash/emailVerified parcialmente, borra los demás tokens
-e invalida sesiones, sin login automático. Un fallo tras consumir gasta el token. Conserva CSRF y no-store
-exacto; no abras /api/auth/** en bloque. Ver docs/modelo-usuario.md y los límites del ejecutor en el plan.
+R12: `auth_tokens` guarda solo hash SHA-256; índices únicos hash/(userId,purpose) y TTL expiresAt. Emitir por upsert y consumir por find-and-delete con propósito y expiresAt > Clock. Cuota auth propia, nunca la de invitaciones. verify-email es público con CSRF; /me y resend-verification exigen sesión. La puerta POST /api/events lee HostEmailVerificationPort, nunca la sesión. Forgot-password: formato antes de encolar; búsqueda, reserva, emisión y envío dentro del ejecutor acotado; 202 uniforme, sin reintentos. Reset: Password.validateRaw antes de consumir; después hash, escritura parcial de passwordHash/emailVerified, borrado de otros tokens e invalidación de sesiones, sin login automático; un fallo posterior gasta el token. Conserva CSRF y no-store exacto; nunca abras /api/auth/** en bloque. Ver [modelo-usuario.md](docs/modelo-usuario.md).
 
 ### Consistencia: derivar en lugar de duplicar
 
-Separar las respuestas implica que un invitado al contestar tendría que escribir en dos colecciones: el documento de respuesta y su estado dentro del evento. Hacerlo sin transacción deja una ventana en la que la respuesta existe pero el invitado sigue apareciendo como pendiente.
+La justificación de separar respuestas está en [modelo-evento.md](docs/modelo-evento.md#persistencia-events).
 
 **No almacenes `ANSWERED` en el evento. Derívalo.** Un invitado ha respondido si y solo si existe un documento de respuesta con su token.
 
@@ -195,30 +180,15 @@ Separar las respuestas implica que un invitado al contestar tendría que escribi
 - `OPENED` vive en el evento; se escribe una vez al abrir el enlace y es idempotente.
 - `ANSWERED` se calcula en lectura consultando `responses`.
 
-El panel del anfitrión lo resuelve con una agregación `$lookup` de `events` a `responses`, o con dos consultas unidas en la capa de aplicación. Cualquiera de las dos vale: elige una y sé consistente.
+El panel usa dos consultas unidas en aplicación, sin `$lookup`, por la decisión de R9; ver [plan](docs/plan-iteracion-1.md#3-decisiones-tomadas).
 
-La ganancia: responder escribe solo en `responses`, sin sincronizar un estado duplicado en `events`.
 La excepción es el borrado en cascada de un invitado (R8): se retira de `events` antes de limpiar `responses`,
 sin transacción multidocumento. Un fallo de limpieza deja una respuesta inalcanzable, nunca una respuesta
 perdida con el invitado vivo.
 
 ### Concurrencia
 
-La separación elimina el riesgo principal, pero sobrevive una regla. Al actualizar un invitado concreto dentro del documento del evento —marcar `SENT` u `OPENED`— usa siempre una actualización posicional, nunca leer, modificar y guardar:
-
-```java
-// correcto
-mongoTemplate.updateFirst(
-    query(where("guests.token").is(token)),
-    new Update().set("guests.$.invitationStatus", OPENED)
-                .set("guests.$.openedAt", Instant.now()),
-    EventDocument.class);
-
-// incorrecto: reescribe el documento entero y pierde escrituras concurrentes
-EventDocument event = repository.findByGuestToken(token);
-event.getGuests().stream()...setStatus(OPENED);
-repository.save(event);
-```
+Al actualizar un invitado concreto usa siempre escrituras posicionales parciales atómicas, nunca leer-modificar-guardar el evento completo. Incrementa `version`; no compares la versión esperada. Ver [modelo-invitado.md](docs/modelo-invitado.md#persistencia-y-concurrencia).
 
 Las ediciones del anfitrión sobre el cuerpo del evento sí pueden usar `save()` con bloqueo optimista `@Version`, porque solo hay un escritor.
 
@@ -243,22 +213,7 @@ Las ediciones del anfitrión sobre el cuerpo del evento sí pueden usar `save()`
 
 **`record` para DTOs y objetos de valor.** Sin Lombok en este proyecto.
 
-```java
-public record CreateEventRequest(
-    String title,
-    String description,
-    @NotNull LocalDateTime startsAt,
-    @NotNull LocalDateTime endsAt,
-    @NotBlank String timeZone,
-    @NotNull Modality modality,
-    List<@Valid CreateResponseOptionRequest> responseOptions,
-    Boolean allowComment,
-    Boolean allowResponseChange,
-    LocalDateTime responseDeadline,
-    VenueRequest venue,
-    OnlineAccessRequest onlineAccess
-) {}
-```
+El ejemplo y el contrato de creación están en [modelo-evento.md](docs/modelo-evento.md#api-http-expuesta-hoy) y en `CreateEventRequest`.
 
 `hostId` se obtiene del principal autenticado, nunca del cuerpo. Las fechas del evento son horas locales (`LocalDateTime`) más `timeZone`; el instante se calcula al consultar. Los instantes de auditoría siguen en UTC.
 
@@ -275,7 +230,7 @@ y la URL ya filtrada; UID basado en el evento, nunca en el token; DTSTAMP obteni
 
 **La validación se reparte en dos sitios:** las anotaciones de Jakarta sobre el record de entrada cubren el formato (tipos, rangos, patrones); las reglas de negocio (mínimo dos opciones de respuesta, al menos una que cuente como asistencia, restricciones de opciones en `PUBLISHED`) viven en el dominio.
 
-**Si la obligatoriedad de un campo es en sí una regla de negocio, no la captures con Jakarta.** Nada de `@NotBlank`/`@NotNull` en el DTO para ese campo: se valida en el dominio, con su propia excepción, y sale como 422. Si Jakarta la bloqueara antes, respondería 400 y la regla de negocio no llegaría nunca a ejecutarse — ni a poder probarse a través del controlador. Ejemplos ya en el código: `title` de `CreateEventRequest` (`BlankEventTitleException`), `label` de las opciones de respuesta (`BlankResponseOptionLabelException`), y los campos obligatorios de `Venue` y `OnlineAccess` (`MissingVenueFieldException`, `MissingOnlineAccessFieldException`). Por contraste, `timeZone` del evento lleva `@NotBlank` para exigir su presencia; el dominio comprueba que sea una zona válida con `ZoneId.of(...)`. `hostId` ya no forma parte de `CreateEventRequest` desde R5.
+**Si la obligatoriedad de un campo es en sí una regla de negocio, no la captures con Jakarta.** Nada de `@NotBlank`/`@NotNull` en el DTO para ese campo: se valida en el dominio, con su propia excepción, y sale como 422. Si Jakarta la bloqueara antes, respondería 400 y la regla de negocio no llegaría nunca a ejecutarse — ni a poder probarse a través del controlador. `timeZone` del evento lleva `@NotBlank`; el dominio valida `ZoneId.of(...)`. Los ejemplos concretos de título, etiquetas, Venue, OnlineAccess y timeZone están en [modelo-evento.md](docs/modelo-evento.md#reglas-de-negocio-y-sus-excepciones).
 
 ---
 
@@ -285,6 +240,7 @@ y la URL ya filtrada; UID basado en el evento, nunca en el token; DTSTAMP obteni
 - Los endpoints públicos del invitado van bajo `/api/invitations/{token}`, separados del resto para que la regla de seguridad se vea en la propia ruta.
 - Códigos: `201` al crear con cabecera `Location`, `204` al borrar, `409` en conflicto de estado, `422` cuando una regla de negocio rechaza la petición.
 - Errores con **`ProblemDetail`** (RFC 7807), gestionados en `shared`: advice de dominio con prioridad alta y advice MVC con menor prioridad para errores de framework y fallback. Los filtros de seguridad escriben el mismo formato directamente. No inventes un formato de error propio.
+- En `/api/invitations/**`, instancia constante `/api/invitations`, detalle fijo y `no-store` exacto: `InvitationProblemDetailAdvice` sanea todo ProblemDetail después de que Spring rellene instance; no conserva extensiones ni datos de la petición. Seguridad y advice MVC también usan instancia constante y detalle fijo. Solo los errores de dominio del anfitrión admiten detalle variable e instancia derivada de la ruta; nunca contactos de otras personas.
 
 **CSRF en login y registro: deliberado.** Tanto `POST /api/auth/login` como `POST /api/auth/register` requieren un token CSRF válido, enviado en `X-XSRF-TOKEN`. No los excluyas de la protección: excluir el login permitiría que un atacante autenticase a la víctima en la cuenta del atacante (login-CSRF). Ver `docs/plan-iteracion-1.md`, sección Decisiones tomadas, para la justificación.
 
@@ -311,38 +267,15 @@ LinkVisibility    { ON_CONFIRMATION, HOURS_BEFORE, ALWAYS }
 
 ## Documentación de API
 
-La API se documenta con **springdoc-openapi** (`springdoc-openapi-starter-webmvc-ui`, versión `3.1.0`, la rama compatible con Spring Boot 4). Con la aplicación arrancada:
+OpenAPI (springdoc 3.1.0) y Swagger: `/v3/api-docs` y `/swagger-ui.html`; configuración `shared/config/OpenApiConfig`. Ver [plan](docs/plan-iteracion-1.md).
 
-- Especificación OpenAPI en JSON: `/v3/api-docs`.
-- Swagger UI: `/swagger-ui.html`.
-
-El `@Bean OpenAPI` con el título, versión y descripción de la API vive en `shared/config/OpenApiConfig`.
-
-**Las anotaciones de Swagger van únicamente en `infrastructure/in/web`**, sobre controladores y DTOs de request y response (`@Operation`, `@ApiResponse`, `@Schema`, etc.). Ni una sola en `domain/`: es la misma regla que prohíbe anotaciones de framework ahí (ver sección Arquitectura), y por la misma razón — el dominio no sabe que existe una API HTTP por encima.
-
----
-
-## Reglas de negocio que no se pueden romper
-
-Estas reglas son el contrato final del producto, no necesariamente lo que el código ya impone hoy: algunas dependen de rebanadas que todavía no existen. Cuando una regla tiene una parte pendiente, lo dice explícitamente — si esta sección afirmara algo que el código no cumple sin avisarlo, dejaría de servir para nada.
-
-1. **El enlace de la reunión en línea se filtra en el backend.** Si el invitado no cumple la regla de `LinkVisibility`, el campo se omite de la respuesta. Nunca lo envíes al cliente confiando en que Angular no lo pinte: viajaría en el JSON y sería legible desde las herramientas del navegador. La regla de dominio (`Event.visibleOnlineAccess(...)`, R3) se aplica en la vista pública de GET, PUT y calendario, exclusivamente para eventos `PUBLISHED`. Desde R8, `ON_CONFIRMATION` exige respuesta propia cuya opción tenga `countsAsAttendance = true`; sin respuesta o con opción inexistente, false. Responder "No asisto" no confirma asistencia. D-CONFIRMED-LINK saldada.
-
-2. **El token es la única credencial del invitado.** Criptográficamente aleatorio, largo, con índice único y revocable. Nunca derivado del identificador ni de datos del invitado.
-
-3. **El envío por WhatsApp y Telegram no es automático.** El backend construye el enlace profundo y lo devuelve; el envío real lo hace el anfitrión desde su cliente y lo confirma a mano. No implementes ni propongas integración con la API de WhatsApp Business.
-
-4. **Las opciones de respuesta las define el anfitrión.** No hay enum fijo de respuestas. Entre dos y cinco opciones, ordenadas, con etiquetas únicas y no vacías y al menos una que cuente como asistencia. En DRAFT pueden cambiarse; en PUBLISHED se pueden renombrar y agregar, pero no eliminar una opción con respuestas ni cambiar su `countsAsAttendance` (409 con excepciones propias). La aplicación consulta los ids con respuestas y los pasa al dominio, que no conoce Mongo. CANCELLED y FINISHED bloquean los cambios. D-7 saldada en R8; la carrera entre responder y eliminar una opción queda en D-ORPHAN-OPTION, sin transacciones.
-
-5. **Un evento es presencial o en línea, nunca ambos.** La modalidad híbrida está fuera de alcance a propósito en esta iteración.
-
-6. **Los teléfonos se guardan en E.164 o no se guardan.**
-
-7. **Una respuesta por invitado, impuesta por el índice único** sobre `(eventId, guestToken)`. Cambiar de respuesta es un upsert, no un segundo documento. No lo resuelvas con comprobaciones en la capa de aplicación.
+**Las anotaciones de Swagger van únicamente en `infrastructure/in/web`**, sobre controladores y DTOs de request y response (`@Operation`, `@ApiResponse`, `@Schema`, etc.). Ni una sola en `domain/`.
 
 ---
 
 ## Tests
+
+- Nunca lances dos ejecuciones de Maven a la vez: comparten la base gtog_test y se borran los datos entre sí.
 
 - Dominio y casos de uso: tests unitarios planos, sin contexto de Spring. Deben ser rápidos, y la arquitectura hexagonal es justamente lo que lo permite: si un test de caso de uso necesita Spring, las dependencias están mal.
 - Adaptadores y flujos completos: tests de integración con `@SpringBootTest @ActiveProfiles("test")` contra MongoDB Atlas (base `gtog_test`). La conexión está en `src/test/resources/application-test.properties`. Hace falta `MONGODB_URI` en el entorno antes de lanzar los tests (ver sección Comandos). Nada de Mongo embebido.
@@ -363,13 +296,3 @@ Estas reglas son el contrato final del producto, no necesariamente lo que el có
 - Nunca subas `.env`, credenciales ni la clave de Google Maps.
 
 ---
-
-## Lo que no debes hacer
-
-- **No añadas funcionalidad de iteraciones futuras.** Muro social, votación de varias fechas, acompañantes, check-in y modalidad híbrida están fuera de alcance a propósito. Si crees que algo lo necesita, pregunta antes.
-- **No añadas dependencias sin preguntar.** MapStruct, Lombok, ModelMapper y similares son decisiones de arquitectura, no detalles.
-- **No pongas anotaciones de framework en `domain/`.** Es la forma más fácil de destruir la arquitectura sin darse cuenta.
-- **No generes todas las colecciones y casos de uso de golpe.** Trabajamos por rebanada vertical: dominio, puerto, adaptador, controlador y test, funcionando de punta a punta antes de pasar a la siguiente.
-- **No te fíes de los ejemplos de Spring Boot 3.x.** La rama 4.x movió paquetes y configuración. Si algo no compila como dice el ejemplo que estés siguiendo, suele ser por eso.
-  Casos concretos ya encontrados: `@AutoConfigureMockMvc` pasó a `org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc`; el prefijo de Mongo es `spring.mongodb.*` (no `spring.data.mongodb.*`); el indicador de salud Mongo se desactiva con `management.health.mongodb.enabled` (valor `false` para desactivarlo).
-- **No adivines la especificación.** Si falta un detalle en `docs/`, pregúntame en lugar de inventar un comportamiento razonable.

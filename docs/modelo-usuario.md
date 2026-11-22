@@ -206,12 +206,22 @@ inicial. Los límites se omiten en silencio. No hay lectura seguida de escritura
 $$NOW: el instante procede del Clock. Una caída del proveedor gasta intentos del límite de autenticación del
 usuario: no se compensa ni se reintenta. Se registra ERROR AUTH_MAIL_SEND_FAILED con clase y correlación.
 
-app.auth.auto-verify-email=false por defecto. Solo para recorridos locales, APP_AUTH_AUTOVERIFYEMAIL=true
-verifica al registrar y omite el correo. La guarda rechaza hosts distintos de localhost o 127.0.0.1, nombrando
-la propiedad y el host sin volcar credenciales; el WARN nombra propiedad, variable y la prohibición de producción.
-Los tests fijan el bypass explícitamente; la variable no se añade a la ejecución ni plantilla de JUnit.
-rest-api-verify.http es manual, con realRecipient y verificationToken del entorno privado, sin bypass;
-tras login comprueba /me=false, verifica y crea en la misma sesión. No se ejecuta automáticamente.
+### Arranque local y recorridos manuales
+
+Desde R12, POST /api/events devuelve 403 con code=EMAIL_NOT_VERIFIED si el correo del anfitrión no está
+verificado. Los recorridos .http registran anfitriones @example.com, que no tienen buzón: el primer POST
+/api/events de cada recorrido dará 403. Para desarrollo local, añade APP_AUTH_AUTOVERIFYEMAIL=true a la
+configuración de ejecución de la aplicación (equivale a app.auth.auto-verify-email=true): verifica la cuenta
+al registrarla y no envía correo de verificación. Para la aplicación real y para los tests, déjala sin definir.
+No la añadas a la configuración de ejecución de JUnit ni a la plantilla de JUnit del IDE.
+La aplicación se niega a arrancar si está activa y app.public-base-url no apunta a localhost o 127.0.0.1.
+Para probar la verificación real, arranca sin esa variable y usa rest-api-verify.http, con una dirección real
+del entorno privado y el token del fragmento del correo. No ejecutes ese recorrido automáticamente.
+
+El WARN nombra la propiedad, la variable y la prohibición de producción; el rechazo de arranque nombra
+la propiedad y el host sin volcar credenciales. Los tests fijan el bypass explícitamente.
+rest-api-verify.http usa realRecipient y verificationToken del entorno privado: tras login comprueba
+/me=false, verifica y crea en la misma sesión.
 
 ## Recuperación de contraseña (R12, commit 3)
 

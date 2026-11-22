@@ -86,6 +86,12 @@ el cuerpo es válido, pero no es compatible con el estado del recurso existente.
 bloque siguen produciendo 422. Los demás conflictos de estado son `EventNotEditableException`,
 `EventNotPublishableException` y `EventNotCancellableException`.
 
+Ejemplos ya en el código: `title` de `CreateEventRequest` (`BlankEventTitleException`), `label` de las opciones de respuesta (`BlankResponseOptionLabelException`), y los campos obligatorios de `Venue` y `OnlineAccess` (`MissingVenueFieldException`, `MissingOnlineAccessFieldException`). Por contraste, `timeZone` del evento lleva `@NotBlank` para exigir su presencia; el dominio comprueba que sea una zona válida con `ZoneId.of(...)`. `hostId` ya no forma parte de `CreateEventRequest` desde R5.
+
+La traducción de reglas del cliente no se aplica a datos corruptos persistidos: EventMapper envuelve las
+excepciones de dominio de la rehidratación en StoredDataIntegrityException, que devuelve 500 con detalle
+fijo. El saneamiento público de ProblemDetail se describe en el plan, §3 Seguridad y errores.
+
 ### Máquina de estados
 
 ```
@@ -288,6 +294,27 @@ sobre `EventMongoRepository` (Spring Data).
 ---
 
 ## API HTTP expuesta hoy
+
+### DTO de creación (referencia)
+
+```java
+public record CreateEventRequest(
+    String title,
+    String description,
+    @NotNull LocalDateTime startsAt,
+    @NotNull LocalDateTime endsAt,
+    @NotBlank String timeZone,
+    @NotNull Modality modality,
+    List<@Valid CreateResponseOptionRequest> responseOptions,
+    Boolean allowComment,
+    Boolean allowResponseChange,
+    LocalDateTime responseDeadline,
+    VenueRequest venue,
+    OnlineAccessRequest onlineAccess
+) {}
+```
+
+### Rutas
 
 | Método | Ruta | Body / parámetros | Respuesta |
 |---|---|---|---|

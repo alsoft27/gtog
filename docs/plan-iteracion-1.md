@@ -13,9 +13,11 @@ El backend del MVP está implementado de R1 a R12. **R12 cerrada:** sesión manu
 de creación, y recuperación de contraseña; RF-1.2 y RF-1.3 cumplidas. Siguen pendientes los bloqueadores
 de despliegue público de §7 y la deuda abierta de §6, incluida D-UNVERIFIED-SQUATTING.
 El frontend Angular no se ha empezado.
-Los recorridos y ejemplos del API están en [casos-de-uso.md](casos-de-uso.md), con la verificación de rutas y sus divergencias pendientes de decisión.
+Los recorridos y ejemplos del API están en [casos-de-uso.md](casos-de-uso.md), con la verificación de rutas, seguridad y resultados.
 
-`mvn clean verify`: 900 tests, 0 fallos, 0 errores, 0 omitidos en la última ejecución completa.
+`mvn clean verify`: 940 tests, 0 fallos, 0 errores, 0 omitidos en la última ejecución completa, limpia y aislada.
+Son cuatro más que los 936 del commit del punto único de saneamiento. La ejecución anterior solapada se
+descarta como evidencia; no se modificaron tests existentes para hacerla pasar.
 El endpoint del lote está verificado con servidor real, privacidad y regresión individual. Las mutaciones
 de duplicados y capacidad hicieron fallar sus tests concurrentes y quedaron restauradas, sin versionarlas.
 Repetirlo desde
@@ -330,6 +332,24 @@ resuelto con `sendError` despacha a `/error`, donde un anónimo termina en 401. 
 un identificador de correlación. No se aplica `dispatcherTypeMatchers(ERROR).permitAll()`: el cuerpo por
 defecto de Boot incluye la ruta pedida, y en las invitaciones esa ruta lleva el token.
 
+**Alcance de los errores saneados.** Instancia constante y detalle fijo en `/api/invitations/**`, en los
+errores de seguridad y en el advice MVC. En invitaciones lo garantiza el punto único
+`InvitationProblemDetailAdvice`: se ejecuta después de que Spring rellene `instance`, reconstruye cada
+ProblemDetail sin extensiones ni datos de la petición y fija `Cache-Control: no-store` exacto. Conserva solo
+detalles constantes conocidos; los nuevos reciben uno fijo por estado. Los filtros de seguridad escriben
+su ProblemDetail directamente. Solo los errores de dominio de las rutas del anfitrión admiten detalle
+variable e instancia derivada de su ruta; nunca contactos de otras personas. Los errores de correo
+inválido y ya registrado ya no repiten la dirección aportada (422 y 409, respectivamente).
+
+Spring rellena instance con la ruta cuando un ProblemDetail no la fija; un handler genérico de dominio
+exponía el token en /api/invitations/**. Corregido con un punto único de saneamiento.
+Las excepciones de dominio al reconstruir un evento desde Mongo se envuelven en
+`StoredDataIntegrityException`: son 500 con detalle fijo, no 422 del cliente. Se registra únicamente la
+clase del fallo, la correlación y el id del evento, sin mensaje, causa, token ni datos.
+Las pruebas con servidor real cubren las tres rutas públicas y errores 400, 404, 405, 406, 409, 415, 422 y
+500, incluido un error de dominio genérico en cada ruta. Desactivar temporalmente el punto único hizo
+fallar los seis casos esperados; quedó restaurado.
+
 ### Convenciones
 
 Código, rutas e identificadores en inglés; documentación y comentarios en español. Jakarta valida formato; las
@@ -386,7 +406,8 @@ puede disparar `MESSAGE_TOO_LONG` para todo el evento.
 | D-FINISHED | Ningún mecanismo lleva un evento a `FINISHED` | La regla "no responder tras el fin del evento" cubre el hueco |
 | D-DELETE-DRAFT | No se puede eliminar un borrador | Tampoco cancelarlo |
 | D-DUP-KEY | `users` detecta el email duplicado por el texto del error de Mongo | Frágil si hay más índices únicos |
-| D-5 | Tests de integración contra Atlas | Necesitan red y son más lentos; aceptable con un solo desarrollador |
+| D-5 | Tests de integración contra Atlas | Necesitan red y son más lentos; aceptable con un solo desarrollador. Los tests no pueden ejecutarse en paralelo: comparten gtog_test y se borran los datos entre sí. |
+| expectedVersion | El parámetro expectedVersion de addGuest se conserva por compatibilidad con los tests, pero el adaptador no lo utiliza: delega en addGuests | Retirar la firma obsoleta cuando se autorice; no vuelve a introducirse como condición de escritura |
 | D-6 | Sin herramienta de migraciones | Sin cambio de esquema versionado hasta que haya datos reales |
 | D-UNVERIFIED-SQUATTING | (R12) Registrarse con el correo de otra persona deja esa dirección ocupada | Purga de cuentas sin verificar |
 
@@ -473,3 +494,4 @@ salud de Mongo), D-7 (opciones en eventos publicados, R8), D-CONFIRMED-LINK (R8)
    temporalmente la condición que protege. Los tests de concurrencia usan hilos reales.
 7. Evidencia con fichero y línea en el informe de cierre.
 8. Documentación actualizada y commit convencional en inglés.
+9. `AGENTS.md` por debajo de 28 KB, comprobado con `wc -c AGENTS.md`; el material de referencia se mantiene en los documentos enlazados.
