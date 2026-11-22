@@ -293,25 +293,43 @@ class GuestControllerIntegrationTest {
 	}
 
 	@Test
-	void concurrentGuestEditsReportTheConflictAndCanBeRetriedWithoutLosingOtherGuests() throws Exception {
+	void concurrentEditsOfDifferentGuestsNeitherBlockNorOverwriteEachOther() throws Exception {
+		// El 409 anterior dependia de la version esperada del evento; no era una regla de negocio.
 		Guest first = guest(1);
 		Guest second = guest(2);
 		Event seeded = events.findById("event-1").orElseThrow();
 		seeded.addGuest(first);
 		seeded.addGuest(second);
 		Event stored = events.save(seeded);
-		Guest editedFirst = first.editContact("Changed 1", first.getEmail(), null, phone -> phone);
-		Guest editedSecond = second.editContact("Changed 2", second.getEmail(), null, phone -> phone);
-		List<Boolean> results = concurrently(
-				() -> guests.updateGuest("event-1", "host-1", stored.getVersion(), editedFirst),
-				() -> guests.updateGuest("event-1", "host-1", stored.getVersion(), editedSecond));
-		assertThat(results).containsExactlyInAnyOrder(true, false);
-		Event current = events.findById("event-1").orElseThrow();
-		Guest retry = results.get(0) ? editedSecond : editedFirst;
-		guests.updateGuest("event-1", "host-1", current.getVersion(), retry);
+		var principal = new com.gtog.user.infrastructure.out.security.AuthenticatedUser(
+				"host-1", "Host", "host@example.com", PASSWORD_HASH, "Europe/Madrid", true);
+		CyclicBarrier barrier = new CyclicBarrier(2);
+		try (var executor = Executors.newFixedThreadPool(2)) {
+			var a = executor.submit(() -> {
+				barrier.await(10, TimeUnit.SECONDS);
+				return mockMvc.perform(put(BASE + "/" + first.getId())
+						.with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user(principal))
+						.with(csrf()).contentType(MediaType.APPLICATION_JSON)
+						.content(contact("Changed 1", "changed1@example.com", "+34612345678"))).andReturn().getResponse().getStatus();
+			});
+			var b = executor.submit(() -> {
+				barrier.await(10, TimeUnit.SECONDS);
+				return mockMvc.perform(put(BASE + "/" + second.getId())
+						.with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user(principal))
+						.with(csrf()).contentType(MediaType.APPLICATION_JSON)
+						.content(contact("Changed 2", "changed2@example.com", "+34698765432"))).andReturn().getResponse().getStatus();
+			});
+			assertThat(List.of(a.get(15, TimeUnit.SECONDS), b.get(15, TimeUnit.SECONDS))).containsExactly(200, 200);
+		}
 		Event finalEvent = events.findById("event-1").orElseThrow();
+		assertThat(finalEvent.getGuests()).extracting(Guest::getId).containsExactly(first.getId(), second.getId());
 		assertThat(finalEvent.getGuests()).extracting(Guest::getName).containsExactly("Changed 1", "Changed 2");
 		assertThat(finalEvent.getGuests()).extracting(Guest::getToken).containsExactly(first.getToken(), second.getToken());
+		assertThat(finalEvent.getGuest(first.getId()).getEmail()).isEqualTo("changed1@example.com");
+		assertThat(finalEvent.getGuest(first.getId()).getPhoneE164()).isEqualTo("+34612345678");
+		assertThat(finalEvent.getGuest(second.getId()).getEmail()).isEqualTo("changed2@example.com");
+		assertThat(finalEvent.getGuest(second.getId()).getPhoneE164()).isEqualTo("+34698765432");
+		assertThat(finalEvent.getVersion()).isEqualTo(stored.getVersion() + 2);
 	}
 
 	@Test

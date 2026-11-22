@@ -14,9 +14,9 @@ de creación, y recuperación de contraseña; RF-1.2 y RF-1.3 cumplidas. Siguen 
 de despliegue público de §7 y la deuda abierta de §6, incluida D-UNVERIFIED-SQUATTING.
 El frontend Angular no se ha empezado.
 
-`mvn clean verify`: 842 tests, 0 fallos, 0 errores, 0 omitidos en la última ejecución completa, sin
-APP_AUTH_AUTOVERIFYEMAIL. El commit 3 añade pruebas unitarias y con servidor real de recuperación;
-la suite original de verificación pasó con y sin la variable, y la auditoría del bypass quedó en verde.
+`mvn clean verify`: 854 tests, 0 fallos, 0 errores, 0 omitidos en la última ejecución completa.
+El commit A añade regresiones de edición/borrado, unicidad y reservas; las mutaciones de unicidad y de
+reemplazo completo del invitado hicieron fallar sus tests y quedaron restauradas, sin versionarlas.
 Repetirlo desde
 la terminal antes de dar por cerrado cualquier cambio. Stack: Java 25, Spring Boot 4.1, MongoDB Atlas,
 Maven por defecto, springdoc-openapi, iCal4j 4.2.0, libphonenumber 9.0.43, Mailjet por SMTP.
@@ -43,6 +43,7 @@ Maven por defecto, springdoc-openapi, iCal4j 4.2.0, libphonenumber 9.0.43, Mailj
 | R12 — Sesiones (commit 1) | Login manual con rotación de id y registro compartido, sin renovar XSRF-TOKEN. SessionInvalidationPort, igualdad del principal por userId y expiración con 401 ProblemDetail directo, instance constante y no-store exacto |
 | R12 — Verificación (commit 2) | Tokens solo como hash, consumo atómico, correo asíncrono y cuota propia; verify-email, resend-verification y /me. Puerta de creación desde la base de datos y bypass solo local con guarda |
 | R12 — Recuperación (commit 3) | forgot-password con 202 uniforme y flujo completo en el ejecutor; reset-password valida antes de consumir, hashea después, verifica correo y revoca tokens y sesiones con escrituras parciales |
+| Invitados — concurrencia (commit A) | Edición con arrayFilters y unicidad explícita, y borrado parcial, sin comparar versión esperada; preservan aperturas y cuotas. Tests autorizados de concurrencia y reserva obsoleta actualizados al nuevo comportamiento |
 
 ### Endpoints
 
@@ -385,6 +386,14 @@ salud de Mongo), D-7 (opciones en eventos publicados, R8), D-CONFIRMED-LINK (R8)
   invitación con su token puede aparecer en los logs del framework.
 - **Invalidación de sesiones:** implementada con SessionRegistry desde el commit 1 de R12, válida solo
   con una instancia y sesiones en memoria. El filtro rechaza cada sesión expirada en su siguiente acceso.
+- **Versión y escrituras completas:** editar evento, opciones, publicar y cancelar reescriben el documento
+  completo y mantienen la comparación de versión esperada. Una apertura concurrente puede causar 409: es el
+  resultado seguro y el cliente reintenta. Las escrituras parciales de invitado no necesitan esa comparación;
+  edición y borrado ya no la usan. El alta conserva temporalmente el comportamiento anterior hasta el commit 1
+  del lote. Todas siguen incrementando version para proteger los save completos.
+- **Edición y borrado de invitados:** dos pestañas sobre la misma ficha son de última escritura. Una respuesta
+  que llega entre la comprobación y la retirada se borra después del invitado, aunque no se hubiera confirmado.
+  Si el invitado desaparece antes de retirarlo, devuelve 404 y no se limpia su respuesta.
 - **Enumeración en registro:** el registro revela si un correo ya existe (409); forgot-password no lo revela.
   Es aceptado y se compensa con el límite por IP, D-REGISTER-RATE-LIMIT, aún pendiente y bloqueador.
 - **Cola de recuperación:** forgot-password no puede limitarse por dirección para correos inexistentes,

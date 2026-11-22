@@ -2,6 +2,7 @@ package com.gtog.event.infrastructure.out.persistence;
 
 import java.time.Instant;
 import java.util.Optional;
+import java.util.ArrayList;
 
 import org.bson.Document;
 import org.springframework.dao.DuplicateKeyException;
@@ -16,6 +17,10 @@ import com.gtog.event.domain.model.DuplicateGuestTokenException;
 import com.gtog.event.domain.model.EventConcurrentModificationException;
 import com.gtog.event.domain.model.Guest;
 import com.gtog.event.domain.model.Event;
+import com.gtog.event.domain.model.EventNotFoundException;
+import com.gtog.event.domain.model.GuestNotFoundException;
+import com.gtog.event.domain.model.DuplicateGuestEmailException;
+import com.gtog.event.domain.model.DuplicateGuestPhoneException;
 import com.gtog.event.domain.port.out.EventGuestRepositoryPort;
 import com.mongodb.client.result.UpdateResult;
 
@@ -60,20 +65,58 @@ public class EventGuestRepositoryAdapter implements EventGuestRepositoryPort {
 
 	@Override
 	public void updateGuest(String eventId, String hostId, Long expectedVersion, Guest guest) {
-		Query query = writableEvent(eventId, hostId, expectedVersion);
+		Query query = editableEvent(eventId, hostId);
 		query.addCriteria(Criteria.where("guests.id").is(guest.getId()));
-		Update update = new Update().set("guests.$.name", guest.getName()).set("guests.$.email", guest.getEmail())
-				.set("guests.$.phoneE164", guest.getPhoneE164()).set("guests.$.emailSendCount", guest.getEmailSendCount())
-				.set("guests.$.lastEmailSentAt", guest.getLastEmailSentAt()).inc("version", 1);
-		checkUpdated(mongoTemplate.updateFirst(query, update, EventDocument.class));
+		var contacts = new ArrayList<Criteria>();
+		if (guest.getEmail() != null) { contacts.add(Criteria.where("email").is(guest.getEmail())); }
+		if (guest.getPhoneE164() != null) { contacts.add(Criteria.where("phoneE164").is(guest.getPhoneE164())); }
+		if (!contacts.isEmpty()) {
+			query.addCriteria(Criteria.where("guests").not().elemMatch(Criteria.where("id").ne(guest.getId())
+					.orOperator(contacts.toArray(Criteria[]::new))));
+		}
+		// La negacion del array exige arrayFilters, no el operador posicional simple $.
+		Update update = new Update().set("guests.$[g].name", guest.getName()).set("guests.$[g].email", guest.getEmail())
+				.set("guests.$[g].phoneE164", guest.getPhoneE164())
+				.set("guests.$[reset].emailSendCount", 0).set("guests.$[reset].lastEmailSentAt", null)
+				// Spring no traduce los campos de arrayFilters: el id embebido se guarda como _id.
+				.filterArray(Criteria.where("g._id").is(guest.getId()))
+				.filterArray(Criteria.where("reset._id").is(guest.getId()).and("reset.email").ne(guest.getEmail()))
+				.inc("version", 1);
+		// Reiniciar cuota solo si cambia el correo real en Mongo; no volcar contadores de la lectura anterior.
+		UpdateResult result = mongoTemplate.updateFirst(query, update, EventDocument.class);
+		if (result.getMatchedCount() != 1 || result.getModifiedCount() != 1) {
+			classifyGuestWriteFailure(eventId, hostId, guest.getId(), guest);
+		}
 	}
 
 	@Override
 	public void removeGuest(String eventId, String hostId, Long expectedVersion, String guestId) {
-		Query query = writableEvent(eventId, hostId, expectedVersion);
+		Query query = editableEvent(eventId, hostId);
 		query.addCriteria(Criteria.where("guests.id").is(guestId));
-		checkUpdated(mongoTemplate.updateFirst(query,
-				new Update().pull("guests", new Document("id", guestId)).inc("version", 1), EventDocument.class));
+		if (mongoTemplate.updateFirst(query, new Update().pull("guests", new Document("id", guestId)).inc("version", 1),
+				EventDocument.class).getMatchedCount() != 1) {
+			classifyGuestWriteFailure(eventId, hostId, guestId, null);
+		}
+	}
+
+	private Query editableEvent(String eventId, String hostId) {
+		return Query.query(Criteria.where("id").is(eventId).and("hostId").is(hostId).and("status").in("DRAFT", "PUBLISHED"));
+	}
+
+	private void classifyGuestWriteFailure(String eventId, String hostId, String guestId, Guest candidate) {
+		EventDocument document = mongoTemplate.findById(eventId, EventDocument.class);
+		if (document == null || !hostId.equals(document.getHostId())) { throw new EventNotFoundException(eventId); }
+		Event current = eventMapper.toDomain(document);
+		current.ensureGuestsEditable();
+		current.getGuest(guestId);
+		if (candidate != null) {
+			for (Guest other : current.getGuests()) {
+				if (other.getId().equals(guestId)) { continue; }
+				if (candidate.getEmail() != null && candidate.getEmail().equals(other.getEmail())) { throw new DuplicateGuestEmailException(); }
+				if (candidate.getPhoneE164() != null && candidate.getPhoneE164().equals(other.getPhoneE164())) { throw new DuplicateGuestPhoneException(); }
+			}
+		}
+		throw new EventConcurrentModificationException();
 	}
 
 	private Query writableEvent(String eventId, String hostId, Long expectedVersion) {

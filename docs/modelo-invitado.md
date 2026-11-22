@@ -111,10 +111,25 @@ introduzcan duplicados. El adaptador añade también una condición de ausencia 
 - `updateGuest`: `$set` posicional de `name`, `email` y `phoneE164`; conserva token, estado y fechas.
 - `removeGuest`: `$pull` por identidad del invitado.
 
-Las tres operaciones de gestión del anfitrión filtran por evento, propietario, estado permitido y versión esperada; edición y borrado comprueban
-también la identidad del invitado. Incrementan `version` en la misma escritura. Si el estado leído cambió,
-se devuelve 409 y el cliente debe recargar y reintentar. No hay reintentos silenciosos ni `save(event)` como
-alternativa. También un `save()` antiguo del evento falla por bloqueo optimista, preservando los invitados.
+Edición y borrado filtran por evento, propietario, estado permitido e identidad, sin comparar la versión
+leída. Incrementan `version` en la misma escritura. Editar usa `guests.$[g]` con arrayFilters sobre `g._id`:
+el campo id embebido se guarda como _id y Spring no traduce arrayFilters. El filtro niega la existencia de
+OTRO invitado con el correo o teléfono nuevos normalizados. Dos ediciones de fichas distintas no se bloquean;
+dos hacia el mismo contacto producen un éxito y un 409. Editar la misma ficha desde dos pestañas es de última
+escritura. El reinicio de emailSendCount/lastEmailSentAt compara el correo actual en Mongo con el nuevo,
+dentro del filtro `reset`, no con una lectura anterior: si no cambia, preserva las reservas concurrentes.
+Se comprueba coincidencia y modificación; un fallo se reclasifica reconsultando, nunca se devuelve un éxito
+falso. Invitado ausente da 404, estado cerrado o duplicado da 409.
+
+La cascada sigue retirando primero el invitado y después su respuesta. Si una respuesta llega entre la
+comprobación inicial y la retirada, también se borra, aunque el anfitrión no hubiera confirmado; la confirmación
+solo puede exigirse para una respuesta ya observada. Si la retirada falla, no se ejecuta la limpieza.
+
+Compatibilidad temporal: updateGuest/removeGuest conservan sus firmas con expectedVersion para mantener
+los tests existentes (salvo las dos expectativas autorizadas), pero ese argumento no condiciona la escritura.
+No se añaden sobrecargas ni constructores alternativos. El alta aún compara la versión; se sustituirá por
+condiciones de contactos y capacidad en el commit 1 del lote. No hay reintentos silenciosos ni save(event)
+alternativo. Un save antiguo del documento completo sigue fallando con 409 por bloqueo optimista.
 
 Referencias: [índices multiclave únicos](https://www.mongodb.com/docs/manual/core/indexes/index-types/index-multikey/),
 [índices parciales](https://www.mongodb.com/docs/manual/core/index-partial/) y

@@ -193,10 +193,26 @@ class EmailSendReservationIntegrationTest {
 		assertThat(currentGuest().getEmailSendCount()).isEqualTo(2); assertThat(currentGuest().getLastEmailSentAt()).isEqualTo(NOW);
 	}
 	@Test void aStaleR6EditCannotEraseAReservation() {
+		// Ya no se rechaza por version: la edicion parcial debe preservar la reserva real en Mongo.
+		var stale = currentGuest();
+		var reservation = reserve(NOW).reservation();
+		var reserved = currentGuest();
+		var edited = stale.editContact("Changed after reservation", " " + stale.getEmail().toUpperCase(java.util.Locale.ROOT) + " ", null, phone -> phone);
+		guestWrites.updateGuest(event.getId(), "host-1", event.getVersion(), edited);
+		var stored = currentGuest();
+		assertThat(stored.getName()).isEqualTo("Changed after reservation");
+		assertThat(stored.getEmail()).isEqualTo(stale.getEmail());
+		assertThat(stored.getEmailSendCount()).isEqualTo(reserved.getEmailSendCount()).isEqualTo(1);
+		assertThat(stored.getLastEmailSentAt()).isEqualTo(reserved.getLastEmailSentAt()).isEqualTo(NOW);
+		assertThat(reservation).isNotNull();
+		assertThat(stored.getLastEmailSentAt()).isEqualTo(reservation.reservedAt());
+	}
+	@Test void aStaleR6EditChangingEmailResetsTheReservation() {
 		var stale = currentGuest(); reserve(NOW);
-		assertThatThrownBy(() -> guestWrites.updateGuest(event.getId(), "host-1", event.getVersion(), stale))
-				.isInstanceOf(EventConcurrentModificationException.class);
-		assertThat(currentGuest().getEmailSendCount()).isEqualTo(1);
+		guestWrites.updateGuest(event.getId(), "host-1", event.getVersion(), stale.editContact("Changed email", "different@example.com", null, phone -> phone));
+		var stored = currentGuest();
+		assertThat(stored.getName()).isEqualTo("Changed email"); assertThat(stored.getEmail()).isEqualTo("different@example.com");
+		assertThat(stored.getEmailSendCount()).isZero(); assertThat(stored.getLastEmailSentAt()).isNull();
 	}
 	@Test void aFailedCompensationAtTheLimitKeepsTheGuestBlockedAndLogsTheDiagnostic(CapturedOutput output) {
 		guestHistory(2, NOW.minusSeconds(7200));
