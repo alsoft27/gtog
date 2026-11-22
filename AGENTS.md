@@ -12,9 +12,10 @@ La especificación funcional está en `docs/definicion-funcional.md`. **Léela a
 
 - Antes de escribir código, presenta un plan y espera mi aprobación.
 - Trabajamos por rebanadas verticales: dominio, puerto, adaptador, controlador y test, funcionando de punta a punta antes de pasar a la siguiente.
-- Consulta los cinco documentos del proyecto:
+- Consulta los documentos del proyecto:
     - `docs/definicion-funcional.md`: contexto funcional, alcance y requisitos.
     - `docs/plan-iteracion-1.md`: estado, decisiones, deuda y desarrollo pendiente.
+    - `docs/casos-de-uso.md`: recorridos del API, ejemplos y verificación de métodos, seguridad y resultados; incluye divergencias pendientes de decisión.
     - `docs/modelo-evento.md`: contrato técnico del agregado de evento.
     - `docs/modelo-invitado.md`: contrato técnico del invitado dentro de event.
     - `docs/modelo-usuario.md`: contrato técnico del agregado de usuario.

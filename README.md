@@ -110,6 +110,7 @@ distintas del modelo de dominio, traducidas por mappers.
 |---|---|
 | [`docs/definicion-funcional.md`](docs/definicion-funcional.md) | Contexto funcional, alcance y requisitos del MVP y visión posterior |
 | [`docs/plan-iteracion-1.md`](docs/plan-iteracion-1.md) | Estado del plan: qué está cerrado, deuda técnica abierta, rebanadas pendientes |
+| [`docs/casos-de-uso.md`](docs/casos-de-uso.md) | Recorridos del API, ejemplos y contraste de métodos, seguridad y respuestas; divergencias pendientes de decisión |
 | [`docs/modelo-evento.md`](docs/modelo-evento.md) | Modelo de datos del evento: campos, reglas de negocio, excepciones, endpoints |
 | [`docs/modelo-invitado.md`](docs/modelo-invitado.md) | Invitados, respuestas, consulta pública y envío de invitaciones |
 | [`docs/modelo-usuario.md`](docs/modelo-usuario.md) | Cuenta del anfitrión, autenticación y cuota de correo |

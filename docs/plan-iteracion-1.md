@@ -13,6 +13,7 @@ El backend del MVP está implementado de R1 a R12. **R12 cerrada:** sesión manu
 de creación, y recuperación de contraseña; RF-1.2 y RF-1.3 cumplidas. Siguen pendientes los bloqueadores
 de despliegue público de §7 y la deuda abierta de §6, incluida D-UNVERIFIED-SQUATTING.
 El frontend Angular no se ha empezado.
+Los recorridos y ejemplos del API están en [casos-de-uso.md](casos-de-uso.md), con la verificación de rutas y sus divergencias pendientes de decisión.
 
 `mvn clean verify`: 900 tests, 0 fallos, 0 errores, 0 omitidos en la última ejecución completa.
 El endpoint del lote está verificado con servidor real, privacidad y regresión individual. Las mutaciones
@@ -265,6 +266,10 @@ evento, un correo por usuario. Las comprobaciones previas fallan bajo concurrenc
 e incremento de `version`, nunca un `save()` del evento completo. Mismo criterio para `users`. Así una
 apertura concurrente no bloquea al anfitrión, y un `save()` con una versión anterior falla con 409.
 
+Las escrituras sobre un invitado no comparan la versión esperada. Antes, el alta, la edición y el borrado
+devolvían 409 si otro invitado abría su enlace entre la lectura y la escritura. Corregido en `9e929d4` y
+`65ab6ec`.
+
 **Alta en lote, todo o nada.** Una sola actualización con $push/$each, ausencia de contactos normalizados y
 tokens, y capacidad comprobada dentro del filtro. app.guests.max-batch=100 y app.guests.max-per-event=500;
 el segundo límite también se aplica al alta individual, con 409 y code=CAPACITY_EXCEEDED. No hay altas dentro
@@ -432,6 +437,12 @@ salud de Mongo), D-7 (opciones en eventos publicados, R8), D-CONFIRMED-LINK (R8)
 - Dominio y remitente de Mailjet validados, con SPF, DKIM y DMARC en `PASS`, comprobados con un envío real.
 
 ## 8. Notas para el frontend
+
+- Tras POST /api/events, el asistente hace una sola llamada a POST /api/events/{id}/guests/batch.
+  Si falla, no se guardó ningún invitado del lote y errors da el índice de base cero y el código de cada
+  fila afectada, sin datos personales. En ese flujo, el borrador recién creado queda sin invitados y se
+  puede reintentar. Los formatos pueden validarse en el navegador, pero la autoridad es el servidor.
+  Los errores globales, como capacidad, estado o cuerpo ilegible, no tienen errores por fila.
 
 - La página del invitado se diseña primero para móvil y se sirve con `Referrer-Policy: no-referrer`.
 - `canRespond` y `canChangeResponse` vienen calculados: no reimplementar el plazo, el fin del evento ni el
