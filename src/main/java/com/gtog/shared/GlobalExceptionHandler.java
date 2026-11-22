@@ -51,9 +51,23 @@ import com.gtog.event.domain.model.EmailNotVerifiedException;
 @Order(Ordered.HIGHEST_PRECEDENCE)
 public class GlobalExceptionHandler {
 	@ExceptionHandler(com.gtog.event.domain.model.GuestCapacityExceededException.class)
-	public ProblemDetail handleGuestCapacity(com.gtog.event.domain.model.GuestCapacityExceededException exception) {
+	public ResponseEntity<ProblemDetail> handleGuestCapacity(com.gtog.event.domain.model.GuestCapacityExceededException exception, jakarta.servlet.http.HttpServletRequest request) {
 		ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, "Guest capacity exceeded");
-		problem.setProperty("code", "CAPACITY_EXCEEDED"); return problem;
+		problem.setProperty("code", "CAPACITY_EXCEEDED");
+		return isGuestBatch(request) ? batchProblem(problem) : ResponseEntity.status(HttpStatus.CONFLICT).body(problem);
+	}
+	@ExceptionHandler(com.gtog.event.domain.model.GuestBatchRejectedException.class)
+	public ResponseEntity<ProblemDetail> handleGuestBatch(com.gtog.event.domain.model.GuestBatchRejectedException exception) {
+		ProblemDetail problem = ProblemDetail.forStatusAndDetail(exception.isConflict() ? HttpStatus.CONFLICT : HttpStatus.UNPROCESSABLE_ENTITY, "Guest batch rejected");
+		problem.setProperty("errors", exception.getErrors().stream().map(error -> java.util.Map.of("index", error.index(), "code", error.code().name())).toList());
+		return batchProblem(problem);
+	}
+	private boolean isGuestBatch(jakarta.servlet.http.HttpServletRequest request) {
+		return request.getRequestURI().startsWith("/api/events/") && request.getRequestURI().endsWith("/guests/batch");
+	}
+	private ResponseEntity<ProblemDetail> batchProblem(ProblemDetail problem) {
+		problem.setInstance(URI.create("/api/events/guests/batch"));
+		return ResponseEntity.status(problem.getStatus()).contentType(MediaType.APPLICATION_PROBLEM_JSON).cacheControl(CacheControl.noStore()).body(problem);
 	}
 	@ExceptionHandler(EmailNotVerifiedException.class)
 	public ResponseEntity<ProblemDetail> handleEmailNotVerified(EmailNotVerifiedException exception) {
@@ -110,8 +124,9 @@ public class GlobalExceptionHandler {
 	}
 
 	@ExceptionHandler(EventNotFoundException.class)
-	public ProblemDetail handleEventNotFoundException(EventNotFoundException exception) {
-		return ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, exception.getMessage());
+	public ResponseEntity<ProblemDetail> handleEventNotFoundException(EventNotFoundException exception, jakarta.servlet.http.HttpServletRequest request) {
+		if (isGuestBatch(request)) { return batchProblem(ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, "Event not found")); }
+		return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, exception.getMessage()));
 	}
 
 	@ExceptionHandler(EventNotEditableException.class)
@@ -142,8 +157,9 @@ public class GlobalExceptionHandler {
 	@ExceptionHandler({DuplicateGuestEmailException.class, DuplicateGuestPhoneException.class,
 			DuplicateGuestTokenException.class, EventGuestsNotEditableException.class,
 			EventConcurrentModificationException.class, GuestResponseDeletionConfirmationRequiredException.class})
-	public ProblemDetail handleGuestConflict(EventDomainException exception) {
-		return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, exception.getMessage());
+	public ResponseEntity<ProblemDetail> handleGuestConflict(EventDomainException exception, jakarta.servlet.http.HttpServletRequest request) {
+		if (isGuestBatch(request)) { return batchProblem(ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, "Guest batch rejected")); }
+		return ResponseEntity.status(HttpStatus.CONFLICT).body(ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, exception.getMessage()));
 	}
 
 	@ExceptionHandler({EventInvitationSendingNotAllowedException.class, ResponseDeadlineNotEditableException.class, ResponseOptionDeletionNotAllowedException.class,

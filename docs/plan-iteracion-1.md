@@ -1,6 +1,6 @@
 # gtog — Plan, decisiones y deuda técnica
 
-Estado a 20 de noviembre de 2026. Es el documento para retomar el proyecto: dónde estamos, qué queda, qué se
+Estado a 22 de noviembre de 2026. Es el documento para retomar el proyecto: dónde estamos, qué queda, qué se
 decidió y por qué, qué está pendiente de decidir y qué deuda hay. Qué hace la aplicación está en
 `definicion-funcional.md`; el contrato técnico de cada agregado, en `modelo-evento.md`, `modelo-invitado.md` y
 `modelo-usuario.md`. Las instrucciones para el agente están en `AGENTS.md`.
@@ -14,8 +14,8 @@ de creación, y recuperación de contraseña; RF-1.2 y RF-1.3 cumplidas. Siguen 
 de despliegue público de §7 y la deuda abierta de §6, incluida D-UNVERIFIED-SQUATTING.
 El frontend Angular no se ha empezado.
 
-`mvn clean verify`: 875 tests, 0 fallos, 0 errores, 0 omitidos en la última ejecución completa.
-El commit 1 añade el núcleo del lote y recupera el reproductor del alta, ahora en verde. Las mutaciones
+`mvn clean verify`: 900 tests, 0 fallos, 0 errores, 0 omitidos en la última ejecución completa.
+El endpoint del lote está verificado con servidor real, privacidad y regresión individual. Las mutaciones
 de duplicados y capacidad hicieron fallar sus tests concurrentes y quedaron restauradas, sin versionarlas.
 Repetirlo desde
 la terminal antes de dar por cerrado cualquier cambio. Stack: Java 25, Spring Boot 4.1, MongoDB Atlas,
@@ -44,7 +44,7 @@ Maven por defecto, springdoc-openapi, iCal4j 4.2.0, libphonenumber 9.0.43, Mailj
 | R12 — Verificación (commit 2) | Tokens solo como hash, consumo atómico, correo asíncrono y cuota propia; verify-email, resend-verification y /me. Puerta de creación desde la base de datos y bypass solo local con guarda |
 | R12 — Recuperación (commit 3) | forgot-password con 202 uniforme y flujo completo en el ejecutor; reset-password valida antes de consumir, hashea después, verifica correo y revoca tokens y sesiones con escrituras parciales |
 | Invitados — concurrencia (commit A) | Edición con arrayFilters y unicidad explícita, y borrado parcial, sin comparar versión esperada; preservan aperturas y cuotas. Tests autorizados de concurrencia y reserva obsoleta actualizados al nuevo comportamiento |
-| Invitados — lote (commit 1) | Dominio compartido con el alta individual y una escritura atómica para todo el lote, con unicidad y capacidad en el filtro; máximo 100 por petición y 500 por evento. Endpoint pendiente del commit 2 |
+| Invitados — lote (commits 1 y 2) | POST /api/events/{id}/guests/batch, todo o nada y errores por posición; dominio compartido con el individual y una escritura atómica, con unicidad y capacidad en el filtro. RF-2.18 implementado; RF-2.4 sigue en frontend |
 
 ### Endpoints
 
@@ -62,6 +62,7 @@ POST   /api/events/{id}/publish    POST   /api/events/{id}/cancel
 GET    /api/events/{id}/dashboard
 
 POST   /api/events/{id}/guests     GET    /api/events/{id}/guests
+POST   /api/events/{id}/guests/batch
 PUT    /api/events/{id}/guests/{guestId}   DELETE /api/events/{id}/guests/{guestId}
 
 POST   /api/events/{id}/invitations/send
@@ -263,6 +264,19 @@ evento, un correo por usuario. Las comprobaciones previas fallan bajo concurrenc
 **Las escrituras sobre un invitado son parciales y atómicas**, con `$elemMatch`, condiciones dentro del filtro
 e incremento de `version`, nunca un `save()` del evento completo. Mismo criterio para `users`. Así una
 apertura concurrente no bloquea al anfitrión, y un `save()` con una versión anterior falla con 409.
+
+**Alta en lote, todo o nada.** Una sola actualización con $push/$each, ausencia de contactos normalizados y
+tokens, y capacidad comprobada dentro del filtro. app.guests.max-batch=100 y app.guests.max-per-event=500;
+el segundo límite también se aplica al alta individual, con 409 y code=CAPACITY_EXCEEDED. No hay altas dentro
+de POST /api/events. Rechazar no modifica el documento ni version, y el orden de alta es el de la petición.
+Sin correo verificado se puede gestionar invitados de un evento existente: R12 solo bloquea crear eventos.
+
+El endpoint usa @RequestBody normal: cuerpo ausente/ilegible → 400 del framework antes de comprobar propiedad;
+con JSON válido, propiedad → 404, estado → 409, lista vacía/null o excesiva → 422, todos los errores de elemento
+→ 422, duplicados contra el evento y capacidad → 409. No se difiere la deserialización. Los duplicados internos
+marcan ambos índices. Éxito y rechazos del lote llevan no-store exacto; errores con detail e instance constantes
+y solo index/code, nunca contactos ni nombres. La respuesta 201 reutiliza el DTO individual, sin cambiar las
+cabeceras del endpoint individual. CSV y agenda futuros reutilizarán el lote; no forman parte de esta entrega.
 
 **La cascada del invitado retira primero al invitado y después su respuesta.** Sin transacción: si falla la
 limpieza queda una respuesta inalcanzable, nunca una respuesta perdida con su invitado vivo.

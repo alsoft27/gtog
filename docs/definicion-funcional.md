@@ -53,6 +53,10 @@ asisto". Configura además si el invitado puede comentar, si puede cambiar su re
 
 **Añadir invitados.** Con nombre y correo, teléfono o ambos. El teléfono se normaliza a E.164, porque de ahí
 dependen los enlaces de WhatsApp. Cada invitado recibe un token único e irrepetible que genera su enlace.
+Se pueden dar de alta varios en una sola operación, todo o nada, con todos los errores por posición. El
+backend admite por defecto hasta 100 por petición y 500 por evento, configurables. El alta rápida en serie
+sigue siendo trabajo del frontend (RF-2.4). La futura importación CSV y desde agenda usará el mismo endpoint
+de lote; no se implementan esos importadores en esta iteración.
 
 **Enviar las invitaciones.** El canal se elige por invitado:
 
@@ -129,6 +133,7 @@ está en los modelos.
 | RF-2.15 | Plantilla editable con variables | ✗ fuera del MVP |
 | RF-2.16 | Copiar el enlace individual; el mensaje de WhatsApp sirve de alternativa de copia | ✓ |
 | RF-2.17 | Reenvío a quien no ha respondido, también a quien abrió el enlace | ✓ |
+| RF-2.18 | Alta de varios invitados en una sola operación, todo o nada, con todos los errores por posición | ✓ |
 
 ### Ubicación y acceso del evento
 

@@ -1,6 +1,7 @@
 # Modelo de datos: Invitado
 
-Estado a 19 de noviembre de 2026. R11 incorpora generación asistida de enlaces WhatsApp, sin escrituras,
+Estado a 22 de noviembre de 2026. Incluye alta en lote todo o nada y edición/borrado sin versión esperada.
+R11 incorpora generación asistida de enlaces WhatsApp, sin escrituras,
 y confirmación idempotente del envío declarado por el anfitrión. Telegram está fuera de R11. Se mantienen gestión de invitados,
 consulta pública, respuestas, panel, calendario, canRespond y envío SMTP de las rebanadas anteriores.
 
@@ -133,7 +134,7 @@ cinco puertos por los tests existentes, sin añadir constructores alternativos. 
 compatibilidad; no duplican normalización ni escritura. No hay reintentos silenciosos ni save(event)
 alternativo. Un save antiguo del documento completo sigue fallando con 409 por bloqueo optimista.
 
-## Alta en lote — dominio y persistencia (commit 1)
+## Alta en lote
 
 GuestBatch es Java sin Spring. Prepara el lote completo con la misma validación de Guest; recopila todos
 los errores de nombre/contactos y marca todos los índices con contactos equivalentes. Solo después genera
@@ -149,7 +150,37 @@ Mongo ejecuta un único update con id, hostId, DRAFT/PUBLISHED, ausencia de corr
 $expr: size(ifNull(guests, [])) <= maxPerEvent - tamañoDelLote. Así dos lotes no consumen las mismas plazas.
 $push/$each conserva el orden e incrementa version una sola vez. No hay bucle de escrituras ni save del
 evento completo. Sin coincidencia se reconsulta para clasificar propietario, estado, duplicados o capacidad.
-Un rechazo no altera el BSON ni version. El endpoint se incorpora en el commit 2.
+Un rechazo no altera el BSON ni version. No se añaden invitados dentro de POST /api/events.
+
+### Contrato HTTP
+
+POST /api/events/{id}/guests/batch, autenticado y con CSRF, recibe:
+
+```json
+{"guests":[{"name":"Ana","email":"ana@example.com","phone":null}]}
+```
+
+Se usa @RequestBody normal. Orden: cuerpo ausente o ilegible → 400 del framework; con JSON válido,
+propiedad → 404; estado → 409; lista null, vacía o mayor que max-batch → 422; validación por elemento → 422;
+duplicados contra el evento y capacidad → 409. Un cuerpo válido con guests ausente se trata como null y da
+422. Un elemento null equivale a nombre y contactos ausentes: BLANK_NAME y NO_CONTACT en su índice.
+No exige emailVerified, como el alta individual. Se permite en DRAFT y PUBLISHED; no en CANCELLED/FINISHED.
+
+Se recopilan BLANK_NAME, NO_CONTACT, INVALID_EMAIL, INVALID_PHONE y DUPLICATE_IN_BATCH con index de base
+cero. Un contacto normalizado repetido marca todos los índices implicados, no solo los posteriores. Si hay
+cualquier error de elemento, no se comparan contactos contra el evento ni se escribe nada. Contra el evento,
+se informa DUPLICATE_IN_EVENT por cada índice afectado; la capacidad superada devuelve code=CAPACITY_EXCEEDED
+sin errors. Los errores de lote llevan detail fijo, instance constante /api/events/guests/batch y no-store
+exacto, sin nombres ni contactos. Los 400 del framework conservan su instance constante /api/errors.
+
+El éxito devuelve 201 con una lista raíz de GuestInvitationResponse, en el orden de la petición, Location
+/api/events/{id}/guests y Cache-Control: no-store exacto. El DTO es el mismo del alta individual; cada invitado
+tiene id y token propios, y el token solo aparece dentro de invitationPath. No se registra el cuerpo.
+
+Tests con servidor real y cookies crudas verifican orden, normalización, credenciales, errores y privacidad,
+prevalencia del 400 del framework, estados/propiedad/CSRF y los bordes 497+3 y 498+3. El alta individual conserva
+sus códigos, DTO y cabeceras, salvo el nuevo conflicto de capacidad, y genera el mismo documento que un lote
+de uno salvo identidad y token. Las futuras altas desde CSV o agenda usarán este contrato.
 
 Referencias: [índices multiclave únicos](https://www.mongodb.com/docs/manual/core/indexes/index-types/index-multikey/),
 [índices parciales](https://www.mongodb.com/docs/manual/core/index-partial/) y
