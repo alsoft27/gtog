@@ -50,6 +50,17 @@ import com.gtog.event.domain.model.EmailNotVerifiedException;
 @RestControllerAdvice
 @Order(Ordered.HIGHEST_PRECEDENCE)
 public class GlobalExceptionHandler {
+	private static final org.slf4j.Logger LOG = org.slf4j.LoggerFactory.getLogger(GlobalExceptionHandler.class);
+
+	@ExceptionHandler(StoredDataIntegrityException.class)
+	public ResponseEntity<ProblemDetail> handleStoredDataIntegrity(StoredDataIntegrityException exception) {
+		String correlationId = java.util.UUID.randomUUID().toString();
+		LOG.error("STORED_DATA_INTEGRITY_FAILURE type={} correlationId={} eventId={}",
+				exception.getFailureType(), correlationId, exception.getEventId());
+		return ResponseEntity.internalServerError().header("X-Correlation-ID", correlationId)
+				.body(ProblemDetail.forStatusAndDetail(HttpStatus.INTERNAL_SERVER_ERROR, "Internal server error"));
+	}
+
 	@ExceptionHandler(com.gtog.event.domain.model.GuestCapacityExceededException.class)
 	public ResponseEntity<ProblemDetail> handleGuestCapacity(com.gtog.event.domain.model.GuestCapacityExceededException exception, jakarta.servlet.http.HttpServletRequest request) {
 		ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, "Guest capacity exceeded");

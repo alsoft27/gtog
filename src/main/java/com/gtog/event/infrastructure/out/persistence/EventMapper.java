@@ -3,6 +3,8 @@ package com.gtog.event.infrastructure.out.persistence;
 import org.springframework.stereotype.Component;
 
 import com.gtog.event.domain.model.Event;
+import com.gtog.event.domain.model.EventDomainException;
+import com.gtog.shared.StoredDataIntegrityException;
 import com.gtog.event.domain.model.LinkVisibility;
 import com.gtog.event.domain.model.Modality;
 import com.gtog.event.domain.model.EventStatus;
@@ -43,6 +45,14 @@ public class EventMapper {
 	}
 
 	public Event toDomain(EventDocument document) {
+		try {
+			return reconstitute(document);
+		} catch (EventDomainException exception) {
+			throw new StoredDataIntegrityException(document.getId(), exception.getClass());
+		}
+	}
+
+	private Event reconstitute(EventDocument document) {
 		return Event.reconstituteBuilder()
 				.id(document.getId())
 				.hostId(document.getHostId())
