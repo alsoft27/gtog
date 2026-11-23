@@ -430,7 +430,7 @@ salud de Mongo), D-7 (opciones en eventos publicados, R8), D-CONFIRMED-LINK (R8)
 - **Versión y escrituras completas:** editar evento, opciones, publicar y cancelar reescriben el documento
   completo y mantienen la comparación de versión esperada. Una apertura concurrente puede causar 409: es el
   resultado seguro y el cliente reintenta. Las escrituras parciales de invitado no necesitan esa comparación;
-  alta, edición y borrado ya no la usan. Todas siguen incrementando version para proteger los save completos.
+  alta individual, lote, edición y borrado ya no la usan. Todas siguen incrementando version para proteger los save completos.
 - **Edición y borrado de invitados:** dos pestañas sobre la misma ficha son de última escritura. Una respuesta
   que llega entre la comprobación y la retirada se borra después del invitado, aunque no se hubiera confirmado.
   Si el invitado desaparece antes de retirarlo, devuelve 404 y no se limpia su respuesta.

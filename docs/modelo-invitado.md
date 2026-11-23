@@ -447,7 +447,8 @@ La consulta y el borrado filtran por evento y token, sin afectar respuestas de o
 
 `GuestService.delete(...)` comprueba propiedad y estado, y exige `confirmDeleteResponse=true` si ya existe
 respuesta; sin confirmación devuelve 409 y no modifica ninguno de los documentos. Retira primero al invitado
-mediante el puerto de actualización parcial con versión esperada y solo después borra su respuesta.
+mediante el puerto de actualización parcial, sin comparar la versión esperada e incrementando `version`,
+y solo después borra su respuesta.
 Si la retirada falla, no llama a la limpieza y conserva invitado y respuesta. Si falla la limpieza, devuelve
 500 saneado: el invitado ya no existe y el token produce 404, aunque la respuesta quede en la colección.
 Se prioriza no perder una respuesta mientras su invitado sigue vivo.

@@ -258,10 +258,14 @@ del enum), nunca como ordinal.
 cadenas; los documentos anteriores sin `guests[]` se leen con lista vacía. Los `save()` existentes de evento
 preservan todos sus invitados mediante el mapper.
 
-Las operaciones de R6 nunca guardan el evento entero: `EventGuestRepositoryPort` se implementa con `$push`,
-`$set` posicional sobre los campos editables y `$pull`, siempre filtrando por id, propietario, estado permitido
-y versión esperada, e incrementando `version` en la misma operación. Un conflicto se traduce a 409. Esto
-protege las reglas validadas en el agregado y evita que un `save()` anterior borre una escritura parcial.
+Las escrituras sobre un invitado no guardan el evento entero ni comparan la versión esperada: el alta
+individual y el lote usan `$push` con `$each`, la edición usa `$set` parcial con arrayFilters y el borrado
+usa `$pull`. Filtran por id, propietario, estado permitido y las condiciones propias de cada operación,
+e incrementan `version` en la misma escritura. Un conflicto se traduce a 409. Esto protege las reglas
+validadas en el agregado y evita que un `save()` anterior borre una escritura parcial.
+La comparación de versión esperada se mantiene solo en las escrituras que reescriben el documento completo
+del evento: editar evento, opciones, publicar y cancelar. Una apertura concurrente puede provocar un 409
+seguro en esas operaciones; el cliente recarga y reintenta.
 El índice impone unicidad entre eventos; la regla de dominio y la escritura condicionada evitan duplicados
 dentro del mismo `guests[]`. Ver `docs/modelo-invitado.md`.
 
