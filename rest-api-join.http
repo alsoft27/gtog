@@ -1,0 +1,252 @@
+# Alta por enlace público — recorrido manual contra el backend real con el cliente HTTP de IntelliJ.
+# Necesita APP_AUTH_AUTOVERIFYEMAIL=true en la aplicación; sin ella, crear el evento da 403 EMAIL_NOT_VERIFIED.
+# Ejecuta en orden. Antes, limpia las cookies de localhost en el cliente HTTP: su jar será el navegador A.
+# El anfitrión usa cookies explícitas con @no-cookie-jar; el navegador B también usa @no-cookie-jar.
+# No hay client.log: no se imprimen tokens ni cookies. No envía correo ni abre servicios externos.
+
+@baseUrl = http://localhost:8080
+@password = JoinSmoke2026!
+
+### 00 — Obtener CSRF y preparar fechas relativas
+# @no-cookie-jar
+< {%
+    ["Email", "Csrf", "Session", "EventId", "StartsAt", "EndsAt", "OptionYes", "JoinPath", "JoinToken", "NewJoinToken", "InvitationPathA", "GuestTokenA", "InvitationPathB"].forEach(function (suffix) { client.global.clear("gtogJoin" + suffix); });
+    client.global.set("gtogJoinEmail", "join-host-" + Date.now() + "@example.com");
+    const date = new Date(); date.setDate(date.getDate() + 7);
+    const localDate = date.getFullYear() + "-" + String(date.getMonth() + 1).padStart(2, "0") + "-" + String(date.getDate()).padStart(2, "0");
+    client.global.set("gtogJoinStartsAt", localDate + "T18:00:00");
+    client.global.set("gtogJoinEndsAt", localDate + "T20:00:00");
+%}
+GET {{baseUrl}}/actuator/health
+
+> {%
+    client.assert(response.status === 200, "Health debe devolver 200");
+    const csrf = response.cookiesByName("XSRF-TOKEN")[0];
+    client.assert(!!csrf && !!csrf.value, "Falta cookie CSRF");
+    client.global.set("gtogJoinCsrf", csrf.value);
+%}
+
+### 01a — Registrar al anfitrión
+# @no-cookie-jar
+POST {{baseUrl}}/api/auth/register
+Content-Type: application/json
+Cookie: XSRF-TOKEN={{gtogJoinCsrf}}
+X-XSRF-TOKEN: {{gtogJoinCsrf}}
+
+{ "name": "Anfitrión del enlace", "email": "{{gtogJoinEmail}}", "rawPassword": "{{password}}", "timeZone": "Europe/Madrid" }
+
+> {% client.assert(response.status === 201, "Registro debe devolver 201"); %}
+
+### 01b — Login del anfitrión, fuera del jar del navegador A
+# @no-cookie-jar
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+Cookie: XSRF-TOKEN={{gtogJoinCsrf}}
+X-XSRF-TOKEN: {{gtogJoinCsrf}}
+
+{ "email": "{{gtogJoinEmail}}", "password": "{{password}}" }
+
+> {%
+    client.assert(response.status === 200, "Login debe devolver 200");
+    const session = response.cookiesByName("JSESSIONID")[0];
+    client.assert(!!session && !!session.value, "Falta sesión");
+    client.global.set("gtogJoinSession", session.value);
+%}
+
+### 01c — Crear el borrador con intención de enlace público
+# @no-cookie-jar
+POST {{baseUrl}}/api/events
+Content-Type: application/json
+Cookie: XSRF-TOKEN={{gtogJoinCsrf}}; JSESSIONID={{gtogJoinSession}}
+X-XSRF-TOKEN: {{gtogJoinCsrf}}
+
+{
+  "title": "Encuentro por enlace público", "description": "Prueba funcional del alta pública",
+  "startsAt": "{{gtogJoinStartsAt}}", "endsAt": "{{gtogJoinEndsAt}}", "timeZone": "Europe/Madrid",
+  "modality": "IN_PERSON", "publicInvitationEnabled": true,
+  "venue": { "placeName": "Sala de prueba", "address": "Calle de prueba 1", "latitude": 40.4168, "longitude": -3.7038, "placeId": "join-smoke-place" }
+}
+
+> {%
+    client.assert(response.status === 201, "Crear debe devolver 201; si hay 403 EMAIL_NOT_VERIFIED, arranca con APP_AUTH_AUTOVERIFYEMAIL=true");
+    client.assert(response.body.status === "DRAFT" && response.body.publicInvitationEnabled === true, "Falta la intención en el borrador");
+    client.global.set("gtogJoinEventId", response.body.id);
+    const yes = response.body.responseOptions.find(function (option) { return option.countsAsAttendance; });
+    client.assert(!!yes, "Falta opción de asistencia"); client.global.set("gtogJoinOptionYes", yes.id);
+%}
+
+### 01d — El borrador todavía no tiene enlace
+# @no-cookie-jar
+GET {{baseUrl}}/api/events/{{gtogJoinEventId}}/public-invitation
+Cookie: XSRF-TOKEN={{gtogJoinCsrf}}; JSESSIONID={{gtogJoinSession}}
+
+> {%
+    client.assert(response.status === 200 && response.body.enabled === true && response.body.path === null, "En borrador se espera enabled=true y path=null");
+    client.assert(response.headers.valueOf("Cache-Control") === "no-store", "Se espera no-store exacto");
+%}
+
+### 02a — Publicar genera el enlace
+# @no-cookie-jar
+POST {{baseUrl}}/api/events/{{gtogJoinEventId}}/publish
+Cookie: XSRF-TOKEN={{gtogJoinCsrf}}; JSESSIONID={{gtogJoinSession}}
+X-XSRF-TOKEN: {{gtogJoinCsrf}}
+
+> {% client.assert(response.status === 200 && response.body.status === "PUBLISHED", "Publicar debe devolver PUBLISHED"); %}
+
+### 02b — Obtener el enlace sin imprimirlo
+# @no-cookie-jar
+GET {{baseUrl}}/api/events/{{gtogJoinEventId}}/public-invitation
+Cookie: XSRF-TOKEN={{gtogJoinCsrf}}; JSESSIONID={{gtogJoinSession}}
+
+> {%
+    client.assert(response.status === 200 && response.body.enabled === true && /^\/j\/[A-Za-z0-9_-]{43}$/.test(response.body.path), "Falta el enlace publicado");
+    client.assert(response.headers.valueOf("Cache-Control") === "no-store", "Se espera no-store exacto");
+    client.global.set("gtogJoinJoinPath", response.body.path); client.global.set("gtogJoinJoinToken", response.body.path.substring(3));
+%}
+
+### 03 — Vista previa anónima, sin cookies
+# @no-cookie-jar
+GET {{baseUrl}}/api/invitations/join/{{gtogJoinJoinToken}}
+
+> {%
+    client.assert(response.status === 200 && response.body.canJoin === true && response.body.alreadyJoined === false, "Vista previa abierta esperada");
+    client.assert(response.headers.valueOf("Cache-Control") === "no-store", "Se espera no-store exacto");
+%}
+
+### 04 — Navegador A: alta; el jar guarda la cookie real automáticamente
+POST {{baseUrl}}/api/invitations/join/{{gtogJoinJoinToken}}
+Content-Type: application/json
+
+{ "name": "Invitada enlace" }
+
+> {%
+    client.assert(response.status === 201 && /^\/r\/[A-Za-z0-9_-]{43}$/.test(response.body.invitationPath), "Alta A debe devolver 201 y enlace individual");
+    client.assert(!!response.headers.valueOf("Set-Cookie"), "Falta Set-Cookie");
+    client.assert(response.headers.valueOf("Cache-Control") === "no-store", "Se espera no-store exacto");
+    client.global.set("gtogJoinInvitationPathA", response.body.invitationPath); client.global.set("gtogJoinGuestTokenA", response.body.invitationPath.substring(3));
+%}
+
+### 05a — Mismo navegador A: no se crea otro invitado
+POST {{baseUrl}}/api/invitations/join/{{gtogJoinJoinToken}}
+Content-Type: application/json
+
+{ "name": "Repetición A" }
+
+> {% client.assert(response.status === 409 && response.body.code === "ALREADY_JOINED", "La cookie real debe producir ALREADY_JOINED"); %}
+
+### 05b — Mismo navegador A: recupera solo su enlace
+GET {{baseUrl}}/api/invitations/join/{{gtogJoinJoinToken}}
+
+> {%
+    client.assert(response.status === 200 && response.body.alreadyJoined === true && response.body.canJoin === false, "El jar debe reconocer al navegador A");
+    client.assert(response.body.invitationPath === client.global.get("gtogJoinInvitationPathA"), "Se espera el enlace propio de A");
+%}
+
+### 06 — Navegador B, sin jar: se permite una segunda alta
+# @no-cookie-jar
+POST {{baseUrl}}/api/invitations/join/{{gtogJoinJoinToken}}
+Content-Type: application/json
+
+{ "name": "Otra persona" }
+
+> {%
+    client.assert(response.status === 201 && /^\/r\/[A-Za-z0-9_-]{43}$/.test(response.body.invitationPath), "Alta B debe devolver 201");
+    client.assert(response.body.invitationPath !== client.global.get("gtogJoinInvitationPathA"), "B debe tener su propio enlace");
+    client.global.set("gtogJoinInvitationPathB", response.body.invitationPath);
+%}
+
+### 07a — A abre su invitación individual, sin sesión
+# @no-cookie-jar
+GET {{baseUrl}}/api/invitations/{{gtogJoinGuestTokenA}}
+
+> {% client.assert(response.status === 200 && response.body.guest.name === "Invitada enlace", "Debe abrir la invitación de A"); %}
+
+### 07b — A responde sin sesión ni CSRF
+# @no-cookie-jar
+PUT {{baseUrl}}/api/invitations/{{gtogJoinGuestTokenA}}/response
+Content-Type: application/json
+
+{ "responseOptionId": "{{gtogJoinOptionYes}}" }
+
+> {% client.assert(response.status === 200 && response.body.myResponse.responseOptionId === client.global.get("gtogJoinOptionYes"), "Debe guardar la respuesta de A"); %}
+
+### 08 — Panel del anfitrión: dos invitados por enlace
+# @no-cookie-jar
+GET {{baseUrl}}/api/events/{{gtogJoinEventId}}/dashboard
+Cookie: XSRF-TOKEN={{gtogJoinCsrf}}; JSESSIONID={{gtogJoinSession}}
+
+> {%
+    client.assert(response.status === 200 && response.body.guests.length === 2, "Se esperan dos invitados");
+    client.assert(response.body.guests.every(function (guest) { return guest.source === "PUBLIC_LINK"; }), "Ambos deben ser PUBLIC_LINK");
+    client.assert(response.body.publicInvitation.joined === 2 && response.body.totals.answered === 1, "Joined=2 y una respuesta");
+%}
+
+### 09a — Desactivar el enlace
+# @no-cookie-jar
+PUT {{baseUrl}}/api/events/{{gtogJoinEventId}}/public-invitation
+Content-Type: application/json
+Cookie: XSRF-TOKEN={{gtogJoinCsrf}}; JSESSIONID={{gtogJoinSession}}
+X-XSRF-TOKEN: {{gtogJoinCsrf}}
+
+{ "enabled": false }
+
+> {% client.assert(response.status === 200 && response.body.enabled === false && response.body.path === null, "El enlace debe quedar desactivado"); %}
+
+### 09b — El enlace anterior da 404
+# @no-cookie-jar
+GET {{baseUrl}}/api/invitations/join/{{gtogJoinJoinToken}}
+
+> {% client.assert(response.status === 404, "El enlace desactivado debe devolver 404"); %}
+
+### 09c — Reactivar genera un enlace distinto
+# @no-cookie-jar
+PUT {{baseUrl}}/api/events/{{gtogJoinEventId}}/public-invitation
+Content-Type: application/json
+Cookie: XSRF-TOKEN={{gtogJoinCsrf}}; JSESSIONID={{gtogJoinSession}}
+X-XSRF-TOKEN: {{gtogJoinCsrf}}
+
+{ "enabled": true }
+
+> {%
+    client.assert(response.status === 200 && response.body.enabled === true && /^\/j\/[A-Za-z0-9_-]{43}$/.test(response.body.path), "Falta nuevo enlace");
+    client.assert(response.body.path !== client.global.get("gtogJoinJoinPath"), "El enlace debe ser distinto");
+    client.global.set("gtogJoinNewJoinToken", response.body.path.substring(3));
+%}
+
+### 09d — El enlace viejo sigue revocado
+# @no-cookie-jar
+GET {{baseUrl}}/api/invitations/join/{{gtogJoinJoinToken}}
+
+> {% client.assert(response.status === 404, "El enlace viejo debe seguir devolviendo 404"); %}
+
+### 10a — Cancelar el evento
+# @no-cookie-jar
+POST {{baseUrl}}/api/events/{{gtogJoinEventId}}/cancel
+Content-Type: application/json
+Cookie: XSRF-TOKEN={{gtogJoinCsrf}}; JSESSIONID={{gtogJoinSession}}
+X-XSRF-TOKEN: {{gtogJoinCsrf}}
+
+{ "reason": "Cierre del recorrido de prueba" }
+
+> {% client.assert(response.status === 200 && response.body.status === "CANCELLED", "Cancelar debe devolver CANCELLED"); %}
+
+### 10b — El nuevo enlace sigue visible, pero cerrado
+# @no-cookie-jar
+GET {{baseUrl}}/api/invitations/join/{{gtogJoinNewJoinToken}}
+
+> {% client.assert(response.status === 200 && response.body.status === "CANCELLED" && response.body.canJoin === false, "Vista cancelada con canJoin=false esperada"); %}
+
+### 10c — Sin cookie del alta: gana JOIN_CLOSED
+# @no-cookie-jar
+POST {{baseUrl}}/api/invitations/join/{{gtogJoinNewJoinToken}}
+Content-Type: application/json
+
+{ "name": "Alta tras cancelar" }
+
+> {% client.assert(response.status === 409 && response.body.code === "JOIN_CLOSED", "Evento cancelado debe rechazar con JOIN_CLOSED"); %}
+
+### 10d — La invitación de A sobrevive a la revocación y cancelación
+# @no-cookie-jar
+GET {{baseUrl}}/api/invitations/{{gtogJoinGuestTokenA}}
+
+> {% client.assert(response.status === 200 && response.body.status === "CANCELLED" && response.body.guest.name === "Invitada enlace", "La invitación original sigue accesible"); %}

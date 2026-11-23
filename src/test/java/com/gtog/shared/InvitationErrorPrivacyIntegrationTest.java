@@ -112,6 +112,7 @@ class InvitationErrorPrivacyIntegrationTest {
 		var response = client.send(request.method(sample.method(), sample.body().isEmpty() ? HttpRequest.BodyPublishers.noBody()
 				: HttpRequest.BodyPublishers.ofString(sample.body())).build(), HttpResponse.BodyHandlers.ofString());
 		assertThat(response.statusCode()).isEqualTo(sample.status());
+		assertThat(response.headers().allValues("Set-Cookie")).isEmpty();
 		assertThat(response.headers().firstValue("Content-Type").orElseThrow()).startsWith("application/problem+json");
 		var privacy = new org.assertj.core.api.SoftAssertions();
 		privacy.assertThat(response.body()).doesNotContain(requestedToken, TOKEN, path);
@@ -164,14 +165,19 @@ class InvitationErrorPrivacyIntegrationTest {
 			default -> { }
 		}
 		String path = "/api/invitations/join/" + joinToken;
+		org.bson.Document before = mongo.getCollection("events").find(new org.bson.Document("_id", "event-id")).first();
 		var builder = HttpRequest.newBuilder(URI.create("http://localhost:" + port + path)).header("Accept", sample.accept()).header("Content-Type", sample.contentType());
 		var response = client.send(builder.method(sample.method(), sample.method().equals("POST") ? HttpRequest.BodyPublishers.ofString(sample.body()) : HttpRequest.BodyPublishers.noBody()).build(), HttpResponse.BodyHandlers.ofString());
 		assertThat(response.statusCode()).isEqualTo(sample.status());
+		assertThat(response.headers().allValues("Set-Cookie")).isEmpty();
 		assertThat(response.body()).doesNotContain(TOKEN, joinToken, path);
 		assertThat(response.headers().firstValue("Content-Type").orElseThrow()).startsWith("application/problem+json");
 		assertThat(JsonPath.parse(response.body()).read("$.instance", String.class)).isEqualTo("/api/invitations");
 		assertThat(response.headers().firstValue("Cache-Control")).contains("no-store");
 		assertThat(output.getAll()).doesNotContain(TOKEN, joinToken);
+		if (sample.status() == 406) {
+			assertThat(mongo.getCollection("events").find(new org.bson.Document("_id", "event-id")).first()).isEqualTo(before);
+		}
 	}
 
 	@org.junit.jupiter.api.Test
@@ -179,6 +185,7 @@ class InvitationErrorPrivacyIntegrationTest {
 		String path = "/api/invitations/join/" + token(102) + "/extension-probe";
 		var response = client.send(HttpRequest.newBuilder(URI.create("http://localhost:" + port + path)).GET().build(), HttpResponse.BodyHandlers.ofString());
 		assertThat(response.statusCode()).isEqualTo(409);
+		assertThat(response.headers().allValues("Set-Cookie")).isEmpty();
 		assertThat(response.body()).doesNotContain(TOKEN, token(102), "privateExtension", "\"code\"", "\"errors\"");
 		assertThat(JsonPath.parse(response.body()).read("$.instance", String.class)).isEqualTo("/api/invitations");
 		assertThat(response.headers().firstValue("Cache-Control")).contains("no-store");
@@ -192,7 +199,8 @@ class InvitationErrorPrivacyIntegrationTest {
 		@org.springframework.web.bind.annotation.GetMapping("/api/invitations/join/{joinToken}/extension-probe")
 		Object probe() { throw new ProbeException(); }
 		@org.springframework.web.bind.annotation.ExceptionHandler(ProbeException.class)
-		org.springframework.http.ProblemDetail error() {
+		org.springframework.http.ProblemDetail error(jakarta.servlet.http.HttpServletResponse response) {
+			response.setHeader("Set-Cookie", "gtog_join_probe=" + TOKEN + "; HttpOnly; Path=/api/invitations/join");
 			var problem = org.springframework.http.ProblemDetail.forStatusAndDetail(org.springframework.http.HttpStatus.CONFLICT, "Invalid request");
 			problem.setProperty("privateExtension", TOKEN); problem.setProperty("code", TOKEN);
 			problem.setProperty("errors", List.of(Map.of("field", TOKEN, "code", TOKEN)));

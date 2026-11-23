@@ -154,6 +154,41 @@ class PublicInvitationHostIntegrationTest {
 		Event event = draft(false);
 		assertThat(send("PUT", path(event), "{\"enabled\":true}", Map.of("Content-Type", "application/json", "Cookie", auth.get("Cookie"))).statusCode()).isEqualTo(403);
 	}
+	@ParameterizedTest @ValueSource(strings = {"GET", "PUT"})
+	void aValidCsrfCookieDoesNotReplaceTheHostSession(String method) throws Exception {
+		Event event = draft(false); String csrf = auth.get("X-XSRF-TOKEN");
+		assertThat(send(method, path(event), method.equals("PUT") ? "{\"enabled\":true}" : "",
+				Map.of("Content-Type", "application/json", "Cookie", "XSRF-TOKEN=" + csrf, "X-XSRF-TOKEN", csrf)).statusCode()).isEqualTo(401);
+	}
+	@Test void publicGuestsCanReceiveWhatsAppLinksOnlyWhenTheyHaveAPhone() throws Exception {
+		Event event = published(); String token = event.getPublicInvitation().token();
+		Guest withPhone = invitations.join(new JoinPublicInvitationCommand(token, null, "Con teléfono", null, "+34612345678"));
+		Guest withoutPhone = invitations.join(new JoinPublicInvitationCommand(token, null, "Sin teléfono", null, null));
+		Document before = bson("events", event.getId());
+		var response = send("POST", "/api/events/" + event.getId() + "/invitations/whatsapp-links", "", auth); ok(response);
+		var json = JsonPath.parse(response.body());
+		assertThat(json.read("$.results[0].guestId", String.class)).isEqualTo(withPhone.getId());
+		assertThat(json.read("$.results[0].status", String.class)).isEqualTo("READY");
+		assertThat(json.read("$.results[0].url", String.class)).startsWith("https://wa.me/34612345678?text=");
+		assertThat(json.read("$.results[1].guestId", String.class)).isEqualTo(withoutPhone.getId());
+		assertThat(json.read("$.results[1].reason", String.class)).isEqualTo("NO_PHONE");
+		assertThat(bson("events", event.getId())).isEqualTo(before);
+	}
+	@Test void editingAPublicGuestsContactPreservesSourceAndStillSkipsEmailWithoutQuotaOrReservation() throws Exception {
+		Event event = published();
+		Guest guest = invitations.join(new JoinPublicInvitationCommand(event.getPublicInvitation().token(), null, "Ana", null, null));
+		var edit = send("PUT", "/api/events/" + event.getId() + "/guests/" + guest.getId(),
+				"{\"name\":\"Editada\",\"email\":\"new@example.com\",\"phone\":\"+34 612 345 678\"}", auth);
+		assertThat(edit.statusCode()).isEqualTo(200);
+		Guest changed = events.findById(event.getId()).orElseThrow().getGuest(guest.getId());
+		assertThat(changed.getEmail()).isEqualTo("new@example.com"); assertThat(changed.getPhoneE164()).isEqualTo("+34612345678");
+		assertThat(changed.getSource()).isEqualTo(GuestSource.PUBLIC_LINK); assertThat(changed.getJoinedAt()).isEqualTo(guest.getJoinedAt());
+		Document beforeEvent = bson("events", event.getId()), beforeUser = bson("users", "host-1");
+		var response = send("POST", "/api/events/" + event.getId() + "/invitations/send", "", auth); ok(response);
+		assertThat(JsonPath.parse(response.body()).read("$.results[0].reason", String.class)).isEqualTo("UNVERIFIED_CONTACT");
+		assertThat(mail.attempts()).isEmpty(); assertThat(bson("events", event.getId())).isEqualTo(beforeEvent);
+		assertThat(bson("users", "host-1")).isEqualTo(beforeUser);
+	}
 	private HttpResponse<String> send(String method, String path, String body, Map<String, String> headers) throws Exception {
 		var request = HttpRequest.newBuilder(URI.create("http://localhost:" + port + path)); headers.forEach(request::header);
 		return client.send(request.method(method, body.isEmpty() ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofString(body)).build(), HttpResponse.BodyHandlers.ofString());

@@ -27,7 +27,7 @@ public class PublicJoinController {
 	public record Created(@Schema(description = "Credencial individual nueva, nunca la de otro invitado") String invitationPath) {
 		@Override public String toString() { return "PublicJoinCreated[redacted]"; }
 	}
-	@GetMapping
+	@GetMapping(produces = MediaType.APPLICATION_JSON_VALUE)
 	@Operation(summary = "Vista previa para darse de alta por enlace", description = "Sin sesión ni CSRF. No escribe. "
 			+ "Un evento cancelado o finalizado conserva la vista, con canJoin=false. La cookie es fricción, no una barrera.")
 	@ApiResponses({@ApiResponse(responseCode = "200", description = "Vista pública sin datos personales"),
@@ -36,7 +36,7 @@ public class PublicJoinController {
 		return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(
 				PublicJoinPreviewResponse.from(preview.preview(joinToken, cookie.read(request, joinToken))));
 	}
-	@PostMapping
+	@PostMapping(produces = MediaType.APPLICATION_JSON_VALUE)
 	@Operation(summary = "Alta inmediata de un invitado por enlace", description = "Sin sesión ni CSRF. Contacto opcional; "
 			+ "los contactos ya presentes se descartan sin revelar a sus titulares. Solo emite cookie en el 201.")
 	@ApiResponses({@ApiResponse(responseCode = "201", description = "Credencial nueva y cookie HttpOnly"),

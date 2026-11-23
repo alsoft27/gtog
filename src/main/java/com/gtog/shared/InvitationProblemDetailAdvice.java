@@ -50,6 +50,10 @@ public class InvitationProblemDetailAdvice implements ResponseBodyAdvice<Object>
 		sanitized.setType(URI.create("about:blank"));
 		copyAllowedExtensions(problem, sanitized);
 		response.getHeaders().setCacheControl("no-store");
+		// Un error de negociación/serialización puede heredar cabeceras del 201 ya preparado.
+		if (request.getURI().getPath().startsWith("/api/invitations/join/")) {
+			response.getHeaders().remove(org.springframework.http.HttpHeaders.SET_COOKIE);
+		}
 		response.getHeaders().setContentType(MediaType.APPLICATION_PROBLEM_JSON);
 		return sanitized;
 	}

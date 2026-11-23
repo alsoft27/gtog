@@ -121,11 +121,11 @@ class PublicJoinIntegrationTest {
 	private Map<String, List<String>> headersWithoutDateAndCookie(HttpResponse<?> response) {
 		var headers = new TreeMap<>(response.headers().map()); headers.remove("date"); headers.remove("set-cookie"); return headers;
 	}
-	@Test void cookieIsHttpOnlyScopedHashedAndIssuedOnlyOnCreationAndRecognizesOnlyItsOwnGuest() throws Exception {
+	@Test void cookieIsHttpOnlyScopedHashedAndIssuedOnlyOnCreationAndRecognizesOnlyItsOwnGuest(CapturedOutput output) throws Exception {
 		var created = post("{\"name\":\"Ana\"}");
 		String rawCookie = created.headers().firstValue("Set-Cookie").orElseThrow();
 		HttpCookie cookie = HttpCookie.parse(rawCookie).getFirst();
-		assertThat(cookie.getName()).isEqualTo(cookies.name(event.getPublicInvitation().token())).matches("gtog_join_[0-9a-f]{16}").doesNotContain(event.getPublicInvitation().token());
+		assertThat(cookie.getName()).isEqualTo(cookies.name(event.getPublicInvitation().token())).matches("gtog_join_[0-9a-f]{16}").doesNotContain(event.getPublicInvitation().token(), guestToken(created));
 		assertThat(cookie.getValue()).isEqualTo(guestToken(created)); assertThat(cookie.isHttpOnly()).isTrue();
 		assertThat(cookie.getPath()).isEqualTo("/api/invitations/join"); assertThat(cookie.getMaxAge()).isEqualTo(2592000L);
 		assertThat(rawCookie).contains("SameSite=Lax"); assertThat(cookie.getSecure()).isFalse();
@@ -143,6 +143,54 @@ class PublicJoinIntegrationTest {
 		Event other = published();
 		assertThat(send("POST", "/api/invitations/join/" + other.getPublicInvitation().token(), "{\"name\":\"Cookie ajena\"}",
 				Map.of("Content-Type", "application/json", "Cookie", cookies.name(other.getPublicInvitation().token()) + "=" + cookie.getValue())).statusCode()).isEqualTo(201);
+		assertThat(output.getAll()).doesNotContain(cookie.getValue(), event.getPublicInvitation().token());
+	}
+	static Stream<Arguments> precedenceCases() {
+		return Stream.of(Arguments.of("malformedUnknown", 400, null), Arguments.of("unknown", 404, null),
+				Arguments.of("disabled", 404, null), Arguments.of("draft", 404, null),
+				Arguments.of("cookieClosed", 409, "ALREADY_JOINED"), Arguments.of("closedInvalid", 409, "JOIN_CLOSED"),
+				Arguments.of("fullInvalid", 422, null));
+	}
+	@ParameterizedTest @MethodSource("precedenceCases")
+	void publicPostChecksErrorsInTheApprovedOrder(String scenario, int status, String code, CapturedOutput output) throws Exception {
+		String target = path(), body = "{\"name\":\"\"}", cookieToken = null;
+		var headers = new HashMap<String, String>(); headers.put("Content-Type", "application/json");
+		switch (scenario) {
+			case "malformedUnknown" -> { target = "/api/invitations/join/" + token(9999); body = "{"; }
+			case "unknown" -> target = "/api/invitations/join/" + token(9999);
+			case "disabled" -> mongo.getCollection("events").updateOne(new Document("_id", event.getId()), new Document("$set", new Document("publicInvitation.enabled", false)).append("$unset", new Document("publicInvitation.token", "")));
+			case "draft" -> mongo.getCollection("events").updateOne(new Document("_id", event.getId()), new Document("$set", new Document("status", "DRAFT")).append("$unset", new Document("publicInvitation.token", "")));
+			case "cookieClosed" -> {
+				cookieToken = guestToken(post("{\"name\":\"Ya inscrita\"}"));
+				headers.put("Cookie", cookies.name(event.getPublicInvitation().token()) + "=" + cookieToken);
+				mongo.getCollection("events").updateOne(new Document("_id", event.getId()), new Document("$set", new Document("status", "CANCELLED")));
+			}
+			case "closedInvalid" -> mongo.getCollection("events").updateOne(new Document("_id", event.getId()), new Document("$set", new Document("status", "CANCELLED")));
+			case "fullInvalid" -> seedGuests(25, true);
+			default -> throw new IllegalArgumentException("Unknown test scenario");
+		}
+		Document before = bson(); var response = send("POST", target, body, headers); error(response, status, code);
+		if (scenario.equals("fullInvalid")) { assertThat(JsonPath.parse(response.body()).read("$.errors[0].code", String.class)).isEqualTo("BLANK_NAME"); }
+		assertThat(bson()).isEqualTo(before); assertThat(output.getAll()).doesNotContain(event.getPublicInvitation().token());
+		if (cookieToken != null) { assertThat(output.getAll()).doesNotContain(cookieToken); assertThat(response.body()).doesNotContain(cookieToken); }
+	}
+	@ParameterizedTest @ValueSource(strings = {"host", "foreignPublic"})
+	void onlyAPublicGuestOfThisEventIsRecognizedByTheCookie(String kind) throws Exception {
+		String previous;
+		if (kind.equals("host")) {
+			Guest hostGuest = Guest.create("Host guest", "hostguest@example.com", null, token(60003), value -> value);
+			event.addGuest(hostGuest); events.save(event); previous = hostGuest.getToken();
+		} else {
+			Event other = published();
+			previous = guestToken(send("POST", "/api/invitations/join/" + other.getPublicInvitation().token(), "{\"name\":\"Otra invitada\"}", Map.of("Content-Type", "application/json")));
+		}
+		var headers = Map.of("Content-Type", "application/json", "Cookie", cookies.name(event.getPublicInvitation().token()) + "=" + previous);
+		var preview = send("GET", path(), "", headers);
+		assertThat(preview.statusCode()).isEqualTo(200);
+		assertThat(JsonPath.parse(preview.body()).read("$.alreadyJoined", Boolean.class)).isFalse();
+		assertThat(preview.body()).doesNotContain(previous, "invitationPath");
+		var created = send("POST", path(), "{\"name\":\"Nueva\"}", headers);
+		assertThat(created.statusCode()).isEqualTo(201); assertThat(guestToken(created)).isNotEqualTo(previous);
 	}
 	@Test void aHostGuestCookieIsIgnored() throws Exception {
 		event.addGuest(Guest.create("Host guest", "hostguest@example.com", null, token(60001), value -> value)); events.save(event);
