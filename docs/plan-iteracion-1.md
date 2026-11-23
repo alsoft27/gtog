@@ -1,6 +1,6 @@
 # gtog — Plan, decisiones y deuda técnica
 
-Estado a 22 de noviembre de 2026. Es el documento para retomar el proyecto: dónde estamos, qué queda, qué se
+Estado a 23 de noviembre de 2026. Es el documento para retomar el proyecto: dónde estamos, qué queda, qué se
 decidió y por qué, qué está pendiente de decidir y qué deuda hay. Qué hace la aplicación está en
 `definicion-funcional.md`; el contrato técnico de cada agregado, en `modelo-evento.md`, `modelo-invitado.md` y
 `modelo-usuario.md`. Las instrucciones para el agente están en `AGENTS.md`.
@@ -15,13 +15,14 @@ de despliegue público de §7 y la deuda abierta de §6, incluida D-UNVERIFIED-S
 El frontend Angular no se ha empezado.
 Los recorridos y ejemplos del API están en [casos-de-uso.md](casos-de-uso.md), con la verificación de rutas, seguridad y resultados.
 
-`mvn clean verify`: 940 tests, 0 fallos, 0 errores, 0 omitidos en la última ejecución completa, limpia y aislada.
-Son cuatro más que los 936 del commit del punto único de saneamiento. La ejecución anterior solapada se
-descarta como evidencia; no se modificaron tests existentes para hacerla pasar.
+`mvn clean verify`: 1.079 tests, 0 fallos, 0 errores y 0 omitidos en la última ejecución completa,
+limpia y aislada (`a85d4e6`). El primer intento sufrió errores DNS de Atlas al arrancar tres contextos;
+tras recuperarse la red, la suite pasó sin cambios de código ni tests entre ambas ejecuciones.
+Las ejecuciones negativas de mutación se conservan solo como evidencia, no como resultado de la suite final.
 El endpoint del lote está verificado con servidor real, privacidad y regresión individual. Las mutaciones
 de duplicados y capacidad hicieron fallar sus tests concurrentes y quedaron restauradas, sin versionarlas.
-Repetirlo desde
-la terminal antes de dar por cerrado cualquier cambio. Stack: Java 25, Spring Boot 4.1, MongoDB Atlas,
+Repetirlo desde la terminal antes de cerrar cambios que no sean solo Markdown; la excepción documental
+exige la misma base de código en verde, según AGENTS.md. Stack: Java 25, Spring Boot 4.1, MongoDB Atlas,
 Maven por defecto, springdoc-openapi, iCal4j 4.2.0, libphonenumber 9.0.43, Mailjet por SMTP.
 
 ### Rebanadas cerradas
@@ -48,6 +49,7 @@ Maven por defecto, springdoc-openapi, iCal4j 4.2.0, libphonenumber 9.0.43, Mailj
 | R12 — Recuperación (commit 3) | forgot-password con 202 uniforme y flujo completo en el ejecutor; reset-password valida antes de consumir, hashea después, verifica correo y revoca tokens y sesiones con escrituras parciales |
 | Invitados — concurrencia (commit A) | Edición con arrayFilters y unicidad explícita, y borrado parcial, sin comparar versión esperada; preservan aperturas y cuotas. Tests autorizados de concurrencia y reserva obsoleta actualizados al nuevo comportamiento |
 | Invitados — lote (commits 1 y 2) | POST /api/events/{id}/guests/batch, todo o nada y errores por posición; dominio compartido con el individual y una escritura atómica, con unicidad y capacidad en el filtro. RF-2.18 implementado; RF-2.4 sigue en frontend |
+| Invitados — enlace público | RF-2.19: intención en borrador, token al publicar, interruptor revocable, alta inmediata con contacto opcional y cookie de fricción. Topes atómicos 25/500, descarte silencioso de contactos, origen en panel y exclusión del correo; WhatsApp permitido |
 
 ### Endpoints
 
@@ -63,6 +65,7 @@ PUT    /api/events/{id}/venue      PUT    /api/events/{id}/online-access
 PUT    /api/events/{id}/response-deadline
 POST   /api/events/{id}/publish    POST   /api/events/{id}/cancel
 GET    /api/events/{id}/dashboard
+GET    /api/events/{id}/public-invitation   PUT /api/events/{id}/public-invitation
 
 POST   /api/events/{id}/guests     GET    /api/events/{id}/guests
 POST   /api/events/{id}/guests/batch
@@ -73,6 +76,7 @@ POST   /api/events/{id}/invitations/whatsapp-links
 POST   /api/events/{id}/invitations/whatsapp-sent
 
 GET    /api/invitations/{token}    PUT    /api/invitations/{token}/response
+GET    /api/invitations/join/{joinToken}   POST /api/invitations/join/{joinToken}
 GET    /api/invitations/{token}/calendar        (los tres públicos, sin sesión ni CSRF)
 ```
 
@@ -83,10 +87,13 @@ Además: `/actuator/health`, `/v3/api-docs` y `/swagger-ui.html`.
 Archivos `.http` ejecutables con el cliente HTTP de IntelliJ, contra un servidor real.
 
 - `rest-api.http`: recorrido completo automatizable, sin correo real.
+- `rest-api-join.http`: alta pública con jar real del navegador A y otro cliente sin jar como B;
+  borrador/publicación, respuesta, panel, revocación y cancelación. Requiere APP_AUTH_AUTOVERIFYEMAIL=true;
+  sin ella, crear devuelve 403 EMAIL_NOT_VERIFIED. Preparado para ejecución manual, no se da por ejecutado.
 - `rest-api-mail.http` y `rest-api-whatsapp.http`: manuales, con `{{realRecipient}}` y `{{realPhone}}` de
   `http-client.private.env.json`, que está ignorado por Git. No se ejecutan con "Run all": el paso de
   confirmación de WhatsApp debe lanzarse solo después de enviar el mensaje.
-- Desde R12, los tres recorridos anteriores necesitan APP_AUTH_AUTOVERIFYEMAIL=true en la configuración
+- Desde R12, los cuatro recorridos anteriores necesitan APP_AUTH_AUTOVERIFYEMAIL=true en la configuración
   de ejecución de la aplicación: sus anfitriones @example.com no tienen buzón y, sin verificar, el primer
   POST /api/events devuelve 403 con code=EMAIL_NOT_VERIFIED. Equivale a app.auth.auto-verify-email=true:
   verifica al registrar y omite el correo de verificación. No se configura en la aplicación real, en JUnit
@@ -197,6 +204,24 @@ Decisiones implementadas:
 - Plan en tres commits: sesión del login manual, verificación con la puerta de creación, y recuperación.
 
 ### Producto
+
+**Alta por enlace público (RF-2.19).** Alta inmediata sin aprobación: nombre obligatorio y contacto opcional.
+El anfitrión puede fijar intención en DRAFT, pero el enlace solo nace al publicar, en la misma escritura.
+En PUBLISHED se activa idempotentemente, se desactiva destruyendo el token y se reactiva con otro distinto.
+token != null implica enabled=true y status != DRAFT; al cancelar o finalizar se conserva inerte.
+GET del interruptor permite consultar el enlace conservado; PUT en CANCELLED/FINISHED devuelve 409.
+La vista pública cerrada sigue dando 200 con canJoin=false; POST da JOIN_CLOSED, salvo cookie válida:
+ALREADY_JOINED gana porque se comprueba antes de la ventana de admisión.
+
+Tope configurable app.guests.public-link-max=25, dentro de app.guests.max-per-event=500, ambos dentro
+de la escritura atómica. La política temporal es ResponseAcceptancePolicy con Clock, sin duplicación.
+Si cualquier contacto normalizado ya existe, se descartan ambos en silencio antes de escribir, nunca se
+devuelve el enlace existente. Conflicto conocido y camino normal usan la misma lectura/escritura; ante
+una carrera, solo un reintento sin contactos. PUBLIC_LINK no recibe correo de gtog (UNVERIFIED_CONTACT),
+ni siquiera tras editarlo, sin consumir cuota o reserva; WhatsApp sí se permite con teléfono.
+source ausente = HOST y joinedAt solo para PUBLIC_LINK, sin migración. Ver los modelos para cookie y API.
+La mutación que admitía cookies de un HOST o de un PUBLIC_LINK ajeno hizo fallar ambos casos y quedó
+restaurada; no se versiona. Las pruebas parametrizadas de precedencia usan servidor real, sin csrf() de MockMvc.
 
 **El invitado no crea cuenta; el token es su credencial.** Cualquier fricción de registro baja la tasa de
 respuesta. El coste es que la seguridad del enlace es toda la que hay, y por eso el token es aleatorio, largo
@@ -335,7 +360,10 @@ defecto de Boot incluye la ruta pedida, y en las invitaciones esa ruta lleva el 
 **Alcance de los errores saneados.** Instancia constante y detalle fijo en `/api/invitations/**`, en los
 errores de seguridad y en el advice MVC. En invitaciones lo garantiza el punto único
 `InvitationProblemDetailAdvice`: se ejecuta después de que Spring rellene `instance`, reconstruye cada
-ProblemDetail sin extensiones ni datos de la petición y fija `Cache-Control: no-store` exacto. Conserva solo
+ProblemDetail sin datos de la petición y fija `Cache-Control: no-store` exacto. Admite únicamente code y
+errors con claves y valores de lista blanca; ninguna extensión arbitraria. En errores del alta pública
+elimina Set-Cookie: un 406 tras preparar un 201 podía heredar la cookie. La negociación JSON se hace ahora
+antes del alta y el test compara también el BSON completo para demostrar que no escribe. Conserva solo
 detalles constantes conocidos; los nuevos reciben uno fijo por estado. Los filtros de seguridad escriben
 su ProblemDetail directamente. Solo los errores de dominio de las rutas del anfitrión admiten detalle
 variable e instancia derivada de su ruta; nunca contactos de otras personas. Los errores de correo
@@ -346,7 +374,8 @@ exponía el token en /api/invitations/**. Corregido con un punto único de sanea
 Las excepciones de dominio al reconstruir un evento desde Mongo se envuelven en
 `StoredDataIntegrityException`: son 500 con detalle fijo, no 422 del cliente. Se registra únicamente la
 clase del fallo, la correlación y el id del evento, sin mensaje, causa, token ni datos.
-Las pruebas con servidor real cubren las tres rutas públicas y errores 400, 404, 405, 406, 409, 415, 422 y
+Las pruebas con servidor real cubren las tres rutas públicas originales, además de GET/POST join,
+y errores 400, 404, 405, 406, 409, 415, 422 y
 500, incluido un error de dominio genérico en cada ruta. Desactivar temporalmente el punto único hizo
 fallar los seis casos esperados; quedó restaurado.
 
@@ -370,6 +399,7 @@ despliegue, por decisión del usuario. Entonces se reconsiderará el uso de rama
 | Eliminar un borrador | Nada | D-DELETE-DRAFT |
 | Telegram | Nada | Verificar primero su enlace |
 | Uso futuro del correo de la respuesta | Nada | Aprobación expresa y doble confirmación |
+| Gestión futura de invitados PUBLIC_LINK | Nada | Verificar su contacto o convertirlos en invitados normales; editar no cambia source ni permite el correo |
 
 ---
 
@@ -395,6 +425,7 @@ puede disparar `MESSAGE_TOO_LONG` para todo el evento.
 | D-BOUNCES | No se procesan rebotes ni quejas del proveedor | `SENT` es aceptado, no entregado; direcciones inválidas dañan la reputación del dominio |
 | D-REGISTER-RATE-LIMIT | Registro y login sin límite de peticiones | Abuso de creación de cuentas; las cuotas de correo no lo sustituyen |
 | D-RATE-LIMIT | Rutas públicas de invitación sin límite | La entropía del token impide adivinarlo, no el tráfico repetido sobre un enlace conocido |
+| D-PUBLIC-JOIN-ABUSE | Alta pública sin límite por IP | Se pueden gastar las 25 plazas desde fuera de un navegador; la cookie no lo impide. Bloqueador junto a D-RATE-LIMIT |
 | D-REFERRER | Política de `Referer` del frontend | La página del invitado lleva el token en la URL: debe servirse con `Referrer-Policy: no-referrer` |
 | D-SWAGGER-PUBLIC | OpenAPI y Swagger UI sin autenticación | Decidir si protegerlos antes de producción |
 | D-ACTUATOR-EXPOSURE | El matcher `/actuator/**` es público entero y `management.endpoint.health.show-details=always`; la decisión de R5 era que solo `/actuator/health` fuera público | Hoy solo health está expuesto por HTTP: el riesgo de abrir otro endpoint aún no es explotable, pero habilitarlo lo dejaría abierto sin aviso. El detalle de health (nombre de la base de datos, estado del disco) ya lo puede ver cualquiera |
@@ -415,6 +446,11 @@ puede disparar `MESSAGE_TOO_LONG` para todo el evento.
 salud de Mongo), D-7 (opciones en eventos publicados, R8), D-CONFIRMED-LINK (R8) y D-ERROR-FORMAT.
 
 ### Límites conocidos, no deuda
+
+- **Cookie de alta:** es fricción, no una barrera. Quitarla, usar otro nombre o cliente permite otra alta;
+  el tope público acota el daño por evento. Solo reconoce un PUBLIC_LINK vivo del mismo evento.
+- **Origen inmutable al editar:** un invitado PUBLIC_LINK sigue excluido del correo de gtog aunque el
+  anfitrión cambie después su contacto. Verificarlo y convertirlo en normal es gestión futura, no implementada.
 
 - **Ventana del alta por enlace:** se comprueba con la lectura previa y el Clock. El filtro Mongo verifica
   que plazo, fin y zona siguen siendo los leídos, pero no reevalúa el reloj. Si el cierre se alcanza entre
@@ -454,6 +490,10 @@ salud de Mongo), D-7 (opciones en eventos publicados, R8), D-CONFIRMED-LINK (R8)
 ## 7. Bloqueadores de despliegue público
 
 - D-REGISTER-RATE-LIMIT y D-RATE-LIMIT: límites de peticiones.
+- D-PUBLIC-JOIN-ABUSE: impedir que un cliente sin navegador agote las plazas públicas por IP.
+- La cookie de alta por enlace debe ir con Secure y con la política SameSite adecuada al despliegue
+  (frontend y API en el mismo sitio o no). Desarrollo: deduce Secure de app.public-base-url y SameSite=Lax;
+  comprobar y configurar ambos antes de desplegar.
 - D-BOUNCES: procesar rebotes y quejas.
 - D-SWAGGER-PUBLIC y D-SECURE-COOKIE.
 - D-ACTUATOR-EXPOSURE: arreglo previsto, restringir el matcher público a `/actuator/health` y
@@ -462,6 +502,15 @@ salud de Mongo), D-7 (opciones en eventos publicados, R8), D-CONFIRMED-LINK (R8)
 - Dominio y remitente de Mailjet validados, con SPF, DKIM y DMARC en `PASS`, comprobados con un envío real.
 
 ## 8. Notas para el frontend
+
+- Ruta de entrada `/j/{joinToken}`; llamadas join con withCredentials para que el navegador guarde y envíe
+  la cookie HttpOnly. Usar alreadyJoined e invitationPath propios y redirigir a `/r/{token}` tras el alta.
+  En DRAFT mostrar "El enlace público se creará al publicar". En PUBLISHED ofrecer copiar, desactivar y
+  generar uno nuevo (desactivar y reactivar). Advertir al anfitrión que cualquiera con el enlace entra y,
+  en línea con visibilidad al confirmar, ve la sala tras responder que asiste. Cerrado: mostrar el estado,
+  canJoin=false y el enlace inerte conservado al anfitrión.
+- Los nombres de invitados por enlace son texto de un anónimo: pintarlos siempre como texto, nunca como
+  HTML; neutralizar en cualquier exportación futura a CSV los que empiecen por =, +, - o @.
 
 - Tras POST /api/events, el asistente hace una sola llamada a POST /api/events/{id}/guests/batch.
   Si falla, no se guardó ningún invitado del lote y errors da el índice de base cero y el código de cada
@@ -488,7 +537,8 @@ salud de Mongo), D-7 (opciones en eventos publicados, R8), D-CONFIRMED-LINK (R8)
 
 ## 9. Qué significa "terminada" una rebanada
 
-1. `mvn clean verify` en verde, ejecutado desde la terminal.
+1. `mvn clean verify` en verde, ejecutado desde la terminal; excepción para commits solo Markdown con
+   el mismo código ya verificado y comprobación del diff, según AGENTS.md.
 2. Test unitario de dominio por cada regla de negocio nueva.
 3. Test de integración del endpoint, con al menos un caso de error. Con servidor real, sin `csrf()` de
    MockMvc, cuando importa el despacho de errores o la cookie.

@@ -4,7 +4,8 @@ Estado del modelo tras R1–R11: creación de eventos, consulta/listado (R1), op
 ubicación/acceso en línea (R3), editar/publicar/cancelar (R4), seguridad/ownership (R5), invitados (R6),
 consulta pública (R7), plazo editable, registro de respuesta, enlace por confirmación, opciones publicadas,
 cascada y calendario (R8), panel y contadores en el listado (R9), reservas atómicas y envío de correo (R10),
-y generación de enlaces y confirmación manual de WhatsApp (R11). La vista pública incluye `canRespond`,
+y generación de enlaces y confirmación manual de WhatsApp (R11), además del enlace público de alta (RF-2.19).
+La vista pública incluye `canRespond`,
 calculado con la misma política que el PUT de respuesta. Las respuestas viven en `responses`, nunca
 embebidas en el evento. El muro social y Telegram siguen pendientes.
 
@@ -16,7 +17,7 @@ Vive en `com.gtog.event.domain.model.Event`. Es una clase plana, sin anotaciones
 internos en vez de factory methods con parámetros posicionales (la lista de campos ya ha cambiado de forma en
 tres rebanadas seguidas): `Event.builder()...build()` valida todas las reglas de negocio, genera el id y aplica
 los valores por defecto, para eventos nuevos; `Event.reconstituteBuilder()...build()` rehidrata un evento ya
-persistido sin repetir ninguna validación.
+persistido sin generar identidad ni aplicar defaults nuevos; valida la integridad del estado almacenado.
 
 | Campo | Tipo | Descripción |
 |---|---|---|
@@ -38,6 +39,7 @@ persistido sin repetir ninguna validación.
 | `onlineAccess` | `OnlineAccess` (nullable) | Ver más abajo. Obligatorio si `modality` es `ONLINE`, prohibido si es `IN_PERSON`. |
 | `guests` | `List<Guest>` | Invitados del mismo agregado, sin respuesta embebida. Lista vacía por defecto. Ver `docs/modelo-invitado.md`. |
 | `version` | `Long` (nullable) | Bloqueo optimista de Mongo (`@Version`). `null` hasta el primer `save()`. |
+| `publicInvitation` | `PublicInvitation` | Intención `enabled` y token nullable del enlace público de alta; ausente equivale a desactivado. |
 
 Métodos derivados: `startsAtInstant()` / `endsAtInstant()` calculan el instante UTC a partir de la hora local y
 `timeZone` **al vuelo**, no lo guardan congelado — así reflejan cualquier cambio futuro en las reglas horarias de
@@ -390,7 +392,7 @@ documentos y version. El listado no añade una política de caché propia. La au
 cálculo en memoria sobre todos los eventos y sus respuestas se documentan como D-LIST-SCALE.
 
 `EventDashboardResponse` se construye campo a campo en web. Sus filas exponen id, name, email y phoneE164 del
-contacto, deliveryChannel, invitationStatus e invitationPath como GET /guests, más answered, response y
+contacto, source, deliveryChannel, invitationStatus e invitationPath como GET /guests, más answered, response y
 optionKnown. No hay claves token o guestToken; el token aparece solo dentro de invitationPath. El email
 guardado en GuestResponse nunca se incorpora al DTO. La respuesta seleccionada lleva responseOptionId,
 label, comment, answeredAt y updatedAt. No se serializa el dominio ni el documento Mongo.
@@ -399,6 +401,41 @@ El panel está disponible en cualquier estado para el propietario. Solo su 200 f
 Cache-Control: no-store; ni el listado ni los errores se cambian. EventNotFoundException conserva su manejador
 global. Los tests comprueban cuerpo completo, unicidad del token en invitationPath, ausencia de tokens ajenos
 y emails de respuesta, huérfanos y documentos sin cambios tras la lectura.
+
+## Enlace público de alta
+
+`publicInvitation { enabled, token }` pertenece al evento. `token != null` implica `enabled=true` y
+`status != DRAFT`; el dominio rechaza estados imposibles. En DRAFT, `enabled=true` expresa solo la intención:
+nunca hay token. En PUBLISHED, enabled=true si y solo si hay token. Se conserva al cancelar o finalizar;
+queda inerte, pero permite consultar la vista pública con estado y `canJoin=false`.
+
+POST /api/events admite `publicInvitationEnabled`, false por defecto. Publicar genera, si se pidió, un token
+de 32 bytes de SecureRandom en base64url sin relleno, mediante un puerto sustituible en tests, en el mismo
+save con versión esperada que cambia a PUBLISHED. PUT /api/events/{id} nunca modifica la intención.
+El mapper conserva intención y token en todas las operaciones. Ausente = false/null; la forma anterior
+`{token}` sin enabled se interpreta como enabled=(token != null), sin migración.
+
+| Método | Ruta | Contrato |
+|---|---|---|
+| GET | `/api/events/{id}/public-invitation` | Sesión y propiedad; 200 `{enabled,path}`, también CANCELLED/FINISHED con enlace conservado; 401, 404 |
+| PUT | `/api/events/{id}/public-invitation` | Sesión, CSRF y propiedad; cuerpo `{enabled:boolean}`; 200 `{enabled,path}`; 400, 401, 403, 404, 409 |
+
+Ambos 200 fijan no-store exacto. path es `/j/<token>` solo si hay token, null en borrador o desactivado.
+EventResponse expone solo `publicInvitationEnabled`, nunca el token. El GET no escribe y está permitido
+en cualquier estado; el PUT solo en DRAFT/PUBLISHED. En borrador cambia la intención; en publicado,
+activar es idempotente y devuelve el mismo enlace si ya existe, desactivar destruye el token y reactivar
+genera otro distinto. Cada cambio es parcial, condicionado por estado e incrementa version; una escritura
+de intención DRAFT que llega después de publicar da 409. Un save obsoleto no puede resucitar un enlace revocado.
+
+MongoIndexInitializer crea `public_invitation_token`, único y parcial sobre `publicInvitation.token` de
+tipo string, permitiendo múltiples eventos sin token. Los E11000, también en publicación, se traducen sin
+mensaje ni causa original a error de almacenamiento con detalle fijo: ningún token se propaga a errores o logs.
+
+El panel añade `publicInvitation {enabled,joined,limit,open}`: joined cuenta invitados vivos PUBLIC_LINK,
+limit es app.guests.public-link-max (25), y open reutiliza ResponseAcceptancePolicy y los topes de 25/500.
+Cancelado, finalizado, plazo vencido o fin alcanzado implican open=false. Las filas y GET /guests incluyen
+source; los contadores siguen contando a todos los invitados, con independencia del origen.
+Ver [modelo-invitado.md](modelo-invitado.md#alta-por-enlace-público) para admisión y cookie.
 
 ## Fuera de alcance por ahora
 

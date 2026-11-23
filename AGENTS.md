@@ -240,7 +240,9 @@ y la URL ya filtrada; UID basado en el evento, nunca en el token; DTSTAMP obteni
 - Los endpoints públicos del invitado van bajo `/api/invitations/{token}`, separados del resto para que la regla de seguridad se vea en la propia ruta.
 - Códigos: `201` al crear con cabecera `Location`, `204` al borrar, `409` en conflicto de estado, `422` cuando una regla de negocio rechaza la petición.
 - Errores con **`ProblemDetail`** (RFC 7807), gestionados en `shared`: advice de dominio con prioridad alta y advice MVC con menor prioridad para errores de framework y fallback. Los filtros de seguridad escriben el mismo formato directamente. No inventes un formato de error propio.
-- En `/api/invitations/**`, instancia constante `/api/invitations`, detalle fijo y `no-store` exacto: `InvitationProblemDetailAdvice` sanea todo ProblemDetail después de que Spring rellene instance; no conserva extensiones ni datos de la petición. Seguridad y advice MVC también usan instancia constante y detalle fijo. Solo los errores de dominio del anfitrión admiten detalle variable e instancia derivada de la ruta; nunca contactos de otras personas.
+- En `/api/invitations/**`, instancia constante `/api/invitations`, detalle fijo y `no-store` exacto: `InvitationProblemDetailAdvice` sanea todo ProblemDetail después de que Spring rellene instance; solo admite `code` y `errors` con valores de lista blanca, nunca datos de la petición. Seguridad y advice MVC también usan instancia constante y detalle fijo. Solo los errores de dominio del anfitrión admiten detalle variable e instancia derivada de la ruta; nunca contactos de otras personas.
+- El enlace público del evento es una credencial como el token del invitado; nunca lo registres. Nace al publicar, no en borrador. Ver [modelo-evento.md](docs/modelo-evento.md#enlace-público-de-alta).
+- Nunca devuelvas el enlace de un invitado existente al dar de alta por enlace público. Los invitados `PUBLIC_LINK` no reciben correo de gtog, tampoco después de editar su contacto. Sus nombres son texto no confiable: nunca HTML y neutralizar prefijos `=`, `+`, `-`, `@` en futuras exportaciones CSV. Ver [modelo-invitado.md](docs/modelo-invitado.md#alta-por-enlace-público).
 
 **CSRF en login y registro: deliberado.** Tanto `POST /api/auth/login` como `POST /api/auth/register` requieren un token CSRF válido, enviado en `X-XSRF-TOKEN`. No los excluyas de la protección: excluir el login permitiría que un atacante autenticase a la víctima en la cuenta del atacante (login-CSRF). Ver `docs/plan-iteracion-1.md`, sección Decisiones tomadas, para la justificación.
 
@@ -275,7 +277,7 @@ OpenAPI (springdoc 3.1.0) y Swagger: `/v3/api-docs` y `/swagger-ui.html`; config
 
 ## Tests
 
-- Ejecuta Maven siempre en primer plano y de una en una: nunca con & ni en segundo plano, y nunca dos ejecuciones a la vez, porque comparten la base gtog_test y se borran los datos entre sí. No hace falta comprobar procesos antes de cada ejecución. Solo si una ejecución se interrumpió (el usuario te paró o el comando agotó su tiempo), antes de la siguiente comprueba que no queda ningún Maven o surefire de este repositorio, mostrando solo pid, tiempo y nombre del ejecutable, sin argumentos ni variables de entorno.
+- Ejecuta Maven siempre en primer plano y de una en una, nunca con & ni dos a la vez (comparten gtog_test y se borran los datos). No hace falta comprobar procesos antes de cada ejecución. Solo si una ejecución se interrumpió, antes de la siguiente comprueba que no queda ningún Maven o surefire de este repositorio, mostrando solo pid, tiempo y nombre del ejecutable.
 
 - Dominio y casos de uso: tests unitarios planos, sin contexto de Spring. Deben ser rápidos, y la arquitectura hexagonal es justamente lo que lo permite: si un test de caso de uso necesita Spring, las dependencias están mal.
 - Adaptadores y flujos completos: tests de integración con `@SpringBootTest @ActiveProfiles("test")` contra MongoDB Atlas (base `gtog_test`). La conexión está en `src/test/resources/application-test.properties`. Hace falta `MONGODB_URI` en el entorno antes de lanzar los tests (ver sección Comandos). Nada de Mongo embebido.
@@ -292,7 +294,7 @@ OpenAPI (springdoc 3.1.0) y Swagger: `/v3/api-docs` y `/swagger-ui.html`; config
 - Se trabaja directamente sobre `main` hasta el primer despliegue, por decisión del usuario. En ese momento se reconsiderará el uso de ramas `feat/nombre-corto` y `fix/nombre-corto`.
 - Commits convencionales en inglés: `feat(guest): generate unique token on guest creation`.
 - No hagas commit sin que `mvn clean verify` pase en verde antes de cada uno.
-- Un commit que solo modifica ficheros Markdown, sin cambios en src, pom.xml ni ficheros de configuración, no requiere repetir la suite si la última ejecución completa sigue en verde sobre el mismo código. Compruébalo con git diff --stat y git status --short; si aparece cualquier fichero que no sea Markdown, ejecuta la suite.
+- Un commit que solo modifica Markdown y no cambia src, pom.xml ni configuración no requiere repetir la suite si la última sigue en verde sobre el mismo código; compruébalo con git diff --stat y git status --short. Si aparece cualquier fichero que no sea Markdown, ejecuta la suite.
 - Sin push salvo petición expresa del usuario.
 - Nunca subas `.env`, credenciales ni la clave de Google Maps.
 

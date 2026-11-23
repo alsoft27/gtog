@@ -1,6 +1,6 @@
 # Modelo de datos: Invitado
 
-Estado a 22 de noviembre de 2026. Incluye alta en lote todo o nada y edición/borrado sin versión esperada.
+Estado a 23 de noviembre de 2026. Incluye alta por enlace público, lote todo o nada y edición/borrado sin versión esperada.
 R11 incorpora generación asistida de enlaces WhatsApp, sin escrituras,
 y confirmación idempotente del envío declarado por el anfitrión. Telegram está fuera de R11. Se mantienen gestión de invitados,
 consulta pública, respuestas, panel, calendario, canRespond y envío SMTP de las rebanadas anteriores.
@@ -30,6 +30,8 @@ comparte agregado y documento. No existe colección ni hexágono `guest` separad
 | `openedAt` | `Instant`, nullable | Instante UTC de apertura; inicialmente nulo |
 | `emailSendCount` | `int` | Reservas de correo consumidas; ausente significa 0 |
 | `lastEmailSentAt` | `Instant`, nullable | Instante de la última reserva; ausente significa null |
+| `source` | `GuestSource` | HOST o PUBLIC_LINK; ausente = HOST, sin migración. Editar contactos no cambia el origen |
+| `joinedAt` | `Instant`, nullable | Clock de alta, solo para PUBLIC_LINK |
 
 **La respuesta no vive aquí. `ANSWERED` no es un valor del enum ni se almacena.** El panel de R9 lo deriva
 desde los invitados vivos y sus documentos de respuesta. OPENED está implementado desde R7; R10 incorpora
@@ -49,7 +51,7 @@ El agregado `Event` expone `addGuest`, `updateGuest`, `removeGuest`, `getGuest` 
 | Regla | Excepción | HTTP |
 |---|---|---|
 | Nombre no nulo ni en blanco | `BlankGuestNameException` | 422 |
-| Al menos correo o teléfono no vacío | `MissingGuestContactException` | 422 |
+| Al menos correo o teléfono no vacío para HOST; opcionales para PUBLIC_LINK | `MissingGuestContactException` | 422 |
 | Correo con el mismo criterio de formato que `User` | `InvalidGuestEmailException` | 422 |
 | Teléfono internacional válido, normalizable y sin extensión | `InvalidGuestPhoneException` | 422 |
 | Correo único dentro del evento | `DuplicateGuestEmailException` | 409 |
@@ -574,6 +576,62 @@ actualizaciones remotas de zonas están desactivadas en `src/main/resources/ical
 uso del registro, sin depender de Spring. Los tests comprueban la configuración, la validez del archivo,
 escapes, tildes/emojis, límite por octetos, lectura posterior y correspondencia de instantes al cambiar la hora.
 
+## Alta por enlace público
+
+El anfitrión solicita el enlace en borrador y este se genera al publicar; el interruptor y su invariante se
+detallan en [modelo-evento.md](modelo-evento.md#enlace-público-de-alta). El enlace `/j/{joinToken}` es una
+credencial independiente del enlace individual `/r/{guestToken}`; nunca se registran tokens, nombres o contactos.
+Revocarlo no elimina a los invitados que ya entraron ni invalida sus enlaces individuales.
+
+El alta es inmediata, sin aprobación. Guest.joinPublicInvitation comparte la normalización del dominio con
+el alta HOST, pero permite omitir ambos contactos. Nombre recortado, entre 1 y 100 caracteres, sin controles;
+si vienen, correo válido normalizado y teléfono E.164. El nuevo invitado recibe id y token propios,
+source=PUBLIC_LINK, joinedAt del Clock y NOT_SENT; no cambia deliveryChannel.
+
+Si cualquier contacto normalizado ya pertenece a cualquier invitado del evento, se descartan AMBOS en
+silencio antes de escribir. Nunca se devuelve el invitationPath de un invitado existente. Con conflicto
+conocido y sin él se hace el mismo número de operaciones Mongo: lectura del evento y una escritura.
+La ausencia de contactos en el filtro sigue siendo la autoridad: ante una carrera se reintenta una sola
+vez sin ambos contactos. La unicidad también se aplica al alta HOST, al lote y a la edición.
+
+Una sola escritura parcial condiciona token del enlace, PUBLISHED, ausencia de conflicto, tamaño total
+menor que app.guests.max-per-event=500 y número de source=PUBLIC_LINK menor que app.guests.public-link-max=25;
+usa arrays ausentes como vacíos, añade el invitado e incrementa version. No compara versión esperada.
+Al fallar, reconsulta y clasifica: enlace ausente/DRAFT 404, cierre JOIN_CLOSED, PUBLIC_LINK_FULL o
+CAPACITY_EXCEEDED. La ventana usa ResponseAcceptancePolicy con Clock en la lectura previa; el filtro
+comprueba que plazo, fin y zona no cambiaron, pero no reevalúa el reloj. Si se cruza el cierre durante
+el alta, el invitado puede quedar creado y no poder responder después (409).
+
+| Método | Ruta | Resultado |
+|---|---|---|
+| GET | `/api/invitations/join/{joinToken}` | 200 con vista previa propia y no-store; 404 indistinguible para enlace desconocido, revocado, desactivado o DRAFT |
+| POST | `/api/invitations/join/{joinToken}` | `{name,email?,phone?}` → 201 `{invitationPath}` y cookie; 400, 404, 409 o 422 con errors `{field,code}` |
+
+Ambos son públicos sin sesión ni CSRF. El GET no escribe: título, descripción, estado, modalidad, horas
+locales, zona e instantes UTC, venue presencial y solo plataforma en línea; nunca identidad del anfitrión,
+contactos ni secretos de sala. Incluye canJoin, alreadyJoined y, solo con cookie válida propia, invitationPath.
+CANCELLED/FINISHED conservan 200 con canJoin=false y POST 409 JOIN_CLOSED. Revocado e inventado comparten 404.
+
+Precedencia del POST: cuerpo ilegible/ausente (400 del framework) → enlace (404) → cookie válida
+(409 ALREADY_JOINED, incluso si el evento cerró) → ventana de admisión (409 JOIN_CLOSED) → validación
+(422, todos los errores de campo) → tope público (409 PUBLIC_LINK_FULL) → total (409 CAPACITY_EXCEEDED).
+Los errores no repiten los datos; instancia constante y detalle fijo, extensiones code/errors con valores
+de lista blanca, no-store exacto y ningún Set-Cookie. La negociación JSON rechaza un Accept incompatible
+antes del alta (406); el saneamiento también elimina cookies heredadas de cualquier error posterior.
+
+Cookie solo en el 201: HttpOnly, `gtog_join_<primeros 16 hex SHA-256(joinToken)>`, valor guestToken,
+Path=/api/invitations/join, app.join.cookie-max-age=P30D y app.join.cookie-same-site=Lax por defecto.
+app.join.cookie-secure se deduce de app.public-base-url: true si empieza por https, false en otro caso;
+puede sobrescribirse. Solo reconoce un invitado vivo PUBLIC_LINK del MISMO evento: una cookie HOST,
+ajena, borrada o con otro nombre se ignora. El GET válido recupera solo el enlace propio; un POST repetido
+da ALREADY_JOINED. La cookie es fricción, no una barrera: omitirla permite otra alta hasta agotar el tope.
+
+PUBLIC_LINK nunca recibe correo de gtog: SKIPPED/UNVERIFIED_CONTACT antes de reservar o consumir cuota,
+también si el anfitrión edita después su contacto. La futura conversión a invitado normal exige decidir
+la verificación del contacto. WhatsApp sí permite READY con teléfono y NO_PHONE sin él. Respuesta, panel,
+primera apertura y cascada confirmada funcionan igual que para HOST. Los nombres vienen de un anónimo:
+el frontend los pinta como texto, nunca HTML; futuras exportaciones CSV neutralizarán prefijos =, +, - y @.
+
 ## Verificación
 
 El total de tests y el estado de su última ejecución se registran únicamente en `docs/plan-iteracion-1.md`.
@@ -592,3 +650,6 @@ La cobertura se organiza por comportamiento:
 - **R11:** grafemas y codificación de la URL, límites, generación sin escrituras, privacidad y lectura por
   lote; confirmación idempotente, teléfono requerido, preservación de OPENED/canal/fecha, concurrencia,
   bloqueo optimista y cierre del evento a mitad del lote.
+- **Enlace público:** intención sin token en DRAFT, publicación/revocación y conservación al cerrar;
+  topes y contactos bajo concurrencia, descarte silencioso, cookie propia/ajena y precedencia de errores,
+  privacidad de cuerpo y logs, WhatsApp permitido y correo excluido incluso después de editar.

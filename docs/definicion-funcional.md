@@ -31,6 +31,7 @@ Dos rasgos lo distinguen de las herramientas existentes:
 |---|---|---|
 | **Anfitrión** | Crea el evento y lo controla. Persona o empresa. | Sí |
 | **Invitado por enlace** | Entra con su enlace único, ve el evento y responde. Su identidad es el token. | No, nunca |
+| **Persona con enlace público del evento** | Se da de alta con nombre y recibe su enlace individual. | No |
 
 Actores posteriores al MVP: co-organizador, invitado registrado y administrador de plataforma (§8).
 
@@ -51,12 +52,18 @@ que ocurre. Elige la modalidad, que condiciona el resto:
 con el texto y el orden que quiera, y marca cuáles cuentan como asistencia. Por defecto, "Asisto" y "No
 asisto". Configura además si el invitado puede comentar, si puede cambiar su respuesta y un plazo opcional.
 
-**Añadir invitados.** Con nombre y correo, teléfono o ambos. El teléfono se normaliza a E.164, porque de ahí
+**Añadir invitados.** El anfitrión los da de alta con nombre y correo, teléfono o ambos. El teléfono se normaliza a E.164, porque de ahí
 dependen los enlaces de WhatsApp. Cada invitado recibe un token único e irrepetible que genera su enlace.
 Se pueden dar de alta varios en una sola operación, todo o nada, con todos los errores por posición. El
 backend admite por defecto hasta 100 por petición y 500 por evento, configurables. El alta rápida en serie
 sigue siendo trabajo del frontend (RF-2.4). La futura importación CSV y desde agenda usará el mismo endpoint
 de lote; no se implementan esos importadores en esta iteración.
+
+También puede pedir un enlace público: en borrador es una intención y el enlace se crea al publicar.
+Cualquiera con él se da de alta inmediatamente con nombre; el contacto es opcional. Por defecto hay 25
+plazas de este origen, dentro del máximo de 500. Si un contacto ya está en el evento se descarta en silencio,
+sin revelar a quién pertenece. Revocar y reactivar crea otro enlace; los invitados existentes se conservan.
+No reciben correo de gtog, aunque se edite después su contacto; sí pueden recibir enlaces WhatsApp con teléfono.
 
 **Enviar las invitaciones.** El canal se elige por invitado:
 
@@ -82,7 +89,8 @@ aceptada por el proveedor, no entregada. La interfaz no debe fingir lo contrario
 
 ## 4. Alcance del MVP
 
-**Entra:** cuenta de anfitrión; evento presencial o en línea; invitados por correo o teléfono; invitación por
+**Entra:** cuenta de anfitrión; evento presencial o en línea; invitados del anfitrión por correo o teléfono,
+o alta por enlace público con contacto opcional; invitación por
 correo o WhatsApp; opciones de respuesta configurables; página pública del invitado sin registro; panel de
 seguimiento.
 
@@ -116,7 +124,7 @@ está en los modelos.
 
 | ID | Requisito | Estado |
 |---|---|---|
-| RF-2.1 | Alta con nombre y correo o teléfono, al menos uno | ✓ R6 |
+| RF-2.1 | Alta del anfitrión con nombre y correo o teléfono, al menos uno; el contacto es opcional en el alta pública | ✓ R6 |
 | RF-2.2 | Teléfono guardado en E.164 | ✓ R6 |
 | RF-2.3 | Validación de formato de correo y teléfono | ✓ R6 |
 | RF-2.4 | Alta rápida en serie | F |
@@ -125,7 +133,7 @@ está en los modelos.
 | RF-2.7 | Token único por invitado que genera su enlace | ✓ R6 |
 | RF-2.8 | Canal elegido por invitado: correo o WhatsApp | ✓ |
 | RF-2.9 | Canales disponibles según los datos del invitado | ✓ |
-| RF-2.10 | Correo por SMTP, solo con el evento publicado y sin respuesta previa | ✓ R10 |
+| RF-2.10 | Correo por SMTP, solo con el evento publicado, invitados HOST y sin respuesta previa; PUBLIC_LINK se omite sin cuota | ✓ R10 |
 | RF-2.11 | WhatsApp asistido: generar enlaces `wa.me` con el mensaje redactado | ✓ R11 |
 | RF-2.12 | Telegram | ✗ aplazado |
 | RF-2.13 | Confirmar el envío de WhatsApp, declarativo e idempotente | ✓ R11 |
@@ -134,6 +142,7 @@ está en los modelos.
 | RF-2.16 | Copiar el enlace individual; el mensaje de WhatsApp sirve de alternativa de copia | ✓ |
 | RF-2.17 | Reenvío a quien no ha respondido, también a quien abrió el enlace | ✓ |
 | RF-2.18 | Alta de varios invitados en una sola operación, todo o nada, con todos los errores por posición | ✓ |
+| RF-2.19 | Alta inmediata por enlace público del evento: se crea al publicar si se pidió, es revocable, nombre obligatorio y contacto opcional; 25 plazas por defecto y dentro del máximo total | ✓ |
 
 ### Ubicación y acceso del evento
 
@@ -181,6 +190,12 @@ ve el enlace de la sala.
 
 **Crear y publicar.** Datos básicos → modalidad y ubicación → opciones de respuesta → invitados → publicar →
 enviar invitaciones por el canal de cada invitado.
+
+Si se activó la intención de enlace público, publicar genera `/j/{joinToken}`. En borrador no hay enlace.
+La persona abre la vista previa, se une mientras el evento acepta una primera respuesta y recibe su propio
+`/r/{token}` para responder sin cuenta. Una cookie evita la repetición accidental en el mismo navegador;
+no es una barrera contra nuevas altas desde otro cliente. Cancelar o finalizar conserva la vista con
+canJoin=false y bloquea el alta; desactivar o revocar el enlace da el mismo 404 que uno inventado.
 
 Antes de crear, el anfitrión verifica su correo mediante el enlace enviado al registrarse. El token viaja
 en el fragmento del enlace y se consume una sola vez al enviarlo a POST /api/auth/verify-email, con CSRF.

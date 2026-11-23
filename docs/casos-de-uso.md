@@ -1,6 +1,6 @@
 # gtog — Casos de uso y métodos del API
 
-Los cuatro casos de uso principales y la secuencia de llamadas que los realiza. Es el puente entre
+Los cinco casos de uso principales y la secuencia de llamadas que los realiza. Es el puente entre
 `definicion-funcional.md` (qué hace la aplicación) y los modelos (el contrato técnico de cada agregado). El
 contrato exacto de campos está en `/v3/api-docs` y en cada modelo.
 
@@ -13,6 +13,7 @@ contrato observado para cada método y ruta. Los ejemplos son extractos con valo
 | UC-2 | Creación y convocatoria de un evento | Anfitrión verificado | Sí |
 | UC-3 | Respuesta del invitado | Invitado con su enlace | No |
 | UC-4 | Consulta del estado del evento | Anfitrión | Sí |
+| UC-5 | Alta de invitado por enlace público | Persona con el enlace del evento | No |
 
 ---
 
@@ -139,12 +140,14 @@ de tiempo de pared idéntico bajo cualquier carga. El formato inválido sigue de
 | 1 | `POST /api/events` | 201, `Location: /api/events/{id}`, evento en `DRAFT` |
 | 2 | Opcional, en `DRAFT`: `PUT /api/events/{id}`, `…/response-options`, `…/venue`, `…/online-access`, `…/response-deadline` | 200 con el evento actualizado |
 | 3 | Alta individual: `POST /api/events/{id}/guests` con `{name, email, phone}`; o una sola alta en lote: `POST /api/events/{id}/guests/batch` con `{guests:[{name,email,phone},…]}` | 201 con el invitado (individual) o la lista en el mismo orden (lote), reutilizando el mismo DTO e invitationPath. Location del invitado o de la colección, respectivamente |
-| 4 | `POST /api/events/{id}/publish` | 200, evento en `PUBLISHED` |
+| 4 | `POST /api/events/{id}/publish` | 200, evento en `PUBLISHED`; genera el enlace público si se pidió |
 | 5 | Convocar: ver abajo | |
 
 **Cuerpo de la creación:** título, descripción, `startsAt`, `endsAt` y `timeZone`; `modality` (`IN_PERSON` u
 `ONLINE`); `venue` si es presencial u `onlineAccess` si es en línea; y, opcionales, `responseOptions`,
-`allowComment`, `allowResponseChange` y `responseDeadline`.
+`allowComment`, `allowResponseChange`, `responseDeadline` y `publicInvitationEnabled` (false por defecto).
+Este último expresa intención en DRAFT: el enlace nace al publicar. PUT del evento no lo modifica;
+GET/PUT `/api/events/{id}/public-invitation` consultan/cambian el interruptor (ver UC-5).
 
 **Por defecto:** opciones "Asisto" (cuenta como asistencia) y "No asisto"; `allowComment=false`;
 `allowResponseChange=true`.
@@ -366,7 +369,8 @@ no sale en myResponse ni en el resto del cuerpo. FINISHED sigue permitiendo desc
   asistencia).
 - **`byOption`:** por opción, `optionId`, `label`, `countsAsAttendance` y `count`, incluidas las que tienen cero.
 - **`guests`:** por invitado, `id`, `name`, contacto, `deliveryChannel`, `invitationStatus`, `answered`, la
-  respuesta con su etiqueta y comentario, y `optionKnown`.
+  respuesta con su etiqueta y comentario, `optionKnown` y `source` (HOST/PUBLIC_LINK).
+- **`publicInvitation`:** enabled, joined, limit y open; los invitados por enlace cuentan igual en totals.
 
 ### Cómo leer los estados
 
@@ -417,6 +421,79 @@ que se dejó en la respuesta. El no-store exacto se aplica al 200 del panel; no 
 
 ---
 
+## UC-5 · Alta de invitado por enlace público
+
+**Actor:** persona con `/j/{joinToken}`, sin cuenta ni sesión. **Resultado:** invitado nuevo PUBLIC_LINK y
+su enlace individual, sin aprobación del anfitrión. Es otra credencial: nunca se registra.
+
+| Paso | Llamada | Resultado |
+|---|---|---|
+| 1, anfitrión | POST /api/events con publicInvitationEnabled=true, o PUT /api/events/{id}/public-invitation `{enabled:true}` | En DRAFT expresa intención, `{enabled:true,path:null}`; publicar genera el token |
+| 2, anfitrión | GET /api/events/{id}/public-invitation | 200 `{enabled,path}`; path `/j/<token>` solo si existe; no-store exacto |
+| 3, invitado | GET /api/invitations/join/{joinToken} | 200 con vista previa, canJoin y alreadyJoined; no escribe |
+| 4, invitado | POST /api/invitations/join/{joinToken} `{name,email?,phone?}` | 201 `{invitationPath}` y cookie HttpOnly; no-store exacto |
+| 5, navegador propio | GET join con esa cookie | alreadyJoined=true y su invitationPath; redirigir a `/r/{token}` y continuar UC-3 |
+
+El interruptor exige propiedad y sesión (404 si es ajeno), además CSRF en PUT. DRAFT solo cambia intención;
+PUBLISHED permite activar idempotentemente, desactivar y reactivar con un token distinto. PUT en CANCELLED
+o FINISHED da 409; GET sigue dando 200 y muestra el enlace conservado, inerte. EventResponse solo incluye
+publicInvitationEnabled, nunca el token. Revocar no borra invitados ni sus enlaces individuales.
+
+La vista previa no expone anfitrión, invitados ni contactos: título, descripción, estado, modalidad,
+fechas locales/UTC, zona, venue presencial o solo plataforma online. CANCELLED/FINISHED dan 200 con
+canJoin=false; POST devuelve JOIN_CLOSED. DRAFT, desactivado, revocado e inventado comparten el mismo 404.
+
+Nombre recortado, 1–100 caracteres sin controles; contactos opcionales, pero válidos si vienen. Si uno ya
+existe en cualquier invitado, se descartan ambos en silencio: nunca se revela el enlace de otra persona.
+La nueva respuesta es indistinguible de un alta sin conflicto. Máximo público 25 y total 500, configurables,
+comprobados atómicamente. La admisión reutiliza la política de primera respuesta, con Clock.
+
+**Orden de errores del POST** (JSON normal con @RequestBody):
+
+| Orden | Comprobación | Resultado |
+|---|---|---|
+| 1 | Cuerpo ilegible o ausente | 400 del framework |
+| 2 | Enlace desconocido, desactivado, revocado o DRAFT | 404 indistinguible |
+| 3 | Cookie de un PUBLIC_LINK vivo de este evento | 409, code=ALREADY_JOINED, incluso si cerró |
+| 4 | Evento no admite una primera respuesta | 409, code=JOIN_CLOSED, antes de validar campos |
+| 5 | Nombre/contactos inválidos | 422, errors `[{field,code}]`, antes de comprobar plazas |
+| 6 | Plazas públicas agotadas | 409, code=PUBLIC_LINK_FULL |
+| 7 | Capacidad total agotada | 409, code=CAPACITY_EXCEEDED |
+
+No se repiten datos personales ni credenciales en errores o logs. Instance `/api/invitations`, detalle fijo,
+no-store exacto y sin Set-Cookie en todos los errores; las extensiones se validan mediante lista blanca.
+Un Accept incompatible da 406 antes del alta, sin escribir. También se aplican 405, 415 y 500 saneados.
+
+Cookie solo en el 201: nombre `gtog_join_<16 hex SHA-256(joinToken)>`, valor guestToken, HttpOnly,
+Path=/api/invitations/join, Max-Age 30 días, SameSite=Lax por defecto. Secure se deduce de la URL pública
+(https=true) y es configurable, igual que SameSite y duración. Solo reconoce PUBLIC_LINK de ESTE evento;
+cookie ajena, HOST, borrada o con otro nombre se ignora. Es fricción: otro navegador o quitar la cookie
+permite otra alta. Frontend con withCredentials y política SameSite/Secure adecuada al despliegue.
+
+PUBLIC_LINK no recibe correo de gtog: UNVERIFIED_CONTACT sin reservas ni cuota, también tras editarlo.
+WhatsApp sí genera enlace si hay teléfono; sin él, NO_PHONE. Cuenta en el panel igual que HOST y conserva
+la cascada confirmada si se elimina tras responder. La conversión a invitado normal queda pendiente.
+Los nombres son texto de un anónimo: nunca HTML; neutralizar prefijos =, +, - o @ en futuras exportaciones CSV.
+
+### Ejemplo UC-5
+
+```http
+POST /api/invitations/join/{joinToken}
+Content-Type: application/json
+
+{"name":"Elena"}
+```
+
+```http
+HTTP/1.1 201 Created
+Cache-Control: no-store
+
+{"invitationPath":"/r/BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"}
+```
+
+Se emite además la cookie descrita, sin sesión ni CSRF. El recorrido manual completo está en
+`rest-api-join.http`, con jar real para el navegador A y otro cliente sin jar como navegador B.
+
 ## Resumen: método y caso de uso
 
 | Método y ruta | UC |
@@ -433,6 +510,8 @@ que se dejó en la respuesta. El no-store exacto se aplica al 200 del panel; no 
 | `POST /api/events/{id}/invitations/send`, `whatsapp-links`, `whatsapp-sent` | 2 |
 | `GET /api/invitations/{token}`, `PUT …/response`, `GET …/calendar` | 3 |
 | `GET /api/events`, `GET /api/events/{id}`, `GET /api/events/{id}/dashboard` | 4 |
+| `GET` y `PUT /api/events/{id}/public-invitation` | 5 (anfitrión) |
+| `GET` y `POST /api/invitations/join/{joinToken}` | 5 (público) |
 
 Fuera de estos casos: `/actuator/health`, `/v3/api-docs` y `/swagger-ui.html`.
 
@@ -514,3 +593,15 @@ Fuentes: EventController, EventDashboardController, GuestController y los tests 
 | GET /api/events/{id} | Sí | No | 200 + EventResponse | 401, 404 |
 | GET /api/events/{id}/dashboard | Sí | No | 200 + EventDashboardResponse, no-store exacto | 401, 404 |
 | GET /api/events/{id}/guests | Sí | No | 200 + lista GuestInvitationResponse | 401, 404 |
+
+### UC-5: interruptor y alta pública
+
+Fuentes: PublicInvitationController, PublicJoinController, PublicInvitationService,
+PreviewPublicInvitationService, PublicInvitationRepositoryAdapter y sus tests con servidor real.
+
+| Método y ruta completos | Sesión | CSRF | Éxito | Errores |
+|---|---|---|---|---|
+| GET /api/events/{id}/public-invitation | Sí | No | 200 `{enabled,path}`, todos los estados, no-store exacto | 401, 404 |
+| PUT /api/events/{id}/public-invitation | Sí | Sí | 200 `{enabled,path}`, DRAFT/PUBLISHED, no-store exacto | 400, 401 con CSRF válido sin sesión, 403 CSRF, 404, 409 estado/carrera |
+| GET /api/invitations/join/{joinToken} | No | No | 200 vista previa; CANCELLED/FINISHED con canJoin=false; no-store exacto | 404; 405, 406, 500 saneados |
+| POST /api/invitations/join/{joinToken} | No | No | 201 `{invitationPath}` y cookie, no-store exacto | 400, 404, 409 ALREADY_JOINED/JOIN_CLOSED/PUBLIC_LINK_FULL/CAPACITY_EXCEEDED, 422 errors por campo; 405, 406, 415, 500 saneados |
