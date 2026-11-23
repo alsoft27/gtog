@@ -24,6 +24,8 @@ public final class Guest {
 	private final Instant openedAt;
 	private final int emailSendCount;
 	private final Instant lastEmailSentAt;
+	private final GuestSource source;
+	private final Instant joinedAt;
 
 	private Guest(String id, String name, String email, String phoneE164, String token,
 			InvitationStatus invitationStatus, DeliveryChannel deliveryChannel, Instant sentAt, Instant openedAt) {
@@ -33,6 +35,13 @@ public final class Guest {
 	private Guest(String id, String name, String email, String phoneE164, String token,
 			InvitationStatus invitationStatus, DeliveryChannel deliveryChannel, Instant sentAt, Instant openedAt,
 			int emailSendCount, Instant lastEmailSentAt) {
+		this(id, name, email, phoneE164, token, invitationStatus, deliveryChannel, sentAt, openedAt,
+				emailSendCount, lastEmailSentAt, GuestSource.HOST, null);
+	}
+
+	private Guest(String id, String name, String email, String phoneE164, String token,
+			InvitationStatus invitationStatus, DeliveryChannel deliveryChannel, Instant sentAt, Instant openedAt,
+			int emailSendCount, Instant lastEmailSentAt, GuestSource source, Instant joinedAt) {
 		this.id = id;
 		this.name = name;
 		this.email = email;
@@ -44,6 +53,8 @@ public final class Guest {
 		this.openedAt = openedAt;
 		this.emailSendCount = emailSendCount;
 		this.lastEmailSentAt = lastEmailSentAt;
+		this.source = source == null ? GuestSource.HOST : source;
+		this.joinedAt = this.source == GuestSource.PUBLIC_LINK ? joinedAt : null;
 	}
 
 	public static Guest create(String name, String email, String phone, String token, PhoneNormalizerPort normalizer) {
@@ -58,10 +69,43 @@ public final class Guest {
 	}
 
 	public Guest editContact(String name, String email, String phone, PhoneNormalizerPort normalizer) {
-		Contact contact = validatedContact(name, email, phone, normalizer);
+		Contact contact = source == GuestSource.PUBLIC_LINK ? validatedPublicContact(name, email, phone, normalizer)
+				: validatedContact(name, email, phone, normalizer);
 		return new Guest(id, contact.name, contact.email, contact.phoneE164, token, invitationStatus,
 				deliveryChannel, sentAt, openedAt, Objects.equals(this.email, contact.email) ? emailSendCount : 0,
-				Objects.equals(this.email, contact.email) ? lastEmailSentAt : null);
+				Objects.equals(this.email, contact.email) ? lastEmailSentAt : null, source, joinedAt);
+	}
+
+	public static Guest joinPublicInvitation(String name, String email, String phone, String token,
+			PhoneNormalizerPort normalizer, Instant now) {
+		Contact contact = validatedPublicContact(name, email, phone, normalizer);
+		return new Guest(UUID.randomUUID().toString(), contact.name, contact.email, contact.phoneE164,
+				Objects.requireNonNull(token), InvitationStatus.NOT_SENT, null, null, null, 0, null,
+				GuestSource.PUBLIC_LINK, Objects.requireNonNull(now));
+	}
+
+	public Guest withoutContact() {
+		if (source != GuestSource.PUBLIC_LINK) { throw new IllegalStateException("Only public guests may discard their contact"); }
+		return new Guest(id, name, null, null, token, invitationStatus, deliveryChannel, sentAt, openedAt,
+				emailSendCount, lastEmailSentAt, source, joinedAt);
+	}
+
+	private static Contact validatedPublicContact(String name, String email, String phone, PhoneNormalizerPort normalizer) {
+		Contact contact = validateContact(name, email, phone, normalizer, GuestSource.PUBLIC_LINK);
+		var errors = new java.util.ArrayList<PublicJoinFieldError>();
+		for (GuestErrorCode error : contact.errors()) {
+			String field = switch (error) { case BLANK_NAME -> "name"; case INVALID_EMAIL -> "email"; case INVALID_PHONE -> "phone";
+				default -> throw new IllegalStateException("Unexpected public contact validation error"); };
+			errors.add(new PublicJoinFieldError(field, PublicJoinFieldError.Code.valueOf(error.name())));
+		}
+		if (contact.name != null && contact.name.codePointCount(0, contact.name.length()) > 100) {
+			errors.add(new PublicJoinFieldError("name", PublicJoinFieldError.Code.NAME_TOO_LONG));
+		}
+		if (name != null && name.codePoints().anyMatch(Character::isISOControl)) {
+			errors.add(new PublicJoinFieldError("name", PublicJoinFieldError.Code.INVALID_NAME));
+		}
+		if (!errors.isEmpty()) { throw new PublicJoinValidationException(errors); }
+		return contact;
 	}
 
 	private static Contact validatedContact(String name, String email, String phone, PhoneNormalizerPort normalizer) {
@@ -71,11 +115,15 @@ public final class Guest {
 	}
 
 	static Contact validateContact(String name, String email, String phone, PhoneNormalizerPort normalizer) {
+		return validateContact(name, email, phone, normalizer, GuestSource.HOST);
+	}
+
+	private static Contact validateContact(String name, String email, String phone, PhoneNormalizerPort normalizer, GuestSource source) {
 		var errors = new java.util.ArrayList<GuestErrorCode>();
 		if (name == null || name.isBlank()) { errors.add(GuestErrorCode.BLANK_NAME); }
 		String normalizedEmail = optionalText(email);
 		String normalizedPhone = optionalText(phone);
-		if (normalizedEmail == null && normalizedPhone == null) {
+		if (source == GuestSource.HOST && normalizedEmail == null && normalizedPhone == null) {
 			errors.add(GuestErrorCode.NO_CONTACT);
 		}
 		if (normalizedEmail != null) {
@@ -113,6 +161,14 @@ public final class Guest {
 	}
 
 	public int getEmailSendCount() { return emailSendCount; }
+	public static Guest reconstitute(String id, String name, String email, String phoneE164, String token,
+			InvitationStatus invitationStatus, DeliveryChannel deliveryChannel, Instant sentAt, Instant openedAt,
+			int emailSendCount, Instant lastEmailSentAt, GuestSource source, Instant joinedAt) {
+		return new Guest(id, name, email, phoneE164, token, invitationStatus, deliveryChannel, sentAt, openedAt,
+				emailSendCount, lastEmailSentAt, source, joinedAt);
+	}
+	public GuestSource getSource() { return source; }
+	public Instant getJoinedAt() { return joinedAt; }
 	public Instant getLastEmailSentAt() { return lastEmailSentAt; }
 	public String getName() { return name; }
 	public String getEmail() { return email; }

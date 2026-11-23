@@ -30,6 +30,9 @@ public class MongoIndexInitializer {
 		mongoTemplate.indexOps(EventDocument.class).createIndex(new Index().on("hostId", Sort.Direction.ASC));
 		mongoTemplate.indexOps(EventDocument.class).createIndex(new Index().on("guests.token", Sort.Direction.ASC)
 				.unique().partial(PartialIndexFilter.of(Criteria.where("guests.token").type(2))));
+		mongoTemplate.indexOps(EventDocument.class).createIndex(new Index().on("publicInvitation.token", Sort.Direction.ASC)
+				.unique().partial(PartialIndexFilter.of(Criteria.where("publicInvitation.token").type(2)))
+				.named("public_invitation_token"));
 		mongoTemplate.indexOps(GuestResponseDocument.class).createIndex(new Index().on("eventId", Sort.Direction.ASC)
 				.on("guestToken", Sort.Direction.ASC).unique().named("response_per_guest"));
 		mongoTemplate.indexOps(GuestResponseDocument.class).createIndex(new Index().on("eventId", Sort.Direction.ASC));

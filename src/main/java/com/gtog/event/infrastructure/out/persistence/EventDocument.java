@@ -33,6 +33,7 @@ public class EventDocument {
 	@Version
 	private final Long version;
 	private final List<GuestDocument> guests;
+	private final PublicInvitationDocument publicInvitation;
 
 	public EventDocument(String id, String hostId, String title, String description, LocalDateTime startsAt,
 			LocalDateTime endsAt, String timeZone, String modality, String status,
@@ -44,12 +45,23 @@ public class EventDocument {
 				version, List.of());
 	}
 
-	@PersistenceCreator
 	public EventDocument(String id, String hostId, String title, String description, LocalDateTime startsAt,
 			LocalDateTime endsAt, String timeZone, String modality, String status,
 			List<ResponseOptionDocument> responseOptions, boolean allowComment, boolean allowResponseChange,
 			LocalDateTime responseDeadline, VenueDocument venue, OnlineAccessDocument onlineAccess,
 			Instant cancelledAt, String cancellationReason, Long version, List<GuestDocument> guests) {
+		this(id, hostId, title, description, startsAt, endsAt, timeZone, modality, status, responseOptions,
+				allowComment, allowResponseChange, responseDeadline, venue, onlineAccess, cancelledAt, cancellationReason,
+				version, guests, null);
+	}
+
+	@PersistenceCreator
+	public EventDocument(String id, String hostId, String title, String description, LocalDateTime startsAt,
+			LocalDateTime endsAt, String timeZone, String modality, String status,
+			List<ResponseOptionDocument> responseOptions, boolean allowComment, boolean allowResponseChange,
+			LocalDateTime responseDeadline, VenueDocument venue, OnlineAccessDocument onlineAccess,
+			Instant cancelledAt, String cancellationReason, Long version, List<GuestDocument> guests,
+			PublicInvitationDocument publicInvitation) {
 		this.id = id;
 		this.hostId = hostId;
 		this.title = title;
@@ -69,6 +81,7 @@ public class EventDocument {
 		this.cancellationReason = cancellationReason;
 		this.version = version;
 		this.guests = guests == null ? List.of() : List.copyOf(guests);
+		this.publicInvitation = publicInvitation;
 	}
 
 	public String getId() {
@@ -146,4 +159,5 @@ public class EventDocument {
 	public Long getVersion() {
 		return version;
 	}
+	public PublicInvitationDocument getPublicInvitation() { return publicInvitation; }
 }

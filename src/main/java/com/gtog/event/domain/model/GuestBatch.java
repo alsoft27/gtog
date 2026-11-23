@@ -39,6 +39,7 @@ public final class GuestBatch {
 		var existingErrors = existingErrors(event, created);
 		if (!existingErrors.isEmpty()) { throw new GuestBatchRejectedException(existingErrors, true); }
 		Set<String> uniqueTokens = new HashSet<>(); event.getGuests().forEach(guest -> uniqueTokens.add(guest.getToken()));
+		if (event.getPublicInvitation() != null) { uniqueTokens.add(event.getPublicInvitation().token()); }
 		for (Guest guest : created) { if (!uniqueTokens.add(guest.getToken())) { throw new DuplicateGuestTokenException(); } }
 		return created;
 	}

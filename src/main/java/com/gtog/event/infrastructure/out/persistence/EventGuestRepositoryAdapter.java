@@ -71,6 +71,7 @@ public class EventGuestRepositoryAdapter implements EventGuestRepositoryPort {
 		var phones = guests.stream().map(Guest::getPhoneE164).filter(java.util.Objects::nonNull).toList();
 		query.addCriteria(Criteria.where("guests.email").nin(emails).and("guests.phoneE164").nin(phones)
 				.and("guests.token").nin(guests.stream().map(Guest::getToken).toList()));
+		query.addCriteria(Criteria.where("publicInvitation.token").nin(guests.stream().map(Guest::getToken).toList()));
 		// Comprobar plazas en el filtro: dos lotes no pueden consumir la misma capacidad.
 		query.addCriteria(Criteria.where("$expr").is(new Document("$lte", List.of(
 				new Document("$size", new Document("$ifNull", List.of("$guests", List.of()))), limits.maxPerEvent() - guests.size()))));
@@ -79,7 +80,7 @@ public class EventGuestRepositoryAdapter implements EventGuestRepositoryPort {
 					.each(guests.stream().map(mapper::toDocument).toArray()).inc("version", 1), EventDocument.class);
 			if (result.getMatchedCount() != 1) { classifyAdditionFailure(eventId, hostId, guests, individual); }
 		} catch (DuplicateKeyException e) {
-			// El unico indice unico de events, aparte de _id, es guests.token. No se propaga el token del error.
+			// Esta operación solo añade guests: no cambia el token del enlace público ni propaga errores con tokens.
 			throw new DuplicateGuestTokenException();
 		}
 	}

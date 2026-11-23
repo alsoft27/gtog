@@ -4,6 +4,7 @@ import org.springframework.stereotype.Component;
 
 import com.gtog.event.domain.model.Event;
 import com.gtog.event.domain.model.EventDomainException;
+import com.gtog.event.domain.model.PublicInvitation;
 import com.gtog.shared.StoredDataIntegrityException;
 import com.gtog.event.domain.model.LinkVisibility;
 import com.gtog.event.domain.model.Modality;
@@ -41,7 +42,8 @@ public class EventMapper {
 				event.getCancelledAt(),
 				event.getCancellationReason(),
 				event.getVersion(),
-				event.getGuests().stream().map(guestMapper::toDocument).toList());
+				event.getGuests().stream().map(guestMapper::toDocument).toList(),
+				event.getPublicInvitation() == null ? null : new PublicInvitationDocument(event.getPublicInvitation().token()));
 	}
 
 	public Event toDomain(EventDocument document) {
@@ -73,6 +75,7 @@ public class EventMapper {
 				.cancellationReason(document.getCancellationReason())
 				.version(document.getVersion())
 				.guests(document.getGuests().stream().map(guestMapper::toDomain).toList())
+				.publicInvitation(document.getPublicInvitation() == null ? null : new PublicInvitation(document.getPublicInvitation().token()))
 				.build();
 	}
 

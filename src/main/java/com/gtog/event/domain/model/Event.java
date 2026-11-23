@@ -32,6 +32,7 @@ public class Event {
 	private String cancellationReason;
 	private final Long version;
 	private List<Guest> guests = List.of();
+	private PublicInvitation publicInvitation;
 
 	private Event(String id, String hostId, String title, String description, LocalDateTime startsAt,
 			LocalDateTime endsAt, String timeZone, Modality modality, EventStatus status,
@@ -106,6 +107,19 @@ public class Event {
 		return List.copyOf(guests);
 	}
 
+	public PublicInvitation getPublicInvitation() { return publicInvitation; }
+	public boolean isPublicInvitationEnabled() { return publicInvitation != null; }
+	public long publicJoinedCount() { return guests.stream().filter(guest -> guest.getSource() == GuestSource.PUBLIC_LINK).count(); }
+	public boolean hasGuestContact(Guest candidate) { return guests.stream().anyMatch(candidate::sharesContact); }
+	public Guest discardConflictingPublicContact(Guest candidate) { return hasGuestContact(candidate) ? candidate.withoutContact() : candidate; }
+	public boolean canJoinPublicInvitation(Instant now, PublicJoinLimits limits) {
+		return isPublicInvitationEnabled() && responseAcceptancePolicy(now).canRespond(false)
+				&& publicJoinedCount() < limits.maxPublicGuests() && guests.size() < limits.maxPerEvent();
+	}
+	public void ensurePublicInvitationEditable() {
+		if (status != EventStatus.DRAFT && status != EventStatus.PUBLISHED) { throw new PublicInvitationNotEditableException(); }
+	}
+
 	public void ensureGuestsEditable() {
 		if (status == EventStatus.FINISHED || status == EventStatus.CANCELLED) {
 			throw new EventGuestsNotEditableException();
@@ -113,6 +127,7 @@ public class Event {
 	}
 
 	private void validateGuestUniqueness(Guest candidate, String excludedGuestId) {
+		if (publicInvitation != null && publicInvitation.token().equals(candidate.getToken())) { throw new DuplicateGuestTokenException(); }
 		for (Guest existing : guests) {
 			if (existing.getId().equals(excludedGuestId)) {
 				continue;
@@ -447,6 +462,9 @@ public class Event {
 		private LocalDateTime responseDeadline;
 		private Venue venue;
 		private OnlineAccess onlineAccess;
+		private PublicInvitation publicInvitation;
+
+		public Builder publicInvitation(PublicInvitation value) { this.publicInvitation = value; return this; }
 
 		private Builder() {
 		}
@@ -528,10 +546,12 @@ public class Event {
 			validateModalityInvariant(modality, venue, onlineAccess);
 			List<ResponseOption> resolvedResponseOptions = buildInitialResponseOptions(responseOptions);
 			validateResponseOptions(resolvedResponseOptions);
-			return new Event(UUID.randomUUID().toString(), hostId, title, description, startsAt, endsAt, timeZone,
+			Event event = new Event(UUID.randomUUID().toString(), hostId, title, description, startsAt, endsAt, timeZone,
 					modality, EventStatus.DRAFT, resolvedResponseOptions, resolveAllowComment(allowComment),
 					resolveAllowResponseChange(allowResponseChange), responseDeadline, venue, onlineAccess, null, null,
 					null);
+			event.publicInvitation = publicInvitation;
+			return event;
 		}
 	}
 
@@ -556,6 +576,9 @@ public class Event {
 		private String cancellationReason;
 		private Long version;
 		private List<Guest> guests = List.of();
+		private PublicInvitation publicInvitation;
+
+		public ReconstituteBuilder publicInvitation(PublicInvitation value) { this.publicInvitation = value; return this; }
 
 		private ReconstituteBuilder() {
 		}
@@ -660,6 +683,7 @@ public class Event {
 					responseOptions, allowComment, allowResponseChange, responseDeadline, venue, onlineAccess,
 					cancelledAt, cancellationReason, version);
 			event.guests = guests;
+			event.publicInvitation = publicInvitation;
 			return event;
 		}
 	}
