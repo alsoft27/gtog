@@ -275,7 +275,7 @@ OpenAPI (springdoc 3.1.0) y Swagger: `/v3/api-docs` y `/swagger-ui.html`; config
 
 ## Tests
 
-- Nunca lances dos ejecuciones de Maven a la vez: comparten la base gtog_test y se borran los datos entre sí.
+- Ejecuta Maven siempre en primer plano y de una en una: nunca con & ni en segundo plano, y nunca dos ejecuciones a la vez, porque comparten la base gtog_test y se borran los datos entre sí. No hace falta comprobar procesos antes de cada ejecución. Solo si una ejecución se interrumpió (el usuario te paró o el comando agotó su tiempo), antes de la siguiente comprueba que no queda ningún Maven o surefire de este repositorio, mostrando solo pid, tiempo y nombre del ejecutable, sin argumentos ni variables de entorno.
 
 - Dominio y casos de uso: tests unitarios planos, sin contexto de Spring. Deben ser rápidos, y la arquitectura hexagonal es justamente lo que lo permite: si un test de caso de uso necesita Spring, las dependencias están mal.
 - Adaptadores y flujos completos: tests de integración con `@SpringBootTest @ActiveProfiles("test")` contra MongoDB Atlas (base `gtog_test`). La conexión está en `src/test/resources/application-test.properties`. Hace falta `MONGODB_URI` en el entorno antes de lanzar los tests (ver sección Comandos). Nada de Mongo embebido.
@@ -292,6 +292,7 @@ OpenAPI (springdoc 3.1.0) y Swagger: `/v3/api-docs` y `/swagger-ui.html`; config
 - Se trabaja directamente sobre `main` hasta el primer despliegue, por decisión del usuario. En ese momento se reconsiderará el uso de ramas `feat/nombre-corto` y `fix/nombre-corto`.
 - Commits convencionales en inglés: `feat(guest): generate unique token on guest creation`.
 - No hagas commit sin que `mvn clean verify` pase en verde antes de cada uno.
+- Un commit que solo modifica ficheros Markdown, sin cambios en src, pom.xml ni ficheros de configuración, no requiere repetir la suite si la última ejecución completa sigue en verde sobre el mismo código. Compruébalo con git diff --stat y git status --short; si aparece cualquier fichero que no sea Markdown, ejecuta la suite.
 - Sin push salvo petición expresa del usuario.
 - Nunca subas `.env`, credenciales ni la clave de Google Maps.
 

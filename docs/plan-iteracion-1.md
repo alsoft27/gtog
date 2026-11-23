@@ -406,7 +406,7 @@ puede disparar `MESSAGE_TOO_LONG` para todo el evento.
 | D-FINISHED | Ningún mecanismo lleva un evento a `FINISHED` | La regla "no responder tras el fin del evento" cubre el hueco |
 | D-DELETE-DRAFT | No se puede eliminar un borrador | Tampoco cancelarlo |
 | D-DUP-KEY | `users` detecta el email duplicado por el texto del error de Mongo | Frágil si hay más índices únicos |
-| D-5 | Tests de integración contra Atlas | Necesitan red y son más lentos; aceptable con un solo desarrollador. Los tests no pueden ejecutarse en paralelo: comparten gtog_test y se borran los datos entre sí. |
+| D-5 | Tests de integración contra Atlas | Necesitan red y son más lentos; aceptable con un solo desarrollador. Los tests no pueden ejecutarse en paralelo: comparten gtog_test y se borran los datos entre sí. Los tests no se ejecutan en paralelo contra gtog_test, ni desde Codex ni desde el IDE a la vez. Mejora pendiente: una base distinta por ejecución. |
 | expectedVersion | El parámetro expectedVersion de addGuest se conserva por compatibilidad con los tests, pero el adaptador no lo utiliza: delega en addGuests | Retirar la firma obsoleta cuando se autorice; no vuelve a introducirse como condición de escritura |
 | D-6 | Sin herramienta de migraciones | Sin cambio de esquema versionado hasta que haya datos reales |
 | D-UNVERIFIED-SQUATTING | (R12) Registrarse con el correo de otra persona deja esa dirección ocupada | Purga de cuentas sin verificar |
