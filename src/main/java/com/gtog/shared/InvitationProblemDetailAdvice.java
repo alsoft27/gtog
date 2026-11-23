@@ -48,9 +48,29 @@ public class InvitationProblemDetailAdvice implements ResponseBodyAdvice<Object>
 		// Un cuerpo nuevo elimina también title, type y extensiones que pudieran repetir datos de la petición.
 		sanitized.setInstance(URI.create("/api/invitations"));
 		sanitized.setType(URI.create("about:blank"));
+		copyAllowedExtensions(problem, sanitized);
 		response.getHeaders().setCacheControl("no-store");
 		response.getHeaders().setContentType(MediaType.APPLICATION_PROBLEM_JSON);
 		return sanitized;
+	}
+
+	private static void copyAllowedExtensions(ProblemDetail original, ProblemDetail sanitized) {
+		var properties = original.getProperties();
+		if (properties == null) { return; }
+		// Lista blanca de valores, no solo de claves: una extensión no puede transportar datos arbitrarios.
+		if (properties.get("code") instanceof String code && Set.of("ALREADY_JOINED", "JOIN_CLOSED", "PUBLIC_LINK_FULL", "CAPACITY_EXCEEDED").contains(code)) {
+			sanitized.setProperty("code", code);
+		}
+		if (properties.get("errors") instanceof java.util.List<?> errors && !errors.isEmpty()) {
+			var safe = new java.util.ArrayList<java.util.Map<String, String>>();
+			for (Object item : errors) {
+				if (!(item instanceof java.util.Map<?, ?> error) || !(error.get("field") instanceof String field)
+						|| !(error.get("code") instanceof String code) || !Set.of("name", "email", "phone").contains(field)
+						|| !Set.of("BLANK_NAME", "NAME_TOO_LONG", "INVALID_NAME", "INVALID_EMAIL", "INVALID_PHONE").contains(code)) { return; }
+				safe.add(java.util.Map.of("field", field, "code", code));
+			}
+			sanitized.setProperty("errors", java.util.List.copyOf(safe));
+		}
 	}
 
 	private static String genericDetail(int status) {

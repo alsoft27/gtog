@@ -1,6 +1,8 @@
 package com.gtog.shared;
 
 import com.gtog.event.domain.model.PublicInvitationNotEditableException;
+import com.gtog.event.domain.model.PublicJoinConflictException;
+import com.gtog.event.domain.model.PublicJoinValidationException;
 
 import java.net.URI;
 import com.gtog.event.domain.model.GuestResponseException;
@@ -155,6 +157,20 @@ public class GlobalExceptionHandler {
 	@ExceptionHandler(EventNotCancellableException.class)
 	public ProblemDetail handleEventNotCancellableException(EventNotCancellableException exception) {
 		return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, exception.getMessage());
+	}
+
+	@ExceptionHandler(PublicJoinConflictException.class)
+	public ProblemDetail handlePublicJoinConflict(PublicJoinConflictException exception) {
+		ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, "Public invitation request conflicts with the current state");
+		problem.setProperty("code", exception.getCode().name());
+		return problem;
+	}
+
+	@ExceptionHandler(PublicJoinValidationException.class)
+	public ProblemDetail handlePublicJoinValidation(PublicJoinValidationException exception) {
+		ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.UNPROCESSABLE_ENTITY, "Invalid public invitation registration");
+		problem.setProperty("errors", exception.getErrors().stream().map(error -> java.util.Map.of("field", error.field(), "code", error.code().name())).toList());
+		return problem;
 	}
 
 	@ExceptionHandler(ModalityConflictException.class)

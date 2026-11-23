@@ -46,6 +46,7 @@ class InvitationErrorPrivacyIntegrationTest {
 	@MockitoBean private Clock clock;
 	@MockitoSpyBean private EventRepositoryPort events;
 	@MockitoSpyBean private InvitationCalendarRendererPort calendar;
+	@MockitoSpyBean private com.gtog.event.domain.port.out.PublicInvitationRepositoryPort publicInvitations;
 	InvitationErrorPrivacyIntegrationTest(@Value("${local.server.port}") int port, MongoTemplate mongo, InstanceObserver observer) {
 		this.port = port; this.mongo = mongo; this.observer = observer;
 	}
@@ -129,9 +130,80 @@ class InvitationErrorPrivacyIntegrationTest {
 		}
 	}
 
+	static Stream<ErrorCase> joinCases() {
+		var cases = new ArrayList<ErrorCase>();
+		for (String method : List.of("GET", "POST")) {
+			for (String setup : List.of("unknown", "draft", "revoked")) {
+				cases.add(new ErrorCase(method + " join " + setup, method, "", "{\"name\":\"Ana\"}", "application/json", "*/*", setup, 404));
+			}
+			cases.add(new ErrorCase(method + " join accept", method, "", "{\"name\":\"Ana\"}", "application/json", "application/xml", "none", 406));
+			cases.add(new ErrorCase(method + " join unexpected", method, "", "{\"name\":\"Ana\"}", "application/json", "*/*", "unexpected", 500));
+			cases.add(new ErrorCase(method + " join domain", method, "", "{\"name\":\"Ana\"}", "application/json", "*/*", "domain", 409));
+		}
+		cases.add(new ErrorCase("join unsupported method", "DELETE", "", "", "application/json", "*/*", "none", 405));
+		cases.add(new ErrorCase("join media type", "POST", "", "{\"name\":\"Ana\"}", "text/plain", "*/*", "none", 415));
+		cases.add(new ErrorCase("join malformed", "POST", "", "{\"name\":\"" + TOKEN, "application/json", "*/*", "none", 400));
+		cases.add(new ErrorCase("join invalid", "POST", "", "{\"name\":\"\",\"email\":\"" + TOKEN + "@@\"}", "application/json", "*/*", "none", 422));
+		cases.add(new ErrorCase("join cancelled", "POST", "", "{\"name\":\"Ana\"}", "application/json", "*/*", "cancelled", 409));
+		cases.add(new ErrorCase("join finished", "POST", "", "{\"name\":\"Ana\"}", "application/json", "*/*", "finished", 409));
+		return cases.stream();
+	}
+	@ParameterizedTest(name = "{0}") @MethodSource("joinCases")
+	void publicJoinErrorsNeverContainEitherCredentialAndHaveAConstantInstance(ErrorCase sample, CapturedOutput output) throws Exception {
+		String joinToken = token(102);
+		Query query = Query.query(Criteria.where("id").is("event-id"));
+		mongo.updateFirst(query, new Update().set("publicInvitation.enabled", true).set("publicInvitation.token", joinToken), EventDocument.class);
+		switch (sample.setup()) {
+			case "unknown" -> joinToken = token(999);
+			case "draft" -> mongo.updateFirst(query, new Update().set("status", "DRAFT").unset("publicInvitation.token"), EventDocument.class);
+			case "revoked" -> mongo.updateFirst(query, new Update().unset("publicInvitation"), EventDocument.class);
+			case "cancelled" -> mongo.updateFirst(query, new Update().set("status", "CANCELLED"), EventDocument.class);
+			case "finished" -> mongo.updateFirst(query, new Update().set("status", "FINISHED"), EventDocument.class);
+			case "unexpected" -> doThrow(new RuntimeException("Private " + TOKEN + joinToken)).when(publicInvitations).findByToken(joinToken);
+			case "domain" -> doThrow(new ModalityConflictException("Private " + TOKEN + joinToken)).when(publicInvitations).findByToken(joinToken);
+			default -> { }
+		}
+		String path = "/api/invitations/join/" + joinToken;
+		var builder = HttpRequest.newBuilder(URI.create("http://localhost:" + port + path)).header("Accept", sample.accept()).header("Content-Type", sample.contentType());
+		var response = client.send(builder.method(sample.method(), sample.method().equals("POST") ? HttpRequest.BodyPublishers.ofString(sample.body()) : HttpRequest.BodyPublishers.noBody()).build(), HttpResponse.BodyHandlers.ofString());
+		assertThat(response.statusCode()).isEqualTo(sample.status());
+		assertThat(response.body()).doesNotContain(TOKEN, joinToken, path);
+		assertThat(response.headers().firstValue("Content-Type").orElseThrow()).startsWith("application/problem+json");
+		assertThat(JsonPath.parse(response.body()).read("$.instance", String.class)).isEqualTo("/api/invitations");
+		assertThat(response.headers().firstValue("Cache-Control")).contains("no-store");
+		assertThat(output.getAll()).doesNotContain(TOKEN, joinToken);
+	}
+
+	@org.junit.jupiter.api.Test
+	void aTestExceptionCannotSmuggleAGuestTokenInAnExtensionOnAJoinRoute(CapturedOutput output) throws Exception {
+		String path = "/api/invitations/join/" + token(102) + "/extension-probe";
+		var response = client.send(HttpRequest.newBuilder(URI.create("http://localhost:" + port + path)).GET().build(), HttpResponse.BodyHandlers.ofString());
+		assertThat(response.statusCode()).isEqualTo(409);
+		assertThat(response.body()).doesNotContain(TOKEN, token(102), "privateExtension", "\"code\"", "\"errors\"");
+		assertThat(JsonPath.parse(response.body()).read("$.instance", String.class)).isEqualTo("/api/invitations");
+		assertThat(response.headers().firstValue("Cache-Control")).contains("no-store");
+		assertThat(output.getAll()).doesNotContain(TOKEN, token(102));
+	}
+
+	@org.springframework.boot.test.context.TestComponent
+	@org.springframework.web.bind.annotation.RestController
+	static class ExtensionProbe {
+		static class ProbeException extends RuntimeException {}
+		@org.springframework.web.bind.annotation.GetMapping("/api/invitations/join/{joinToken}/extension-probe")
+		Object probe() { throw new ProbeException(); }
+		@org.springframework.web.bind.annotation.ExceptionHandler(ProbeException.class)
+		org.springframework.http.ProblemDetail error() {
+			var problem = org.springframework.http.ProblemDetail.forStatusAndDetail(org.springframework.http.HttpStatus.CONFLICT, "Invalid request");
+			problem.setProperty("privateExtension", TOKEN); problem.setProperty("code", TOKEN);
+			problem.setProperty("errors", List.of(Map.of("field", TOKEN, "code", TOKEN)));
+			return problem;
+		}
+	}
+
 	@org.springframework.boot.test.context.TestConfiguration(proxyBeanMethods = false)
 	static class ObservationConfig {
 		@org.springframework.context.annotation.Bean InstanceObserver instanceObserver() { return new InstanceObserver(); }
+		@org.springframework.context.annotation.Bean ExtensionProbe extensionProbe() { return new ExtensionProbe(); }
 	}
 
 	@org.springframework.boot.test.context.TestComponent
