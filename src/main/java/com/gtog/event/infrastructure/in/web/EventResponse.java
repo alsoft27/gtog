@@ -66,7 +66,9 @@ public record EventResponse(
 		Instant cancelledAt,
 
 		@Schema(description = "Motivo de la cancelacion, null si no esta cancelado o no se indico motivo")
-		String cancellationReason) {
+		String cancellationReason,
+		@Schema(description = "Intención en borrador; enlace activo o conservado en los demás estados. Nunca contiene el token.")
+		boolean publicInvitationEnabled) {
 
 	public static EventResponse from(Event event) {
 		return new EventResponse(
@@ -86,6 +88,6 @@ public record EventResponse(
 				event.getVenue() == null ? null : VenueResponse.from(event.getVenue()),
 				event.getOnlineAccess() == null ? null : OnlineAccessResponse.from(event.getOnlineAccess()),
 				event.getCancelledAt(),
-				event.getCancellationReason());
+				event.getCancellationReason(), event.isPublicInvitationEnabled());
 	}
 }

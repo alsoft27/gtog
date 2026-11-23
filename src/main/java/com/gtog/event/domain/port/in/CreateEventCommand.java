@@ -21,5 +21,12 @@ public record CreateEventCommand(
 		Boolean allowResponseChange,
 		LocalDateTime responseDeadline,
 		Venue venue,
-		OnlineAccess onlineAccess) {
+		OnlineAccess onlineAccess,
+		Boolean publicInvitationEnabled) {
+	public CreateEventCommand(String hostId, String title, String description, LocalDateTime startsAt,
+			LocalDateTime endsAt, String timeZone, Modality modality, List<ResponseOptionDraft> responseOptions,
+			Boolean allowComment, Boolean allowResponseChange, LocalDateTime responseDeadline, Venue venue, OnlineAccess onlineAccess) {
+		this(hostId, title, description, startsAt, endsAt, timeZone, modality, responseOptions, allowComment,
+				allowResponseChange, responseDeadline, venue, onlineAccess, false);
+	}
 }

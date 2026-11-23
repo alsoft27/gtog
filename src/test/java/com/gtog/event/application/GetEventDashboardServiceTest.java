@@ -29,7 +29,7 @@ class GetEventDashboardServiceTest {
 	void readsTheOwnersDashboardInEveryStateWithOneResponseReadAndNoWrites(EventStatus state) {
 		when(events.findById("event-id")).thenReturn(Optional.of(event(state)));
 		when(responses.findByEventIds(Set.of("event-id"))).thenReturn(List.of());
-		var summary = new GetEventDashboardService(events, responses).getDashboard("host-1", "event-id");
+		var summary = new GetEventDashboardService(events, responses, java.time.Clock.fixed(java.time.Instant.parse("2027-01-01T10:00:00Z"), java.time.ZoneOffset.UTC), new com.gtog.event.domain.model.PublicJoinLimits(25, 500)).getDashboard("host-1", "event-id");
 		assertThat(summary.totals().guests()).isEqualTo(3);
 		verify(responses, times(1)).findByEventIds(Set.of("event-id"));
 		verifyNoMoreInteractions(responses);
@@ -38,7 +38,7 @@ class GetEventDashboardServiceTest {
 
 	@Test
 	void unknownEventIs404BeforeReadingResponses() {
-		assertThatThrownBy(() -> new GetEventDashboardService(events, responses).getDashboard("host-1", "missing"))
+		assertThatThrownBy(() -> new GetEventDashboardService(events, responses, java.time.Clock.fixed(java.time.Instant.parse("2027-01-01T10:00:00Z"), java.time.ZoneOffset.UTC), new com.gtog.event.domain.model.PublicJoinLimits(25, 500)).getDashboard("host-1", "missing"))
 				.isInstanceOf(EventNotFoundException.class);
 		verifyNoInteractions(responses);
 	}
@@ -46,7 +46,7 @@ class GetEventDashboardServiceTest {
 	@Test
 	void anotherHostsEventIs404BeforeReadingResponses() {
 		when(events.findById("event-id")).thenReturn(Optional.of(event(EventStatus.PUBLISHED)));
-		assertThatThrownBy(() -> new GetEventDashboardService(events, responses).getDashboard("host-2", "event-id"))
+		assertThatThrownBy(() -> new GetEventDashboardService(events, responses, java.time.Clock.fixed(java.time.Instant.parse("2027-01-01T10:00:00Z"), java.time.ZoneOffset.UTC), new com.gtog.event.domain.model.PublicJoinLimits(25, 500)).getDashboard("host-2", "event-id"))
 				.isInstanceOf(EventNotFoundException.class);
 		verifyNoInteractions(responses);
 		verify(events, never()).save(any());

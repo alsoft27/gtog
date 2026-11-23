@@ -37,6 +37,7 @@ public class CreateEventService implements CreateEventUseCase {
 				.responseDeadline(command.responseDeadline())
 				.venue(command.venue())
 				.onlineAccess(command.onlineAccess())
+				.publicInvitationEnabled(Boolean.TRUE.equals(command.publicInvitationEnabled()))
 				.build();
 		return eventRepositoryPort.save(event);
 	}

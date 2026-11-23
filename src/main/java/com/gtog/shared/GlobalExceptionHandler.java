@@ -1,5 +1,7 @@
 package com.gtog.shared;
 
+import com.gtog.event.domain.model.PublicInvitationNotEditableException;
+
 import java.net.URI;
 import com.gtog.event.domain.model.GuestResponseException;
 import com.gtog.event.domain.model.GuestResponseStorageException;
@@ -173,7 +175,7 @@ public class GlobalExceptionHandler {
 		return ResponseEntity.status(HttpStatus.CONFLICT).body(ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, exception.getMessage()));
 	}
 
-	@ExceptionHandler({EventInvitationSendingNotAllowedException.class, ResponseDeadlineNotEditableException.class, ResponseOptionDeletionNotAllowedException.class,
+	@ExceptionHandler({PublicInvitationNotEditableException.class, EventInvitationSendingNotAllowedException.class, ResponseDeadlineNotEditableException.class, ResponseOptionDeletionNotAllowedException.class,
 			ResponseOptionAttendanceChangeNotAllowedException.class})
 	public ProblemDetail handleEventConfigurationConflict(EventDomainException exception) {
 		return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, exception.getMessage());

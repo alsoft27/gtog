@@ -55,5 +55,8 @@ public record CreateEventRequest(
 
 		@Schema(description = "Acceso en linea del evento. Obligatorio si modality es ONLINE, prohibido si es "
 				+ "IN_PERSON.")
-		OnlineAccessRequest onlineAccess) {
+		OnlineAccessRequest onlineAccess,
+
+		@Schema(description = "Solicita crear el enlace público al publicar; false por defecto")
+		Boolean publicInvitationEnabled) {
 }

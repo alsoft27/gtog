@@ -8,7 +8,7 @@ import com.gtog.event.domain.port.in.*;
 import com.gtog.event.domain.port.out.*;
 
 @Service
-public class PublicInvitationService implements ChangePublicInvitationUseCase, JoinPublicInvitationUseCase {
+public class PublicInvitationService implements ChangePublicInvitationUseCase, JoinPublicInvitationUseCase, GetPublicInvitationUseCase {
 	private final EventRepositoryPort events;
 	private final PublicInvitationRepositoryPort invitations;
 	private final PublicInvitationTokenGeneratorPort linkTokens;
@@ -21,6 +21,11 @@ public class PublicInvitationService implements ChangePublicInvitationUseCase, J
 			PhoneNormalizerPort phones, Clock clock) {
 		this.events = events; this.invitations = invitations; this.linkTokens = linkTokens;
 		this.guestTokens = guestTokens; this.phones = phones; this.clock = clock;
+	}
+
+	@Override public PublicInvitation get(String hostId, String eventId) {
+		return events.findById(eventId).filter(value -> hostId.equals(value.getHostId()))
+				.orElseThrow(() -> new EventNotFoundException(eventId)).getPublicInvitation();
 	}
 
 	@Override public Optional<PublicInvitation> change(String hostId, String eventId, boolean enabled) {

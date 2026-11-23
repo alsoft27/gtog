@@ -13,16 +13,21 @@ import com.gtog.event.domain.port.out.GuestResponseRepositoryPort;
 public class GetEventDashboardService implements GetEventDashboardUseCase {
 	private final EventRepositoryPort events;
 	private final GuestResponseRepositoryPort responses;
+	private final java.time.Clock clock;
+	private final com.gtog.event.domain.model.PublicJoinLimits limits;
 
-	public GetEventDashboardService(EventRepositoryPort events, GuestResponseRepositoryPort responses) {
+	public GetEventDashboardService(EventRepositoryPort events, GuestResponseRepositoryPort responses,
+			java.time.Clock clock, com.gtog.event.domain.model.PublicJoinLimits limits) {
 		this.events = events;
 		this.responses = responses;
+		this.clock = clock; this.limits = limits;
 	}
 
 	@Override
 	public EventAttendanceSummary getDashboard(String hostId, String eventId) {
 		Event event = events.findById(eventId).orElseThrow(() -> new EventNotFoundException(eventId));
 		if (!event.getHostId().equals(hostId)) { throw new EventNotFoundException(eventId); }
-		return EventAttendanceSummary.calculate(event, responses.findByEventIds(Set.of(event.getId())));
+		return EventAttendanceSummary.calculate(event, responses.findByEventIds(Set.of(event.getId())))
+				.withPublicInvitation(event, clock.instant(), limits);
 	}
 }

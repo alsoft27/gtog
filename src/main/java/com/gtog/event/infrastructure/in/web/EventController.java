@@ -130,7 +130,7 @@ public class EventController {
 				request.allowResponseChange(),
 				request.responseDeadline(),
 				venue,
-				onlineAccess);
+				onlineAccess, request.publicInvitationEnabled());
 		Event event = createEventUseCase.createEvent(command);
 		return ResponseEntity.created(URI.create("/api/events/" + event.getId())).body(EventResponse.from(event));
 	}

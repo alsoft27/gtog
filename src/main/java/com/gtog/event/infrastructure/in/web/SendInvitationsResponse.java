@@ -13,7 +13,8 @@ public record SendInvitationsResponse(List<Result> results, DailyLimit dailyLimi
 				new DailyLimit(batch.dailyLimit().limit(), batch.dailyLimit().remaining(), batch.dailyLimit().resetsAt()));
 	}
 	@JsonInclude(JsonInclude.Include.NON_NULL)
-	public record Result(String guestId, InvitationSendStatus status, EmailSendFailureCode code, EmailSendSkipReason reason,
+	public record Result(String guestId, InvitationSendStatus status, EmailSendFailureCode code,
+			@Schema(description = "UNVERIFIED_CONTACT: los invitados dados de alta por enlace no reciben correo de gtog, incluso tras editar su contacto") EmailSendSkipReason reason,
 			@Schema(description = "Solo en SENT: false si SMTP aceptó pero falló registrar el estado; las reservas se conservan.") Boolean recorded) {}
 	public record DailyLimit(int limit, int remaining,
 			@Schema(description = "Fin UTC de la ventana vigente de 24 h; null sin ventana vigente.") Instant resetsAt) {}

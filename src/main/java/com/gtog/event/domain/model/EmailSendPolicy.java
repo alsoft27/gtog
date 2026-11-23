@@ -11,6 +11,7 @@ public record EmailSendPolicy(int maxSendsPerGuest, Duration minInterval, int ma
 	}
 	public EmailSendSkipReason skipReason(Event event, Guest guest, boolean answered, Instant now) {
 		ensureSendingAllowed(event);
+		if (guest.getSource() == GuestSource.PUBLIC_LINK) { return EmailSendSkipReason.UNVERIFIED_CONTACT; }
 		if (guest.getEmail() == null) { return EmailSendSkipReason.NO_EMAIL; }
 		if (answered) { return EmailSendSkipReason.ALREADY_ANSWERED; }
 		return guestLimitReason(guest, now);
