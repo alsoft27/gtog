@@ -6,14 +6,17 @@ import com.gtog.event.domain.model.Event;
 import com.gtog.event.domain.model.EventNotFoundException;
 import com.gtog.event.domain.port.in.PublishEventUseCase;
 import com.gtog.event.domain.port.out.EventRepositoryPort;
+import com.gtog.event.domain.port.out.PublicInvitationTokenGeneratorPort;
 
 @Service
 public class PublishEventService implements PublishEventUseCase {
 
 	private final EventRepositoryPort eventRepositoryPort;
+	private final PublicInvitationTokenGeneratorPort tokens;
 
-	public PublishEventService(EventRepositoryPort eventRepositoryPort) {
+	public PublishEventService(EventRepositoryPort eventRepositoryPort, PublicInvitationTokenGeneratorPort tokens) {
 		this.eventRepositoryPort = eventRepositoryPort;
+		this.tokens = tokens;
 	}
 
 	@Override
@@ -23,7 +26,7 @@ public class PublishEventService implements PublishEventUseCase {
 		if (!event.getHostId().equals(hostId)) {
 			throw new EventNotFoundException(eventId);
 		}
-		event.publish();
+		event.publish(tokens);
 		return eventRepositoryPort.save(event);
 	}
 }

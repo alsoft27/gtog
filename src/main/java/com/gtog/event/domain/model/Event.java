@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import com.gtog.event.domain.port.out.PublicInvitationTokenGeneratorPort;
 
 public class Event {
 
@@ -32,7 +33,7 @@ public class Event {
 	private String cancellationReason;
 	private final Long version;
 	private List<Guest> guests = List.of();
-	private PublicInvitation publicInvitation;
+	private PublicInvitation publicInvitation = new PublicInvitation(false, null);
 
 	private Event(String id, String hostId, String title, String description, LocalDateTime startsAt,
 			LocalDateTime endsAt, String timeZone, Modality modality, EventStatus status,
@@ -108,7 +109,15 @@ public class Event {
 	}
 
 	public PublicInvitation getPublicInvitation() { return publicInvitation; }
-	public boolean isPublicInvitationEnabled() { return publicInvitation != null; }
+	public boolean isPublicInvitationEnabled() { return publicInvitation.enabled(); }
+	private void restorePublicInvitation(PublicInvitation value) {
+		PublicInvitation resolved = value == null ? new PublicInvitation(false, null) : value;
+		if ((status == EventStatus.DRAFT && resolved.token() != null)
+				|| (status == EventStatus.PUBLISHED && resolved.enabled() != (resolved.token() != null))) {
+			throw new InvalidPublicInvitationStateException();
+		}
+		this.publicInvitation = resolved;
+	}
 	public long publicJoinedCount() { return guests.stream().filter(guest -> guest.getSource() == GuestSource.PUBLIC_LINK).count(); }
 	public boolean hasGuestContact(Guest candidate) { return guests.stream().anyMatch(candidate::sharesContact); }
 	public Guest discardConflictingPublicContact(Guest candidate) { return hasGuestContact(candidate) ? candidate.withoutContact() : candidate; }
@@ -127,7 +136,7 @@ public class Event {
 	}
 
 	private void validateGuestUniqueness(Guest candidate, String excludedGuestId) {
-		if (publicInvitation != null && publicInvitation.token().equals(candidate.getToken())) { throw new DuplicateGuestTokenException(); }
+		if (publicInvitation.token() != null && publicInvitation.token().equals(candidate.getToken())) { throw new DuplicateGuestTokenException(); }
 		for (Guest existing : guests) {
 			if (existing.getId().equals(excludedGuestId)) {
 				continue;
@@ -184,6 +193,11 @@ public class Event {
 	}
 
 	public void publish() {
+		// Compatibilidad para publicar eventos sin intención activa; los demás necesitan el puerto explícito.
+		publish(() -> { throw new InvalidPublicInvitationStateException(); });
+	}
+
+	public void publish(PublicInvitationTokenGeneratorPort tokens) {
 		if (status != EventStatus.DRAFT) {
 			throw new EventNotPublishableException(id);
 		}
@@ -196,7 +210,17 @@ public class Event {
 		if (responseOptions.size() < 2) {
 			throw new IncompleteEventForPublishException("at least two response options are required");
 		}
+		PublicInvitation publishedLink = publicInvitation;
+		if (publicInvitation.enabled()) {
+			String token = tokens.generate();
+			if (id.equals(token) || guests.stream().anyMatch(guest -> guest.getToken().equals(token))) {
+				throw new PublicInvitationStorageException();
+			}
+			publishedLink = new PublicInvitation(true, token);
+			if (token == null) { throw new InvalidPublicInvitationTokenException(); }
+		}
 		this.status = EventStatus.PUBLISHED;
+		restorePublicInvitation(publishedLink);
 	}
 
 	public void cancel(String reason, Instant now) {
@@ -465,6 +489,7 @@ public class Event {
 		private PublicInvitation publicInvitation;
 
 		public Builder publicInvitation(PublicInvitation value) { this.publicInvitation = value; return this; }
+		public Builder publicInvitationEnabled(boolean enabled) { return publicInvitation(new PublicInvitation(enabled, null)); }
 
 		private Builder() {
 		}
@@ -550,7 +575,7 @@ public class Event {
 					modality, EventStatus.DRAFT, resolvedResponseOptions, resolveAllowComment(allowComment),
 					resolveAllowResponseChange(allowResponseChange), responseDeadline, venue, onlineAccess, null, null,
 					null);
-			event.publicInvitation = publicInvitation;
+			event.restorePublicInvitation(publicInvitation);
 			return event;
 		}
 	}
@@ -683,7 +708,7 @@ public class Event {
 					responseOptions, allowComment, allowResponseChange, responseDeadline, venue, onlineAccess,
 					cancelledAt, cancellationReason, version);
 			event.guests = guests;
-			event.publicInvitation = publicInvitation;
+			event.restorePublicInvitation(publicInvitation);
 			return event;
 		}
 	}

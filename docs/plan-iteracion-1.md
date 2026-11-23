@@ -416,6 +416,10 @@ salud de Mongo), D-7 (opciones en eventos publicados, R8), D-CONFIRMED-LINK (R8)
 
 ### Límites conocidos, no deuda
 
+- **Ventana del alta por enlace:** se comprueba con la lectura previa y el Clock. El filtro Mongo verifica
+  que plazo, fin y zona siguen siendo los leídos, pero no reevalúa el reloj. Si el cierre se alcanza entre
+  esa comprobación y el alta, el invitado puede quedar creado y no poder responder después (409).
+
 - **Responder mientras se envía:** hay una ventana entre la última lectura y el SMTP. Sin transacciones entre
   Mongo y el proveedor, no se puede garantizar exclusión absoluta. Solo se prueba con un spy.
 - **SMTP aceptado y fallo al registrar `SENT`:** se informa `SENT` con `recorded=false`, no se reenvía y el

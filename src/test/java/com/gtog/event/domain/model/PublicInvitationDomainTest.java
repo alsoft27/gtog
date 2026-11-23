@@ -19,7 +19,7 @@ class PublicInvitationDomainTest {
 		return Event.reconstituteBuilder().id("event").hostId("host").title("Evento").status(status)
 				.startsAt(LocalDateTime.of(2027, 1, 1, 18, 0)).endsAt(LocalDateTime.of(2027, 1, 1, 20, 0)).timeZone("Europe/Madrid")
 				.responseDeadline(deadline).allowResponseChange(false).responseOptions(List.of()).guests(List.of(guests))
-				.publicInvitation(new PublicInvitation(token(100))).build();
+				.publicInvitation(new PublicInvitation(true, status == EventStatus.DRAFT ? null : token(100))).build();
 	}
 	@Test void aPublicGuestMayJoinWithOnlyAStrippedNameAndTheInjectedInstant() {
 		Guest guest = join("  Ana  ", null, null);
@@ -91,7 +91,7 @@ class PublicInvitationDomainTest {
 				Guest.create("Host guest", "same@example.com", null, token(3), value -> value))).isInstanceOf(DuplicateGuestEmailException.class);
 	}
 	@Test void thePublicCredentialRejectsInvalidValuesAndRedactsItsDiagnosticRepresentation() {
-		assertThatThrownBy(() -> new PublicInvitation("not-a-token")).isInstanceOf(InvalidPublicInvitationTokenException.class);
-		assertThat(new PublicInvitation(token(123)).toString()).doesNotContain(token(123));
+		assertThatThrownBy(() -> new PublicInvitation(true, "not-a-token")).isInstanceOf(InvalidPublicInvitationTokenException.class);
+		assertThat(new PublicInvitation(true, token(123)).toString()).doesNotContain(token(123));
 	}
 }

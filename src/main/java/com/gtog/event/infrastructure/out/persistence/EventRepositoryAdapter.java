@@ -4,6 +4,8 @@ import java.util.List;
 import java.util.Optional;
 
 import org.springframework.stereotype.Component;
+import org.springframework.dao.DuplicateKeyException;
+import com.gtog.event.domain.model.EventStorageException;
 
 import com.gtog.event.domain.model.Event;
 import com.gtog.event.domain.port.out.EventRepositoryPort;
@@ -21,8 +23,12 @@ public class EventRepositoryAdapter implements EventRepositoryPort {
 
 	@Override
 	public Event save(Event event) {
-		EventDocument saved = eventMongoRepository.save(eventMapper.toDocument(event));
-		return eventMapper.toDomain(saved);
+		try {
+			EventDocument saved = eventMongoRepository.save(eventMapper.toDocument(event));
+			return eventMapper.toDomain(saved);
+		} catch (DuplicateKeyException exception) {
+			throw new EventStorageException();
+		}
 	}
 
 	@Override

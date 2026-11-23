@@ -29,28 +29,37 @@ public class PublicInvitationRepositoryAdapter implements PublicInvitationReposi
 				.map(events::toDomain);
 	}
 
-	@Override public Optional<PublicInvitation> change(String eventId, String hostId, PublicInvitation enabledLink) {
-		Document filter = new Document("_id", eventId).append("hostId", hostId)
-				.append("status", new Document("$in", List.of("DRAFT", "PUBLISHED")));
+	@Override public Optional<PublicInvitation> change(Event snapshot, PublicInvitation desired) {
+		snapshot.ensurePublicInvitationEditable();
+		String eventId = snapshot.getId(), hostId = snapshot.getHostId();
+		// El estado exacto evita aplicar una intención DRAFT después de publicar.
+		Document filter = new Document("_id", eventId).append("hostId", hostId).append("status", snapshot.getStatus().name());
 		Document update = new Document("$inc", new Document("version", 1));
-		if (enabledLink != null) {
-			filter.append("publicInvitation.token", null).append("guests.token", new Document("$ne", enabledLink.token()));
-			update.append("$set", new Document("publicInvitation", new Document("token", enabledLink.token())));
+		if (snapshot.getStatus() == EventStatus.DRAFT) {
+			if (desired.token() != null) { throw new InvalidPublicInvitationStateException(); }
+			update.append("$set", new Document("publicInvitation", new Document("enabled", desired.enabled())));
+		} else if (desired.enabled()) {
+			if (desired.token() == null) { throw new InvalidPublicInvitationStateException(); }
+			filter.append("publicInvitation.token", null).append("guests.token", new Document("$ne", desired.token()));
+			update.append("$set", new Document("publicInvitation", new Document("enabled", true).append("token", desired.token())));
 		} else {
 			filter.append("publicInvitation.token", new Document("$type", "string"));
-			update.append("$unset", new Document("publicInvitation", ""));
+			update.append("$set", new Document("publicInvitation.enabled", false));
+			update.append("$unset", new Document("publicInvitation.token", ""));
 		}
 		try {
 			// Escritura explícita: version depende de este $inc, no del autoincremento de Spring Data.
 			if (mongo.getCollection(mongo.getCollectionName(EventDocument.class)).updateOne(filter, update).getMatchedCount() == 1) {
-				return Optional.ofNullable(enabledLink);
+				return desired.enabled() ? Optional.of(desired) : Optional.empty();
 			}
 		} catch (MongoException exception) { throw new PublicInvitationStorageException(); }
 		EventDocument document = mongo.findById(eventId, EventDocument.class);
 		if (document == null || !hostId.equals(document.getHostId())) { throw new EventNotFoundException(eventId); }
 		Event current = events.toDomain(document); current.ensurePublicInvitationEditable();
-		if (enabledLink != null && !current.isPublicInvitationEnabled()) { throw new PublicInvitationStorageException(); }
-		return Optional.ofNullable(current.getPublicInvitation());
+		if (current.getStatus() != snapshot.getStatus() || current.isPublicInvitationEnabled() != desired.enabled()) {
+			throw new EventConcurrentModificationException();
+		}
+		return current.isPublicInvitationEnabled() ? Optional.of(current.getPublicInvitation()) : Optional.empty();
 	}
 
 	@Override public PublicJoinWriteResult tryAddGuest(Event snapshot, String joinToken, Guest guest, Instant now) {

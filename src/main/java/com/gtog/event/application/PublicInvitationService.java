@@ -27,13 +27,14 @@ public class PublicInvitationService implements ChangePublicInvitationUseCase, J
 		Event event = events.findById(eventId).filter(value -> hostId.equals(value.getHostId()))
 				.orElseThrow(() -> new EventNotFoundException(eventId));
 		event.ensurePublicInvitationEditable();
-		if (enabled && event.isPublicInvitationEnabled()) { return Optional.of(event.getPublicInvitation()); }
-		PublicInvitation link = enabled ? new PublicInvitation(linkTokens.generate()) : null;
-		if (link != null && (event.getId().equals(link.token())
+		if (enabled == event.isPublicInvitationEnabled()) { return enabled ? Optional.of(event.getPublicInvitation()) : Optional.empty(); }
+		String token = enabled && event.getStatus() == EventStatus.PUBLISHED ? linkTokens.generate() : null;
+		PublicInvitation link = new PublicInvitation(enabled, token);
+		if (token != null && (event.getId().equals(link.token())
 				|| event.getGuests().stream().anyMatch(guest -> guest.getToken().equals(link.token())))) {
 			throw new PublicInvitationStorageException();
 		}
-		return invitations.change(eventId, hostId, link);
+		return invitations.change(event, link);
 	}
 
 	@Override public Guest join(JoinPublicInvitationCommand command) {

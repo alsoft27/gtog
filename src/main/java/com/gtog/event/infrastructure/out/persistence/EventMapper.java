@@ -43,7 +43,7 @@ public class EventMapper {
 				event.getCancellationReason(),
 				event.getVersion(),
 				event.getGuests().stream().map(guestMapper::toDocument).toList(),
-				event.getPublicInvitation() == null ? null : new PublicInvitationDocument(event.getPublicInvitation().token()));
+				new PublicInvitationDocument(event.getPublicInvitation().enabled(), event.getPublicInvitation().token()));
 	}
 
 	public Event toDomain(EventDocument document) {
@@ -75,8 +75,14 @@ public class EventMapper {
 				.cancellationReason(document.getCancellationReason())
 				.version(document.getVersion())
 				.guests(document.getGuests().stream().map(guestMapper::toDomain).toList())
-				.publicInvitation(document.getPublicInvitation() == null ? null : new PublicInvitation(document.getPublicInvitation().token()))
+				.publicInvitation(toDomain(document.getPublicInvitation()))
 				.build();
+	}
+
+	private PublicInvitation toDomain(PublicInvitationDocument document) {
+		if (document == null) { return new PublicInvitation(false, null); }
+		boolean enabled = document.enabled() == null ? document.token() != null : document.enabled();
+		return new PublicInvitation(enabled, document.token());
 	}
 
 	private ResponseOptionDocument toDocument(ResponseOption responseOption) {

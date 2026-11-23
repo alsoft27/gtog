@@ -127,7 +127,8 @@ class PublicInvitationPersistenceIntegrationTest {
 		long version = current().getVersion();
 		assertThat(service.change("host-1", "join-event", true).orElseThrow().token()).isEqualTo(joinToken);
 		assertThat(current().getVersion()).isEqualTo(version);
-		service.change("host-1", "join-event", false); assertThat(document()).doesNotContainKey("publicInvitation");
+		service.change("host-1", "join-event", false);
+		assertThat(document().get("publicInvitation", Document.class)).containsEntry("enabled", false).doesNotContainKey("token");
 		assertThat(invitations.findByToken(joinToken)).isEmpty();
 		String replacement = service.change("host-1", "join-event", true).orElseThrow().token();
 		assertThat(replacement).matches("[A-Za-z0-9_-]{43}").isNotEqualTo(joinToken).isNotEqualTo(current().getId()).isNotEqualTo(current().getGuests().getFirst().getToken());
@@ -137,13 +138,20 @@ class PublicInvitationPersistenceIntegrationTest {
 	@Test void aCancellationWithTheVersionBeforeAToggleCannotRestoreTheLink() {
 		Event stale = current(); service.change("host-1", "join-event", false); stale.cancel("Cancelado", NOW);
 		assertThatThrownBy(() -> events.save(stale)).isInstanceOf(OptimisticLockingFailureException.class);
-		assertThat(current().getStatus()).isEqualTo(EventStatus.PUBLISHED); assertThat(current().getPublicInvitation()).isNull();
+		assertThat(current().getStatus()).isEqualTo(EventStatus.PUBLISHED);
+		assertThat(current().getPublicInvitation().enabled()).isFalse(); assertThat(current().getPublicInvitation().token()).isNull();
 	}
 	@ParameterizedTest @EnumSource(value = EventStatus.class, names = { "DRAFT", "PUBLISHED" })
 	void bothEditableStatesCanDisableAndEnableTheLink(EventStatus status) {
+		if (status == EventStatus.DRAFT) { service.change("host-1", "join-event", false); }
 		mongo.updateFirst(Query.query(Criteria.where("id").is("join-event")), new Update().set("status", status.name()), EventDocument.class);
-		service.change("host-1", "join-event", false); assertThat(current().getPublicInvitation()).isNull();
+		service.change("host-1", "join-event", false);
+		assertThat(current().getPublicInvitation().enabled()).isFalse(); assertThat(current().getPublicInvitation().token()).isNull();
 		assertThat(service.change("host-1", "join-event", true)).isPresent();
+		assertThat(current().getPublicInvitation().enabled()).isTrue();
+		if (status == EventStatus.DRAFT) {
+			assertThat(document().get("publicInvitation", Document.class)).containsEntry("enabled", true).doesNotContainKey("token");
+		} else { assertThat(current().getPublicInvitation().token()).isNotNull(); }
 	}
 	@Test void aDeadlineClosedAfterTheSnapshotPreventsTheAtomicInsertion() {
 		Event snapshot = current(); Guest candidate = Guest.joinPublicInvitation("Ana", null, null, token(700), value -> value, NOW);
@@ -177,10 +185,12 @@ class PublicInvitationPersistenceIntegrationTest {
 				.filter(value -> "public_invitation_token".equals(value.getString("name"))).findFirst().orElseThrow();
 		assertThat(index.getBoolean("unique")).isTrue();
 		assertThat(index.get("partialFilterExpression", Document.class)).isEqualTo(new Document("publicInvitation.token", new Document("$type", 2)));
-		events.save(event("disabled-1", EventStatus.DRAFT, null)); events.save(event("disabled-2", EventStatus.DRAFT, null));
-		mongo.updateFirst(Query.query(Criteria.where("id").is("disabled-1")), new Update().set("publicInvitation.token", token(99999)), EventDocument.class);
+		events.save(event("disabled-1", EventStatus.PUBLISHED, null)); events.save(event("disabled-2", EventStatus.PUBLISHED, null));
+		assertThat(mongo.getCollection("events").countDocuments(new Document("publicInvitation.token", null))).isEqualTo(2);
+		mongo.updateFirst(Query.query(Criteria.where("id").is("disabled-1")), new Update()
+				.set("publicInvitation.enabled", true).set("publicInvitation.token", token(99999)), EventDocument.class);
 		assertThatThrownBy(() -> mongo.updateFirst(Query.query(Criteria.where("id").is("disabled-2")),
-				new Update().set("publicInvitation.token", token(99999)), EventDocument.class)).isInstanceOf(DuplicateKeyException.class);
+				new Update().set("publicInvitation.enabled", true).set("publicInvitation.token", token(99999)), EventDocument.class)).isInstanceOf(DuplicateKeyException.class);
 	}
 	@Test void theApplicationUsesTheInclusiveResponseDeadlineFromItsClock() {
 		mongo.updateFirst(Query.query(Criteria.where("id").is("join-event")), new Update()
@@ -216,7 +226,10 @@ class PublicInvitationPersistenceIntegrationTest {
 		assertThat(outcome(() -> join(null))).isEqualTo("JOIN_CLOSED"); assertThat(document()).isEqualTo(before);
 	}
 	@Test void aDraftPublicTokenIsIndistinguishableFromAnUnknownOne() {
+		service.change("host-1", "join-event", false);
 		mongo.updateFirst(Query.query(Criteria.where("id").is("join-event")), new Update().set("status", "DRAFT"), EventDocument.class);
+		service.change("host-1", "join-event", true);
+		assertThat(document().get("publicInvitation", Document.class)).containsEntry("enabled", true).doesNotContainKey("token");
 		var draft = catchThrowableOfType(() -> join(null), InvitationNotFoundException.class);
 		var unknown = catchThrowableOfType(() -> service.join(new JoinPublicInvitationCommand(token(888), null, "Ana", null, null)), InvitationNotFoundException.class);
 		assertThat(draft.getMessage()).isEqualTo(unknown.getMessage());

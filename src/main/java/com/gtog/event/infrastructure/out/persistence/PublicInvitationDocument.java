@@ -1,5 +1,5 @@
 package com.gtog.event.infrastructure.out.persistence;
 
-public record PublicInvitationDocument(String token) {
+public record PublicInvitationDocument(Boolean enabled, String token) {
 	@Override public String toString() { return "PublicInvitationDocument[redacted]"; }
 }
