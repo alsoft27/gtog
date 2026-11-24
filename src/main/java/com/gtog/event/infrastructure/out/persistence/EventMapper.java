@@ -1,6 +1,14 @@
 package com.gtog.event.infrastructure.out.persistence;
 
 import org.springframework.stereotype.Component;
+import java.time.DateTimeException;
+import java.time.LocalDate;
+import java.time.LocalTime;
+import com.gtog.event.domain.model.CandidateDate;
+import com.gtog.event.domain.model.IncompatibleEventScheduleException;
+import com.gtog.event.domain.model.InvalidCandidateDateCountException;
+import com.gtog.event.domain.model.MissingCandidateDateException;
+import com.gtog.event.domain.model.DatePollSchedule;
 
 import com.gtog.event.domain.model.Event;
 import com.gtog.event.domain.model.EventType;
@@ -44,16 +52,18 @@ public class EventMapper {
 				event.getCancellationReason(),
 				event.getVersion(),
 				event.getGuests().stream().map(guestMapper::toDocument).toList(),
-				new PublicInvitationDocument(event.getPublicInvitation().enabled(), event.getPublicInvitation().token()), event.getEventType().name());
+				new PublicInvitationDocument(event.getPublicInvitation().enabled(), event.getPublicInvitation().token()), event.getEventType().name(), toDatePollDocument(event));
 	}
 
 	public Event toDomain(EventDocument document) {
 		try {
-			// Los documentos anteriores no tenían discriminador. DATE_POLL se habilita en la siguiente rebanada.
-			if (document.getEventType() != null && !EventType.FIXED_DATE.name().equals(document.getEventType())) {
+			// La ausencia del discriminador conserva la lectura de eventos anteriores.
+			if (document.getEventType() != null && !EventType.FIXED_DATE.name().equals(document.getEventType()) && !EventType.DATE_POLL.name().equals(document.getEventType())) {
 				throw new StoredDataIntegrityException(document.getId(), IllegalArgumentException.class);
 			}
 			return reconstitute(document);
+		} catch (DateTimeException | IllegalArgumentException exception) {
+			throw new StoredDataIntegrityException(document.getId(), exception.getClass());
 		} catch (EventDomainException exception) {
 			throw new StoredDataIntegrityException(document.getId(), exception.getClass());
 		}
@@ -61,6 +71,7 @@ public class EventMapper {
 
 	private Event reconstitute(EventDocument document) {
 		return Event.reconstituteBuilder()
+				.schedule(toDatePollSchedule(document))
 				.id(document.getId())
 				.hostId(document.getHostId())
 				.title(document.getTitle())
@@ -82,6 +93,26 @@ public class EventMapper {
 				.guests(document.getGuests().stream().map(guestMapper::toDomain).toList())
 				.publicInvitation(toDomain(document.getPublicInvitation()))
 				.build();
+	}
+
+	private DatePollDocument toDatePollDocument(Event event) {
+		if (!(event.getSchedule() instanceof DatePollSchedule poll)) { return null; }
+		return new DatePollDocument(poll.candidateDates().stream().map(candidate -> new DatePollDocument.Candidate(
+				candidate.id(), candidate.date().toString(), candidate.startTime() == null ? null : candidate.startTime().toString())).toList());
+	}
+
+	private DatePollSchedule toDatePollSchedule(EventDocument document) {
+		if (!EventType.DATE_POLL.name().equals(document.getEventType())) {
+			if (document.getDatePoll() != null) { throw new IncompatibleEventScheduleException(); }
+			return null;
+		}
+		DatePollDocument poll = document.getDatePoll();
+		if (poll == null || poll.candidateDates() == null) { throw new InvalidCandidateDateCountException(); }
+		return new DatePollSchedule(poll.candidateDates().stream().map(candidate -> {
+			if (candidate == null || candidate.date() == null) { throw new MissingCandidateDateException(); }
+			return new CandidateDate(candidate.id(), LocalDate.parse(candidate.date()),
+					candidate.startTime() == null ? null : LocalTime.parse(candidate.startTime()));
+		}).toList(), document.getTimeZone());
 	}
 
 	private PublicInvitation toDomain(PublicInvitationDocument document) {

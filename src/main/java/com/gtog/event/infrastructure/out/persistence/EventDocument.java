@@ -35,6 +35,7 @@ public class EventDocument {
 	private final List<GuestDocument> guests;
 	private final PublicInvitationDocument publicInvitation;
 	private final String eventType;
+	private final DatePollDocument datePoll;
 
 	public EventDocument(String id, String hostId, String title, String description, LocalDateTime startsAt,
 			LocalDateTime endsAt, String timeZone, String modality, String status,
@@ -67,13 +68,24 @@ public class EventDocument {
 				version, guests, publicInvitation, null);
 	}
 
-	@PersistenceCreator
 	public EventDocument(String id, String hostId, String title, String description, LocalDateTime startsAt,
 			LocalDateTime endsAt, String timeZone, String modality, String status,
 			List<ResponseOptionDocument> responseOptions, boolean allowComment, boolean allowResponseChange,
 			LocalDateTime responseDeadline, VenueDocument venue, OnlineAccessDocument onlineAccess,
 			Instant cancelledAt, String cancellationReason, Long version, List<GuestDocument> guests,
 			PublicInvitationDocument publicInvitation, String eventType) {
+		this(id, hostId, title, description, startsAt, endsAt, timeZone, modality, status, responseOptions,
+				allowComment, allowResponseChange, responseDeadline, venue, onlineAccess, cancelledAt, cancellationReason,
+				version, guests, publicInvitation, eventType, null);
+	}
+
+	@PersistenceCreator
+	public EventDocument(String id, String hostId, String title, String description, LocalDateTime startsAt,
+			LocalDateTime endsAt, String timeZone, String modality, String status,
+			List<ResponseOptionDocument> responseOptions, boolean allowComment, boolean allowResponseChange,
+			LocalDateTime responseDeadline, VenueDocument venue, OnlineAccessDocument onlineAccess,
+			Instant cancelledAt, String cancellationReason, Long version, List<GuestDocument> guests,
+			PublicInvitationDocument publicInvitation, String eventType, DatePollDocument datePoll) {
 		this.id = id;
 		this.hostId = hostId;
 		this.title = title;
@@ -95,6 +107,7 @@ public class EventDocument {
 		this.guests = guests == null ? List.of() : List.copyOf(guests);
 		this.publicInvitation = publicInvitation;
 		this.eventType = eventType;
+		this.datePoll = datePoll;
 	}
 
 	public String getId() {
@@ -172,6 +185,7 @@ public class EventDocument {
 	public Long getVersion() {
 		return version;
 	}
+	public DatePollDocument getDatePoll() { return datePoll; }
 	public String getEventType() { return eventType; }
 	public PublicInvitationDocument getPublicInvitation() { return publicInvitation; }
 }

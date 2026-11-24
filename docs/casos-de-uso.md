@@ -143,14 +143,52 @@ de tiempo de pared idéntico bajo cualquier carga. El formato inválido sigue de
 | 4 | `POST /api/events/{id}/publish` | 200, evento en `PUBLISHED`; genera el enlace público si se pidió |
 | 5 | Convocar: ver abajo | |
 
-**Cuerpo de la creación:** título, descripción, `startsAt`, `endsAt` y `timeZone`; `modality` (`IN_PERSON` u
+**Cuerpo de la creación con fecha definida:** título, descripción, `startsAt`, `endsAt` y `timeZone`; `modality` (`IN_PERSON` u
 `ONLINE`); `venue` si es presencial u `onlineAccess` si es en línea; y, opcionales, `responseOptions`,
 `allowComment`, `allowResponseChange`, `responseDeadline` y `publicInvitationEnabled` (false por defecto).
 Este último expresa intención en DRAFT: el enlace nace al publicar. PUT del evento no lo modifica;
 GET/PUT `/api/events/{id}/public-invitation` consultan/cambian el interruptor (ver UC-5).
 
-**Por defecto:** opciones "Asisto" (cuenta como asistencia) y "No asisto"; `allowComment=false`;
+**Por defecto en fecha definida:** opciones "Asisto" (cuenta como asistencia) y "No asisto"; `allowComment=false`;
 `allowResponseChange=true`.
+
+### Borrador con fecha por definir (paso 2)
+
+La secuencia completa anterior corresponde a `FIXED_DATE`, que sigue siendo el tipo por defecto.
+También se puede crear un `DATE_POLL` con sesión y CSRF, consultarlo y editar sus datos generales.
+Publicarlo devuelve por ahora 422 sin escribir: se habilitará en el paso 4. Todavía no se recogen disponibilidades.
+
+Fuente: `DatePollDraftIntegrationTest`. Petición abreviada (el bloque venue válido también es obligatorio):
+
+```http
+POST /api/events
+Content-Type: application/json
+
+{"title":"Cena","eventType":"DATE_POLL","timeZone":"Europe/Madrid","modality":"IN_PERSON",
+ "venue":{"placeName":"Sala","address":"Calle Mayor","latitude":40.4,"longitude":-3.7,"placeId":"p"},
+ "responseDeadline":"2027-05-09T18:00:00",
+ "datePoll":{"candidateDates":[{"date":"2027-05-10","startTime":"20:00:00"},{"date":"2027-05-11"}]}}
+```
+
+```http
+HTTP/1.1 201 Created
+Location: /api/events/event-demo
+
+{"id":"event-demo","eventType":"DATE_POLL","status":"DRAFT","startsAt":null,"endsAt":null,
+ "responseOptions":[],"datePoll":{"candidateDates":[
+ {"id":"candidate-1","date":"2027-05-10","startTime":"20:00:00"},
+ {"id":"candidate-2","date":"2027-05-11","startTime":null}]}}
+```
+
+Los ids los genera el dominio. Hay entre 2 y `app.events.max-candidate-dates` candidatas (10 por defecto),
+sin fechas repetidas y sin hora de fin; el plazo es obligatorio. Las reglas rechazadas dan 422; un formato
+ilegible de fecha/hora o tipo desconocido da 400. Las fechas definitivas o las opciones de asistencia en una
+consulta también dan 422. No se crea nada al rechazar el alta. Autorización, CSRF y correo verificado se mantienen.
+
+`GET /api/events/{id}` devuelve las candidatas con sus ids; el listado identifica el tipo y lleva
+`startsAt=null`. Para editar datos generales, `PUT /api/events/{id}` incluye `eventType=DATE_POLL`,
+omite inicio/fin y conserva un plazo. No cambia candidatas ni convierte el tipo; quitar el plazo da 422.
+Las opciones de asistencia son propias de `FIXED_DATE`: reemplazarlas en una consulta da 409.
 
 ### Paso 3: contrato del lote y ejemplo UC-2
 

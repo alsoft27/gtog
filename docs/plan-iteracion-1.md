@@ -15,9 +15,11 @@ de despliegue público de §7 y la deuda abierta de §6, incluida D-UNVERIFIED-S
 El frontend Angular no se ha empezado.
 Los recorridos y ejemplos del API están en [casos-de-uso.md](casos-de-uso.md), con la verificación de rutas, seguridad y resultados.
 
-`mvn clean verify`: 1.089 tests, 0 fallos, 0 errores y 0 omitidos en la última ejecución completa,
-limpia y aislada (paso 1 de compatibilidad temporal). Incluye siete pruebas nuevas de dominio y tres
-con servidor real; la expectativa del listado pasa de nueve a diez campos y comprueba `eventType`.
+`mvn clean verify`: 1.147 tests, 0 fallos, 0 errores y 0 omitidos en la última ejecución completa,
+limpia y aislada (paso 2, borradores DATE_POLL). Añade 58 casos a la base anterior: 26 de dominio,
+3 de configuración y 29 con servidor real. El unitario de creación existente solo adapta su
+constructor para recibir los límites; conserva sus aserciones. En el paso 1 el listado pasó de nueve
+a diez campos para incluir `eventType`.
 La verificación anterior de `a85d4e6` sufrió errores DNS de Atlas al arrancar tres contextos;
 tras recuperarse la red, aquella suite pasó sin cambios de código ni tests entre ambas ejecuciones.
 Las ejecuciones negativas de mutación se conservan solo como evidencia, no como resultado de la suite final.
@@ -52,7 +54,8 @@ Maven por defecto, springdoc-openapi, iCal4j 4.2.0, libphonenumber 9.0.43, Mailj
 | Invitados — concurrencia (commit A) | Edición con arrayFilters y unicidad explícita, y borrado parcial, sin comparar versión esperada; preservan aperturas y cuotas. Tests autorizados de concurrencia y reserva obsoleta actualizados al nuevo comportamiento |
 | Invitados — lote (commits 1 y 2) | POST /api/events/{id}/guests/batch, todo o nada y errores por posición; dominio compartido con el individual y una escritura atómica, con unicidad y capacidad en el filtro. RF-2.18 implementado; RF-2.4 sigue en frontend |
 | Invitados — enlace público | RF-2.19: intención en borrador, token al publicar, interruptor revocable, alta inmediata con contacto opcional y cookie de fricción. Topes atómicos 25/500, descarte silencioso de contactos, origen en panel y exclusión del correo; WhatsApp permitido |
-| Tipos temporales — paso 1 | `EventSchedule` y `FixedDateSchedule`; `eventType=FIXED_DATE` en persistencia y vistas, también para documentos antiguos sin discriminador. Los flujos actuales conservan fechas, respuestas, calendario y controles existentes; `DATE_POLL` todavía no se puede crear |
+| Tipos temporales — paso 1 | `EventSchedule` y `FixedDateSchedule`; `eventType=FIXED_DATE` en persistencia y vistas, también para documentos antiguos sin discriminador. Base de compatibilidad de la ampliación, en `024d09a` |
+| Borradores DATE_POLL — paso 2 | Alta, detalle, listado y edición de datos generales; candidatas con id, fecha y hora opcional, sin fin, y plazo obligatorio. Máximo configurable 10; sin opciones de asistencia ni fechas de relleno. Publicación pendiente del paso 4 |
 
 ### Endpoints
 
@@ -133,18 +136,18 @@ Estas comprobaciones son manuales; los tests automáticos no confirman por sí s
 
 ### Eventos con fecha por definir — ampliación aprobada
 
-Se incorpora sin alterar los eventos existentes. El paso 1 introduce `EventType`, la configuración
-temporal del dominio (`EventSchedule` / `FixedDateSchedule`) y el discriminador `eventType` en Mongo
-y en las vistas del anfitrión, listado, invitación y enlace público. Ausente equivale a `FIXED_DATE`;
-rehidratar documentos antiguos no provoca escrituras de migración. Las peticiones actuales siguen creando fecha fija;
-`DATE_POLL` todavía no se puede crear. No hay migración ni nuevas dependencias.
+Se incorpora sin alterar los eventos existentes. El paso 1 introdujo `EventType`, la configuración
+temporal del dominio y el discriminador `eventType` en Mongo y en las vistas. Ausente equivale a
+`FIXED_DATE`; rehidratar documentos antiguos no provoca escrituras de migración. El paso 2 incorpora
+borradores `DATE_POLL` con candidatas y plazo obligatorio: alta, consulta y edición de datos generales.
+Todavía no se publican ni reciben disponibilidades. No hay migración ni nuevas dependencias.
 
 Orden de implementación aprobado, con verificación completa antes de cada commit y sin push:
 
 1. **Compatibilidad temporal (cerrada):** tipo explícito, fechas fijas encapsuladas y lectura de documentos antiguos.
-2. **Borradores de consulta (siguiente):** entre 2 y 10 candidatas, con tope configurable, id, fecha obligatoria
+2. **Borradores de consulta (cerrada):** entre 2 y 10 candidatas, con tope configurable, id, fecha obligatoria
    y hora opcional, sin fin; plazo obligatorio.
-3. **Cambios de candidatas:** revisión propia e invalidación de todas las disponibilidades al cambiar fechas;
+3. **Cambios de candidatas (siguiente):** revisión propia e invalidación de todas las disponibilidades al cambiar fechas;
    repetir una configuración o reordenarla no invalida. Se mantienen invitados, tokens, aperturas y cuotas.
 4. **Publicación y difusión:** publicar sin fecha definitiva y adaptar vistas públicas, alta por enlace y mensajes.
 5. **Disponibilidad:** respuesta múltiple, incluida lista vacía explícita; última versión, revisión vigente,
@@ -172,6 +175,23 @@ existentes siguen aplicándose.
 ---
 
 ## 3. Decisiones tomadas
+
+### Borradores con fecha por definir — paso 2
+
+- `eventType` es explícito e inmutable. Omitirlo al crear conserva `FIXED_DATE`. `DATE_POLL` lleva
+  `datePoll.candidateDates`; no admite inicio/fin definitivos ni opciones de asistencia no vacías.
+- Candidatas con id generado, fecha obligatoria y hora de inicio opcional, sin hora de fin, en el orden
+  configurado y con la zona del evento. No se repite una fecha aunque cambie la hora. Entre dos y
+  `app.events.max-candidate-dates` (10 por defecto; configuración menor de 2 impide el arranque).
+- El plazo es obligatorio en todas las escrituras de consultas. Creación, edición general y plazo
+  específico comparten validación de dominio. No se compara con un inicio definitivo inexistente.
+- El límite de candidatas se aplica al crear; reducirlo no impide leer datos existentes. Persistencia
+  embebida con fecha/hora como texto ISO, sin instantes auxiliares ni migración de eventos fijos.
+- La validación web condicional conserva el 400 anterior al faltar inicio/fin en fecha fija. Las reglas
+  de candidatas y plazo dan 422. Modalidad, propiedad, CSRF y correo verificado mantienen sus reglas.
+- Editar datos generales de una consulta conserva ids, fechas, horas e intención pública; se incluye
+  `eventType=DATE_POLL` en el PUT. Cambiar candidatas se incorpora en el paso 3. Publicar consultas da
+  de momento 422 sin escribir, hasta implementar el flujo público en el paso 4.
 
 ### R12 — Verificación de correo y recuperación de contraseña (cerrada)
 

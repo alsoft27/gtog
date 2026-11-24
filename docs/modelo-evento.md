@@ -13,15 +13,16 @@ embebidas en el evento. El muro social y Telegram siguen pendientes.
 
 ## `Event` (agregado raíz)
 
-### Tipos temporales — paso 1 de la ampliación
+### Tipos temporales — pasos 1 y 2 de la ampliación
 
-`EventType` distingue `FIXED_DATE` y `DATE_POLL`. Este paso prepara la compatibilidad:
-los casos de uso actuales siguen creando exclusivamente `FIXED_DATE`, sin cambiar sus peticiones.
-La creación de `DATE_POLL` con candidatas se incorpora en el paso 2; todavía no está disponible.
+`EventType` distingue `FIXED_DATE` y `DATE_POLL`. Omitirlo al crear mantiene `FIXED_DATE`.
+Desde el paso 2 se pueden crear, consultar y editar datos generales de borradores `DATE_POLL`.
+La publicación de consultas se habilitará en el paso 4 y sus respuestas en el paso 5; de momento,
+publicar una consulta devuelve 422 y no modifica el documento.
 
-`EventSchedule` es el contrato temporal del dominio. Su implementación actual, `FixedDateSchedule`,
-encapsula inicio, fin y zona horaria. Creación y edición comparten ahí las validaciones de zona,
-período y plazo. `Event` conserva sus getters de fechas y conversiones a UTC para los consumidores
+`EventSchedule` es el contrato temporal del dominio. `FixedDateSchedule` encapsula inicio, fin y zona;
+`DatePollSchedule`, las candidatas y la zona, sin inicio ni fin definitivos. Creación y edición comparten
+las validaciones del tipo temporal. `Event` conserva sus getters de fechas y conversiones a UTC para los consumidores
 existentes; no se introducen fechas ni horas de relleno. La rehidratación conserva su contrato previo,
 sin volver a aplicar las validaciones de creación.
 
@@ -34,6 +35,56 @@ de almacenamiento (500 saneado).
 `EventResponse`, `EventSummaryResponse`, `InvitationResponse` y la vista previa del enlace público
 añaden `eventType`; mantienen todos los campos anteriores y sus políticas de privacidad y caché.
 `EventSchedule` nunca se serializa directamente en la frontera web.
+
+### Borradores de consulta de disponibilidad (`DATE_POLL`)
+
+- `CandidateDate` es un record propio: `id`, `LocalDate date` obligatoria y `LocalTime startTime` opcional.
+  El dominio genera el id; las candidatas no tienen hora de fin. La zona es la del evento. Se conserva
+  su orden y se pueden mezclar fechas con hora y fechas sin ella, o no indicar ninguna hora.
+- Entre dos y `app.events.max-candidate-dates` candidatas (10 por defecto). No se repite una fecha,
+  aunque cambie la hora. Las listas del dominio son inmutables.
+- `responseDeadline` es obligatorio, en la zona del evento. No se compara con un inicio definitivo
+  inexistente. La validación se comparte entre alta, edición general y cambio específico del plazo;
+  quitarlo devuelve 422 y no escribe.
+- `responseOptions` queda vacío: no se generan «Asisto/No asisto». En el alta se rechazan con 422
+  las opciones de asistencia no vacías, las fechas definitivas y el bloque de consulta en un `FIXED_DATE`.
+  Reemplazar opciones de asistencia de un `DATE_POLL` da 409.
+- `PUT /api/events/{id}` permite editar los datos generales del borrador indicando `eventType=DATE_POLL`,
+  sin `startsAt` ni `endsAt`, y con plazo. Conserva ids, fechas y horas de las candidatas y la intención
+  del enlace público. El tipo no se puede convertir. La sustitución de candidatas llega en el paso 3.
+- Las vistas del anfitrión incluyen `datePoll: {candidateDates:[{id,date,startTime}]}` solo para consultas;
+  inicio y fin definitivos son null. El listado conserva sus diez campos, con `eventType=DATE_POLL`
+  y `startsAt=null`. Los datos generales de modalidad, lugar/acceso y propiedad se validan como antes.
+
+Ejemplo de creación, con sesión y CSRF:
+
+```json
+{
+  "title": "Cena de compañeros",
+  "eventType": "DATE_POLL",
+  "timeZone": "Europe/Madrid",
+  "modality": "IN_PERSON",
+  "venue": {"placeName":"Sala", "address":"Calle Mayor", "latitude":40.4, "longitude":-3.7, "placeId":"place"},
+  "responseDeadline": "2027-05-09T18:00:00",
+  "datePoll": {"candidateDates":[
+    {"date":"2027-05-10", "startTime":"20:00:00"},
+    {"date":"2027-05-11"}
+  ]}
+}
+```
+
+`POST /api/events` devuelve 201 y Location. Un JSON o formato de fecha/hora ilegible da 400; el bloque
+ausente, lista fuera de límites, fecha ausente, fecha duplicada, zona inválida o plazo ausente dan 422.
+Las excepciones son `InvalidCandidateDateCountException`, `MissingCandidateDateException`,
+`DuplicateCandidateDateException`, `InvalidTimeZoneException`, `MissingDatePollDeadlineException` e
+`IncompatibleEventScheduleException`. Los ids inválidos o repetidos al rehidratar se rechazan con
+`InvalidCandidateDateIdException`; el mapper traduce la corrupción persistida a 500 saneado.
+
+En Mongo, `datePoll.candidateDates` embebe `{_id,date,startTime?}` con fecha y hora como texto ISO.
+Spring Data representa como `_id` el `id` lógico de cada candidata; el JSON del API usa `id`.
+No se guarda una medianoche ni una fecha auxiliar para representar sus componentes. `startsAt` y
+`endsAt` se omiten en consultas sin fecha definitiva. El máximo configurable se aplica al crear;
+reducirlo no impide leer las consultas existentes. No hay índices ni migraciones nuevos.
 
 ### Campos actuales
 
@@ -49,45 +100,48 @@ persistido sin generar identidad ni aplicar defaults nuevos; valida la integrida
 | `hostId` | `String` | Identificador del anfitrión. Desde R5 proviene del usuario autenticado (sesión), nunca del body del request. |
 | `title` | `String` | Título del evento. Obligatorio. |
 | `description` | `String` | Descripción libre. Opcional. |
-| `eventType` | `EventType` (derivado de `schedule`) | `FIXED_DATE` en los flujos disponibles; `DATE_POLL` se habilita en los siguientes pasos. |
-| `schedule` | `EventSchedule` | Configuración temporal; actualmente `FixedDateSchedule`, con fechas y zona. |
-| `startsAt` / `endsAt` | `LocalDateTime` | Hora local del evento. `endsAt` debe ser estrictamente posterior a `startsAt` una vez interpretados con `timeZone` (`InvalidEventPeriodException` si no). |
+| `eventType` | `EventType` (derivado de `schedule`) | `FIXED_DATE` o `DATE_POLL`. Ausente en documentos antiguos: `FIXED_DATE`. |
+| `schedule` | `EventSchedule` | `FixedDateSchedule` o `DatePollSchedule`. |
+| `startsAt` / `endsAt` | `LocalDateTime` (nullable) | En `FIXED_DATE`, inicio y fin locales; el fin debe ser posterior al inicio en UTC. En consultas sin selección, null, sin relleno. |
 | `timeZone` | `String` | Zona horaria IANA (`region/ciudad`, p. ej. `Europe/Madrid`). Se valida con `ZoneId.of(...)`; si no existe, `InvalidTimeZoneException`. |
 | `modality` | `Modality` | `IN_PERSON` o `ONLINE`. Un evento nunca es las dos cosas (modalidad híbrida fuera de alcance). |
 | `status` | `EventStatus` | `DRAFT`, `PUBLISHED`, `CANCELLED`. Ver máquina de estados más abajo. `FINISHED` no está implementado (D-FINISHED). |
 | `cancelledAt` | `Instant` (nullable) | Instante de cancelación. `null` si el evento no está cancelado. |
 | `cancellationReason` | `String` (nullable) | Motivo de cancelación, opcional. |
-| `responseOptions` | `List<ResponseOption>` | Ver sección siguiente. Entre 2 y 5, embebidas en el propio evento. |
+| `responseOptions` | `List<ResponseOption>` | En `FIXED_DATE`, entre 2 y 5 embebidas; vacío en `DATE_POLL`. |
 | `allowComment` | `boolean` | Si el invitado puede añadir un comentario a su respuesta. Default `false`: es un dato personal que el anfitrión debe activar de forma consciente. |
 | `allowResponseChange` | `boolean` | Si el invitado puede cambiar su respuesta tras enviarla. Default `true`. |
-| `responseDeadline` | `LocalDateTime` (nullable) | Fecha límite para responder, en la hora local del evento. Si viene, no puede ser posterior a `startsAt` (`InvalidResponseDeadlineException`). Sin valor por defecto. |
+| `responseDeadline` | `LocalDateTime` | En `FIXED_DATE` es opcional y no posterior a `startsAt`; obligatorio en `DATE_POLL`. Sin valor por defecto. |
 | `venue` | `Venue` (nullable) | Ver más abajo. Obligatorio si `modality` es `IN_PERSON`, prohibido si es `ONLINE`. |
 | `onlineAccess` | `OnlineAccess` (nullable) | Ver más abajo. Obligatorio si `modality` es `ONLINE`, prohibido si es `IN_PERSON`. |
 | `guests` | `List<Guest>` | Invitados del mismo agregado, sin respuesta embebida. Lista vacía por defecto. Ver `docs/modelo-invitado.md`. |
 | `version` | `Long` (nullable) | Bloqueo optimista de Mongo (`@Version`). `null` hasta el primer `save()`. |
 | `publicInvitation` | `PublicInvitation` | Intención `enabled` y token nullable del enlace público de alta; ausente equivale a desactivado. |
 
-Métodos derivados: `startsAtInstant()` / `endsAtInstant()` calculan el instante UTC a partir de la hora local y
+En `FIXED_DATE`, los métodos derivados `startsAtInstant()` / `endsAtInstant()` calculan el instante UTC a partir de la hora local y
 `timeZone` **al vuelo**, no lo guardan congelado — así reflejan cualquier cambio futuro en las reglas horarias de
 la zona.
+En consultas sin selección devuelven null, sin crear instantes auxiliares.
 
-`acceptsResponses(now)` centraliza las condiciones de tiempo y estado: PUBLISHED,
+Para `FIXED_DATE`, `acceptsResponses(now)` centraliza las condiciones de tiempo y estado: PUBLISHED,
 `responseDeadline == null || now <= responseDeadline` y `now < endsAtInstant()`. El plazo se convierte a
 instante con la zona del evento. `requireAcceptingResponses(now)` lanza `ResponseNotAcceptedException` (409)
 si falla alguna condición; la aplicación transforma DRAFT en el mismo 404 de un token desconocido antes de
 validar la respuesta. El instante procede de Clock inyectado. La regla rige primeras respuestas y cambios;
 estos últimos necesitan además `allowResponseChange`, impuesto mediante la política atómica de escritura.
 Consultar `canChangeResponse` reutiliza esta regla, sin duplicar comparaciones de fechas en la capa web.
+La configuración temporal aporta si existe un fin alcanzado; en `DATE_POLL` no hay fin definitivo y
+el plazo obligatorio gobierna la ventana. Los borradores de consulta actuales no aceptan respuestas.
 
 ### Reglas de negocio y sus excepciones
 
 | Regla | Excepción | HTTP |
 |---|---|---|
 | El título es obligatorio | `BlankEventTitleException` | 422 |
-| `endsAt` debe ser posterior a `startsAt` | `InvalidEventPeriodException` | 422 |
+| En `FIXED_DATE`, `endsAt` debe ser posterior a `startsAt` | `InvalidEventPeriodException` | 422 |
 | `timeZone` debe ser una zona IANA válida | `InvalidTimeZoneException` | 422 |
-| `responseDeadline`, si viene, no posterior a `startsAt` | `InvalidResponseDeadlineException` | 422 |
-| Entre 2 y 5 opciones de respuesta | `InvalidResponseOptionCountException` | 422 |
+| En `FIXED_DATE`, `responseDeadline`, si viene, no posterior a `startsAt` | `InvalidResponseDeadlineException` | 422 |
+| Entre 2 y 5 opciones de respuesta en `FIXED_DATE` | `InvalidResponseOptionCountException` | 422 |
 | Al menos una opción cuenta como asistencia | `NoAttendanceResponseOptionException` | 422 |
 | Etiquetas de opción no vacías | `BlankResponseOptionLabelException` | 422 |
 | Etiquetas de opción sin duplicados en el mismo evento | `DuplicateResponseOptionLabelException` | 422 |
@@ -121,6 +175,9 @@ excepciones de dominio de la rehidratación en StoredDataIntegrityException, que
 fijo. El saneamiento público de ProblemDetail se describe en el plan, §3 Seguridad y errores.
 
 ### Máquina de estados
+
+El flujo completo siguiente está disponible para `FIXED_DATE`. Las consultas `DATE_POLL` de este paso
+permanecen en DRAFT; su publicación se habilitará al completar el paso 4.
 
 ```
 DRAFT ──publish()──► PUBLISHED ──cancel(reason, now)──► CANCELLED
@@ -160,7 +217,7 @@ un campo `order`**: el orden es la posición en la lista, tal cual se envía o s
 | `label` | `String` | Texto que ve el invitado. No puede estar vacío ni ser `null` — se valida en el propio constructor del record. |
 | `countsAsAttendance` | `boolean` | Si marcar esta opción cuenta como asistencia confirmada. |
 
-Si al crear un evento no se especifican opciones, el dominio aplica dos por defecto: **"Asisto"** (cuenta) y
+Si al crear un evento `FIXED_DATE` no se especifican opciones, el dominio aplica dos por defecto: **"Asisto"** (cuenta) y
 **"No asisto"** (no cuenta).
 
 ### Identidad al editar (`PUT /api/events/{id}/response-options`)
@@ -256,10 +313,12 @@ LinkVisibility { ON_CONFIRMATION, HOURS_BEFORE, ALWAYS }
 ### Plazo editable (preparación de R8)
 
 `Event.changeResponseDeadline(deadline, now)` permite cambiar el plazo en DRAFT y en PUBLISHED solo antes
-de `startsAtInstant()`. El inicio exacto y los estados CANCELLED/FINISHED producen
+de `startsAtInstant()` para fecha fija. Las consultas disponibles todavía son borradores y exigen plazo
+no nulo en todas las entradas. El inicio exacto y los estados CANCELLED/FINISHED producen
 `ResponseDeadlineNotEditableException` (409). El instante procede del Clock inyectado en aplicación.
 La misma validación que usan creación y `edit()` exige plazo no posterior a startsAt
-(`InvalidResponseDeadlineException`, 422). null elimina el plazo; un plazo pasado es válido.
+(`InvalidResponseDeadlineException`, 422) en fecha fija. null elimina el plazo solo en `FIXED_DATE`;
+en `DATE_POLL` da `MissingDatePollDeadlineException` (422). Un plazo pasado es válido.
 
 `ChangeResponseDeadlineService` comprueba propiedad (404 si es ajeno) y delega la escritura en
 `EventResponseDeadlineRepositoryPort`. El adaptador usa findAndModify con `$set` de responseDeadline y
@@ -330,11 +389,12 @@ sobre `EventMongoRepository` (Spring Data).
 ### DTO de creación (referencia)
 
 ```java
+@ValidFixedDateFields
 public record CreateEventRequest(
     String title,
     String description,
-    @NotNull LocalDateTime startsAt,
-    @NotNull LocalDateTime endsAt,
+    LocalDateTime startsAt,
+    LocalDateTime endsAt,
     @NotBlank String timeZone,
     @NotNull Modality modality,
     List<@Valid CreateResponseOptionRequest> responseOptions,
@@ -342,9 +402,15 @@ public record CreateEventRequest(
     Boolean allowResponseChange,
     LocalDateTime responseDeadline,
     VenueRequest venue,
-    OnlineAccessRequest onlineAccess
-) {}
+    OnlineAccessRequest onlineAccess,
+    Boolean publicInvitationEnabled,
+    EventType eventType,
+    DatePollRequest datePoll
+) implements TemporalEventRequest {}
 ```
+
+`ValidFixedDateFields` conserva el 400 anterior si faltan inicio o fin en la petición de fecha fija;
+las fechas no se exigen en consultas. Las reglas de candidatas y plazo se validan en el dominio (422).
 
 ### Rutas
 

@@ -17,7 +17,7 @@ public class Event {
 	private final String hostId;
 	private String title;
 	private String description;
-	private FixedDateSchedule schedule;
+	private EventSchedule schedule;
 	private Modality modality;
 	private EventStatus status;
 	private List<ResponseOption> responseOptions;
@@ -32,7 +32,7 @@ public class Event {
 	private List<Guest> guests = List.of();
 	private PublicInvitation publicInvitation = new PublicInvitation(false, null);
 
-	private Event(String id, String hostId, String title, String description, FixedDateSchedule schedule,
+	private Event(String id, String hostId, String title, String description, EventSchedule schedule,
 			Modality modality, EventStatus status,
 			List<ResponseOption> responseOptions, boolean allowComment, boolean allowResponseChange,
 			LocalDateTime responseDeadline, Venue venue, OnlineAccess onlineAccess, Instant cancelledAt,
@@ -152,6 +152,7 @@ public class Event {
 		if (status != EventStatus.DRAFT && status != EventStatus.PUBLISHED) {
 			throw new EventNotEditableException(id);
 		}
+		if (getEventType() == EventType.DATE_POLL) { throw new EventScheduleConflictException(); }
 		List<ResponseOption> merged = edits.stream().map(this::resolveEdit).toList();
 		if (status == EventStatus.PUBLISHED) {
 			for (ResponseOption option : responseOptions) {
@@ -196,6 +197,10 @@ public class Event {
 		if (status != EventStatus.DRAFT) {
 			throw new EventNotPublishableException(id);
 		}
+		// Publicación y vista del invitado se incorporan en el paso 4 de la ampliación.
+		if (getEventType() == EventType.DATE_POLL) {
+			throw new IncompleteEventForPublishException("date poll publication is not available yet");
+		}
 		if (modality == Modality.IN_PERSON && venue == null) {
 			throw new IncompleteEventForPublishException("the event has no venue");
 		}
@@ -228,7 +233,7 @@ public class Event {
 	}
 
 	public boolean acceptsResponses(Instant now) {
-		return status == EventStatus.PUBLISHED && now.isBefore(endsAtInstant())
+		return status == EventStatus.PUBLISHED && !schedule.hasEnded(now)
 				&& (responseDeadline == null || !now.isAfter(responseDeadline.atZone(ZoneId.of(getTimeZone())).toInstant()));
 	}
 
@@ -255,7 +260,14 @@ public class Event {
 		if (edit.title() == null || edit.title().isBlank()) {
 			throw new BlankEventTitleException();
 		}
-		FixedDateSchedule updatedSchedule = FixedDateSchedule.create(edit.startsAt(), edit.endsAt(), edit.timeZone());
+		if (edit.eventType() != null && edit.eventType() != getEventType()) { throw new IncompatibleEventScheduleException(); }
+		EventSchedule updatedSchedule;
+		if (schedule instanceof DatePollSchedule poll) {
+			if (edit.startsAt() != null || edit.endsAt() != null) { throw new IncompatibleEventScheduleException(); }
+			updatedSchedule = new DatePollSchedule(poll.candidateDates(), edit.timeZone());
+		} else {
+			updatedSchedule = FixedDateSchedule.create(edit.startsAt(), edit.endsAt(), edit.timeZone());
+		}
 		updatedSchedule.validateResponseDeadline(edit.responseDeadline());
 
 		Modality newModality = edit.modality();
@@ -305,6 +317,12 @@ public class Event {
 			case HOURS_BEFORE -> !now.isBefore(startsAtInstant().minus(onlineAccess.hoursBefore(), ChronoUnit.HOURS));
 		};
 		return visible ? Optional.of(onlineAccess) : Optional.empty();
+	}
+
+	private static void validatePollFields(LocalDateTime startsAt, LocalDateTime endsAt, List<?> options) {
+		if (startsAt != null || endsAt != null || (options != null && !options.isEmpty())) {
+			throw new IncompatibleEventScheduleException();
+		}
 	}
 
 	private static void validateModalityInvariant(Modality modality, Venue venue, OnlineAccess onlineAccess) {
@@ -368,11 +386,11 @@ public class Event {
 	// El instante se calcula al vuelo a partir de la hora local: si cambian las reglas horarias de la zona
 	// antes de la fecha del evento, este cálculo siempre refleja la hora local prevista, no un instante congelado.
 	public Instant startsAtInstant() {
-		return schedule.startsAtInstant();
+		return schedule instanceof FixedDateSchedule fixed ? fixed.startsAtInstant() : null;
 	}
 
 	public Instant endsAtInstant() {
-		return schedule.endsAtInstant();
+		return schedule instanceof FixedDateSchedule fixed ? fixed.endsAtInstant() : null;
 	}
 
 	public String getId() {
@@ -392,11 +410,11 @@ public class Event {
 	}
 
 	public LocalDateTime getStartsAt() {
-		return schedule.startsAt();
+		return schedule instanceof FixedDateSchedule fixed ? fixed.startsAt() : null;
 	}
 
 	public LocalDateTime getEndsAt() {
-		return schedule.endsAt();
+		return schedule instanceof FixedDateSchedule fixed ? fixed.endsAt() : null;
 	}
 
 	public EventType getEventType() { return schedule.type(); }
@@ -466,7 +484,14 @@ public class Event {
 		private LocalDateTime responseDeadline;
 		private Venue venue;
 		private OnlineAccess onlineAccess;
+		private EventType eventType;
+		private DatePollDraft datePoll;
+		private DatePollLimits datePollLimits = DatePollLimits.defaults();
 		private PublicInvitation publicInvitation;
+
+		public Builder eventType(EventType value) { this.eventType = value; return this; }
+		public Builder datePoll(DatePollDraft value) { this.datePoll = value; return this; }
+		public Builder datePollLimits(DatePollLimits value) { this.datePollLimits = value; return this; }
 
 		public Builder publicInvitation(PublicInvitation value) { this.publicInvitation = value; return this; }
 		public Builder publicInvitationEnabled(boolean enabled) { return publicInvitation(new PublicInvitation(enabled, null)); }
@@ -543,11 +568,18 @@ public class Event {
 			if (title == null || title.isBlank()) {
 				throw new BlankEventTitleException();
 			}
-			FixedDateSchedule schedule = FixedDateSchedule.create(startsAt, endsAt, timeZone);
+			EventSchedule schedule;
+			if (eventType == EventType.DATE_POLL) {
+				validatePollFields(startsAt, endsAt, responseOptions);
+				schedule = DatePollSchedule.create(datePoll, timeZone, datePollLimits);
+			} else {
+				if (datePoll != null) { throw new IncompatibleEventScheduleException(); }
+				schedule = FixedDateSchedule.create(startsAt, endsAt, timeZone);
+			}
 			schedule.validateResponseDeadline(responseDeadline);
 			validateModalityInvariant(modality, venue, onlineAccess);
-			List<ResponseOption> resolvedResponseOptions = buildInitialResponseOptions(responseOptions);
-			validateResponseOptions(resolvedResponseOptions);
+			List<ResponseOption> resolvedResponseOptions = schedule.type() == EventType.DATE_POLL ? List.of() : buildInitialResponseOptions(responseOptions);
+			if (schedule.type() == EventType.FIXED_DATE) { validateResponseOptions(resolvedResponseOptions); }
 			Event event = new Event(UUID.randomUUID().toString(), hostId, title, description, schedule,
 					modality, EventStatus.DRAFT, resolvedResponseOptions, resolveAllowComment(allowComment),
 					resolveAllowResponseChange(allowResponseChange), responseDeadline, venue, onlineAccess, null, null,
@@ -559,6 +591,8 @@ public class Event {
 
 	public static final class ReconstituteBuilder {
 
+		private EventSchedule schedule;
+		public ReconstituteBuilder schedule(EventSchedule value) { this.schedule = value; return this; }
 		private String id;
 		private String hostId;
 		private String title;
@@ -681,9 +715,10 @@ public class Event {
 		}
 
 		public Event build() {
-			Event event = new Event(id, hostId, title, description, FixedDateSchedule.reconstitute(startsAt, endsAt, timeZone), modality, status,
+			Event event = new Event(id, hostId, title, description, schedule == null ? FixedDateSchedule.reconstitute(startsAt, endsAt, timeZone) : schedule, modality, status,
 					responseOptions, allowComment, allowResponseChange, responseDeadline, venue, onlineAccess,
 					cancelledAt, cancellationReason, version);
+			if (schedule instanceof DatePollSchedule) { validatePollFields(startsAt, endsAt, responseOptions); schedule.validateResponseDeadline(responseDeadline); }
 			event.guests = guests;
 			event.restorePublicInvitation(publicInvitation);
 			return event;

@@ -87,7 +87,7 @@ Estas reglas son el contrato final del producto, no necesariamente lo que el có
 
 3. **El envío por WhatsApp y Telegram no es automático.** El backend construye el enlace profundo y lo devuelve; el envío real lo hace el anfitrión desde su cliente y lo confirma a mano. No implementes ni propongas integración con la API de WhatsApp Business.
 
-4. **Las opciones de respuesta las define el anfitrión.** No hay enum fijo de respuestas. Entre dos y cinco opciones, ordenadas, con etiquetas únicas y no vacías y al menos una que cuente como asistencia. En DRAFT pueden cambiarse; en PUBLISHED se pueden renombrar y agregar, pero no eliminar una opción con respuestas ni cambiar su `countsAsAttendance` (409 con excepciones propias). La aplicación consulta los ids con respuestas y los pasa al dominio, que no conoce Mongo. CANCELLED y FINISHED bloquean los cambios. D-7 saldada en R8; la carrera entre responder y eliminar una opción queda en D-ORPHAN-OPTION, sin transacciones.
+4. **Las opciones de respuesta las define el anfitrión.** No hay enum fijo de respuestas. Entre dos y cinco opciones, ordenadas, con etiquetas únicas y no vacías y al menos una que cuente como asistencia. En DRAFT pueden cambiarse; en PUBLISHED se pueden renombrar y agregar, pero no eliminar una opción con respuestas ni cambiar su `countsAsAttendance` (409 con excepciones propias). La aplicación consulta los ids con respuestas y los pasa al dominio, que no conoce Mongo. CANCELLED y FINISHED bloquean los cambios. D-7 saldada en R8; la carrera entre responder y eliminar una opción queda en D-ORPHAN-OPTION, sin transacciones. Esta regla corresponde a FIXED_DATE; DATE_POLL usa candidatas con fecha y hora opcional, sin opciones de asistencia.
 
 5. **Un evento es presencial o en línea, nunca ambos.** La modalidad híbrida está fuera de alcance a propósito en esta iteración.
 
@@ -215,7 +215,7 @@ Las ediciones del anfitrión sobre el cuerpo del evento sí pueden usar `save()`
 
 El ejemplo y el contrato de creación están en [modelo-evento.md](docs/modelo-evento.md#api-http-expuesta-hoy) y en `CreateEventRequest`.
 
-`hostId` se obtiene del principal autenticado, nunca del cuerpo. Las fechas del evento son horas locales (`LocalDateTime`) más `timeZone`; el instante se calcula al consultar. Los instantes de auditoría siguen en UTC.
+`hostId` se obtiene del principal autenticado, nunca del cuerpo. Las fechas de FIXED_DATE son horas locales (`LocalDateTime`) más `timeZone`; el instante se calcula al consultar. Los instantes de auditoría siguen en UTC.
 
 **Inyección por constructor, siempre.** Nunca `@Autowired` sobre campos.
 

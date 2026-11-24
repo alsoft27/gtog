@@ -39,7 +39,7 @@ Actores posteriores al MVP: co-organizador, invitado registrado y administrador 
 
 ## 3. El recorrido completo
 
-**Crear el evento.** El anfitrión define título, descripción, fecha, hora de inicio y fin y la zona horaria en
+**Crear el evento con fecha definida.** El anfitrión define título, descripción, fecha, hora de inicio y fin y la zona horaria en
 que ocurre. Elige la modalidad, que condiciona el resto:
 
 - **Presencial:** dirección con el autocompletado de Google Places y marcador ajustable. Se guardan el
@@ -48,7 +48,7 @@ que ocurre. Elige la modalidad, que condiciona el resto:
 - **En línea:** plataforma, enlace de la reunión y, opcionalmente, identificador de sala y contraseña. El
   anfitrión decide cuándo se muestra el enlace: al confirmar asistencia, N horas antes del inicio, o siempre.
 
-**Definir cómo se responde.** Las opciones de respuesta no son fijas: el anfitrión define entre dos y cinco,
+**Definir cómo se responde en fecha definida.** Las opciones de respuesta no son fijas: el anfitrión define entre dos y cinco,
 con el texto y el orden que quiera, y marca cuáles cuentan como asistencia. Por defecto, "Asisto" y "No
 asisto". Configura además si el invitado puede comentar, si puede cambiar su respuesta y un plazo opcional.
 
@@ -106,8 +106,11 @@ se conserva solo la última respuesta. Elegir o cambiar la candidata definitiva 
 conservará las disponibilidades y la hora opcional, sin inventar horarios ni convertir disponibilidad en
 confirmación de asistencia. El vencimiento del plazo, o todas las respuestas sin enlace público activo,
 solo provocará un aviso por correo al anfitrión; no cerrará anticipadamente las respuestas ni avisará a
-los invitados. El desarrollo se divide en pasos en el plan. De momento, los flujos disponibles siguen
-siendo de fecha definida; las vistas añaden `eventType=FIXED_DATE`, también para eventos antiguos.
+los invitados. El desarrollo se divide en pasos en el plan. Desde el paso 2 se puede crear y consultar
+un borrador `DATE_POLL`, y editar sus datos generales conservando las candidatas. Admite entre dos y
+diez fechas distintas (máximo configurable), mezclando horas opcionales, y plazo obligatorio. Todavía
+no se publica ni se reciben disponibilidades: corresponden a los pasos 4 y 5. Los eventos de fecha
+definida mantienen el flujo completo; omitir `eventType` conserva `FIXED_DATE`, también en documentos antiguos.
 
 **Estados del evento:** `DRAFT → PUBLISHED`, más `CANCELLED` (solo desde `PUBLISHED`, irreversible).
 `FINISHED` existe en el modelo pero ningún mecanismo lleva un evento a ese estado. Un borrador no se puede
@@ -172,7 +175,7 @@ está en los modelos.
 RF-3.9 es inalcanzable hoy: un evento publicado no admite cambios de ubicación. O sale del alcance, o se abre
 una excepción para editar la ubicación de un evento publicado, con notificación como efecto secundario.
 
-### Opciones de respuesta
+### Opciones de respuesta de los eventos con fecha definida
 
 | ID | Requisito | Estado |
 |---|---|---|

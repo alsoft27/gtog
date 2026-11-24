@@ -7,6 +7,8 @@ import java.util.List;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 import com.gtog.event.domain.model.Event;
+import com.gtog.event.domain.model.DatePollSchedule;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.gtog.event.domain.model.EventType;
 import com.gtog.event.domain.model.EventStatus;
 import com.gtog.event.domain.model.Modality;
@@ -68,7 +70,7 @@ public record EventResponse(
 		String cancellationReason,
 		@Schema(description = "Intención en borrador; enlace activo o conservado en los demás estados. Nunca contiene el token.")
 		boolean publicInvitationEnabled,
-		@Schema(description = "Tipo temporal del evento; los eventos existentes son FIXED_DATE") EventType eventType) {
+		@Schema(description = "Tipo temporal del evento; los eventos existentes son FIXED_DATE") EventType eventType, @JsonInclude(JsonInclude.Include.NON_NULL) DatePollResponse datePoll) {
 
 	public static EventResponse from(Event event) {
 		return new EventResponse(
@@ -88,6 +90,6 @@ public record EventResponse(
 				event.getVenue() == null ? null : VenueResponse.from(event.getVenue()),
 				event.getOnlineAccess() == null ? null : OnlineAccessResponse.from(event.getOnlineAccess()),
 				event.getCancelledAt(),
-				event.getCancellationReason(), event.isPublicInvitationEnabled(), event.getEventType());
+				event.getCancellationReason(), event.isPublicInvitationEnabled(), event.getEventType(), event.getSchedule() instanceof DatePollSchedule poll ? DatePollResponse.from(poll) : null);
 	}
 }

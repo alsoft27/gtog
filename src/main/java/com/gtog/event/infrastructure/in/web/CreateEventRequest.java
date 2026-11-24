@@ -10,7 +10,9 @@ import jakarta.validation.constraints.NotNull;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 import com.gtog.event.domain.model.Modality;
+import com.gtog.event.domain.model.EventType;
 
+@ValidFixedDateFields
 public record CreateEventRequest(
 
 		// Sin @NotBlank a proposito: el titulo obligatorio es una regla de negocio (BlankEventTitleException, 422
@@ -21,11 +23,11 @@ public record CreateEventRequest(
 		@Schema(description = "Descripcion opcional del evento", example = "Trae algo para compartir")
 		String description,
 
-		@Schema(description = "Fecha y hora de inicio, en la zona horaria del evento", example = "2026-09-01T20:00:00")
-		@NotNull LocalDateTime startsAt,
+		@Schema(description = "Inicio obligatorio para FIXED_DATE; omitido en DATE_POLL. Hora local del evento", example = "2026-09-01T20:00:00")
+		LocalDateTime startsAt,
 
-		@Schema(description = "Fecha y hora de fin, debe ser posterior a startsAt", example = "2026-09-01T23:00:00")
-		@NotNull LocalDateTime endsAt,
+		@Schema(description = "Fin obligatorio para FIXED_DATE y posterior a startsAt; omitido en DATE_POLL", example = "2026-09-01T23:00:00")
+		LocalDateTime endsAt,
 
 		@Schema(description = "Zona horaria del evento en formato IANA (region/ciudad)", example = "Europe/Madrid")
 		@NotBlank String timeZone,
@@ -47,7 +49,7 @@ public record CreateEventRequest(
 		Boolean allowResponseChange,
 
 		@Schema(description = "Fecha limite para responder, en la zona horaria del evento; no puede ser posterior "
-				+ "a startsAt. Sin valor por defecto.", example = "2026-08-30T23:59:59")
+				+ "a startsAt para FIXED_DATE. Obligatorio para DATE_POLL.", example = "2026-08-30T23:59:59")
 		LocalDateTime responseDeadline,
 
 		@Schema(description = "Ubicacion del evento. Obligatoria si modality es IN_PERSON, prohibida si es ONLINE.")
@@ -58,5 +60,7 @@ public record CreateEventRequest(
 		OnlineAccessRequest onlineAccess,
 
 		@Schema(description = "Solicita crear el enlace público al publicar; false por defecto")
-		Boolean publicInvitationEnabled) {
+		Boolean publicInvitationEnabled,
+		@Schema(description = "FIXED_DATE por defecto; DATE_POLL no admite startsAt ni endsAt") EventType eventType,
+		@Schema(description = "Obligatorio para DATE_POLL; prohibido para FIXED_DATE") DatePollRequest datePoll) implements TemporalEventRequest {
 }

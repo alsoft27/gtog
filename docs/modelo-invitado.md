@@ -405,7 +405,8 @@ producen el mismo cuerpo. Éxito y 404 llevan exactamente `Cache-Control: no-sto
 
 - `guest`: exclusivamente `name`, sin id ni contactos.
 - `title`, `description`, `status`, `modality`, `startsAt`, `endsAt`, `timeZone`, `startsAtInstant` y `endsAtInstant`.
-- `eventType`: `FIXED_DATE` en los flujos actuales, también al consultar eventos anteriores sin discriminador.
+- `eventType`: `FIXED_DATE` en los flujos públicos disponibles, también al consultar eventos anteriores sin discriminador.
+  Los borradores `DATE_POLL` aún no se publican; su flujo de disponibilidad se incorporará en pasos posteriores.
 - `venue` completo si es presencial; opciones de respuesta únicamente con `id` y `label`.
 - `allowComment`, `allowResponseChange`, `responseDeadline`; datos de cancelación solo si corresponde.
 - `onlineAccessInfo`: `platform`, `linkVisibility` y `hoursBefore`, sin secretos.

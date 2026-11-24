@@ -87,7 +87,7 @@ public class EventController {
 	}
 
 	@Operation(summary = "Crea un evento", description = "El anfitrion crea un evento nuevo. El evento se crea en "
-			+ "estado DRAFT; las opciones de respuesta y los invitados se anaden en peticiones posteriores. Requiere correo verificado, comprobado en la base de datos en cada creación.")
+			+ "estado DRAFT. FIXED_DATE usa inicio y fin; DATE_POLL usa datePoll.candidateDates y un plazo obligatorio, sin fechas definitivas. Requiere correo verificado, comprobado en la base de datos en cada creación.")
 	@ApiResponses({
 			@ApiResponse(responseCode = "201", description = "Evento creado. La cabecera Location apunta al recurso.",
 					content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
@@ -130,7 +130,7 @@ public class EventController {
 				request.allowResponseChange(),
 				request.responseDeadline(),
 				venue,
-				onlineAccess, request.publicInvitationEnabled());
+				onlineAccess, request.publicInvitationEnabled(), request.eventType(), request.datePoll() == null ? null : request.datePoll().toDomain());
 		Event event = createEventUseCase.createEvent(command);
 		return ResponseEntity.created(URI.create("/api/events/" + event.getId())).body(EventResponse.from(event));
 	}
@@ -197,7 +197,7 @@ public class EventController {
 		boolean allowResponseChange = request.allowResponseChange() == null || request.allowResponseChange();
 		EventEdit edit = new EventEdit(request.title(), request.description(), request.startsAt(), request.endsAt(),
 				request.timeZone(), request.modality(), venue, onlineAccess, allowComment, allowResponseChange,
-				request.responseDeadline());
+				request.responseDeadline(), request.eventType());
 		UpdateEventCommand command = new UpdateEventCommand(principal.getUserId(), id, edit);
 		return EventResponse.from(updateEventUseCase.update(command));
 	}

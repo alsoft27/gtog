@@ -10,6 +10,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import com.gtog.event.domain.model.Event;
+import com.gtog.event.domain.model.DatePollLimits;
 import com.gtog.event.domain.model.EventStatus;
 import com.gtog.event.domain.model.Modality;
 import com.gtog.event.domain.model.ResponseOption;
@@ -71,7 +72,7 @@ class CreateEventServiceTest {
 		when(eventRepositoryPort.save(eventCaptor.capture())).thenReturn(savedEvent);
 
 		when(verification.isVerified(command.hostId())).thenReturn(true);
-		CreateEventService service = new CreateEventService(eventRepositoryPort, verification);
+		CreateEventService service = new CreateEventService(eventRepositoryPort, verification, DatePollLimits.defaults());
 		Event result = service.createEvent(command);
 
 		assertThat(result).isSameAs(savedEvent);
@@ -84,7 +85,7 @@ class CreateEventServiceTest {
 	@Test void anUnverifiedHostCannotCreateOrWriteAnEvent() {
 		CreateEventCommand command = mock(CreateEventCommand.class);
 		when(command.hostId()).thenReturn("unverified");
-		assertThatThrownBy(() -> new CreateEventService(eventRepositoryPort, verification).createEvent(command)).isInstanceOf(EmailNotVerifiedException.class);
+		assertThatThrownBy(() -> new CreateEventService(eventRepositoryPort, verification, DatePollLimits.defaults()).createEvent(command)).isInstanceOf(EmailNotVerifiedException.class);
 		verifyNoInteractions(eventRepositoryPort);
 	}
 }

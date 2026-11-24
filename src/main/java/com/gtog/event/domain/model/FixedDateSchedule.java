@@ -1,6 +1,5 @@
 package com.gtog.event.domain.model;
 
-import java.time.DateTimeException;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -9,12 +8,7 @@ import java.time.ZoneId;
 public record FixedDateSchedule(LocalDateTime startsAt, LocalDateTime endsAt, String timeZone) implements EventSchedule {
 
 	public static FixedDateSchedule create(LocalDateTime startsAt, LocalDateTime endsAt, String timeZone) {
-		ZoneId zone;
-		try {
-			zone = ZoneId.of(timeZone);
-		} catch (DateTimeException exception) {
-			throw new InvalidTimeZoneException(timeZone);
-		}
+		ZoneId zone = EventSchedule.zone(timeZone);
 		if (!endsAt.atZone(zone).toInstant().isAfter(startsAt.atZone(zone).toInstant())) {
 			throw new InvalidEventPeriodException(startsAt, endsAt);
 		}
@@ -32,6 +26,7 @@ public record FixedDateSchedule(LocalDateTime startsAt, LocalDateTime endsAt, St
 		}
 	}
 
+	@Override public boolean hasEnded(Instant now) { return !now.isBefore(endsAtInstant()); }
 	@Override public EventType type() { return EventType.FIXED_DATE; }
 	public Instant startsAtInstant() { return startsAt.atZone(ZoneId.of(timeZone)).toInstant(); }
 	public Instant endsAtInstant() { return endsAt.atZone(ZoneId.of(timeZone)).toInstant(); }
