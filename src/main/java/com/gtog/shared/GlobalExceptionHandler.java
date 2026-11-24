@@ -28,6 +28,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import com.gtog.event.domain.model.EventDomainException;
 import com.gtog.event.domain.model.EventScheduleConflictException;
+import com.gtog.event.domain.model.StalePollRevisionException;
 import com.gtog.event.domain.model.EventInvitationSendingNotAllowedException;
 import com.gtog.event.domain.model.ResponseDeadlineNotEditableException;
 import com.gtog.event.domain.model.InvitationNotFoundException;
@@ -192,7 +193,7 @@ public class GlobalExceptionHandler {
 		return ResponseEntity.status(HttpStatus.CONFLICT).body(ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, exception.getMessage()));
 	}
 
-	@ExceptionHandler({EventScheduleConflictException.class, PublicInvitationNotEditableException.class, EventInvitationSendingNotAllowedException.class, ResponseDeadlineNotEditableException.class, ResponseOptionDeletionNotAllowedException.class,
+	@ExceptionHandler({StalePollRevisionException.class, EventScheduleConflictException.class, PublicInvitationNotEditableException.class, EventInvitationSendingNotAllowedException.class, ResponseDeadlineNotEditableException.class, ResponseOptionDeletionNotAllowedException.class,
 			ResponseOptionAttendanceChangeNotAllowedException.class})
 	public ProblemDetail handleEventConfigurationConflict(EventDomainException exception) {
 		return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, exception.getMessage());

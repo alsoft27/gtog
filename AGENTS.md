@@ -190,7 +190,9 @@ perdida con el invitado vivo.
 
 Al actualizar un invitado concreto usa siempre escrituras posicionales parciales atómicas, nunca leer-modificar-guardar el evento completo. Incrementa `version`; no compares la versión esperada. Ver [modelo-invitado.md](docs/modelo-invitado.md#persistencia-y-concurrencia).
 
-Las ediciones del anfitrión sobre el cuerpo del evento sí pueden usar `save()` con bloqueo optimista `@Version`, porque solo hay un escritor.
+Las ediciones del anfitrión sobre el cuerpo del evento (incluidas las candidatas) sí pueden usar `save()` con bloqueo optimista `@Version`. Ante un 409 concurrente, recarga y reintenta.
+
+En DATE_POLL, `pollRevision` identifica la ronda, no la versión del documento. Cambiar candidatas invalida y quita selección; repetir o reordenar conserva la ronda. Ver [modelo-evento.md](docs/modelo-evento.md#reemplazo-de-candidatas-y-revisión-de-consulta--paso-3).
 
 ### Otras reglas de persistencia
 

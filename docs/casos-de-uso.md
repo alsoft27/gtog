@@ -152,7 +152,7 @@ GET/PUT `/api/events/{id}/public-invitation` consultan/cambian el interruptor (v
 **Por defecto en fecha definida:** opciones "Asisto" (cuenta como asistencia) y "No asisto"; `allowComment=false`;
 `allowResponseChange=true`.
 
-### Borrador con fecha por definir (paso 2)
+### Borrador con fecha por definir (pasos 2 y 3)
 
 La secuencia completa anterior corresponde a `FIXED_DATE`, que sigue siendo el tipo por defecto.
 También se puede crear un `DATE_POLL` con sesión y CSRF, consultarlo y editar sus datos generales.
@@ -175,7 +175,7 @@ HTTP/1.1 201 Created
 Location: /api/events/event-demo
 
 {"id":"event-demo","eventType":"DATE_POLL","status":"DRAFT","startsAt":null,"endsAt":null,
- "responseOptions":[],"datePoll":{"candidateDates":[
+ "responseOptions":[],"datePoll":{"pollRevision":0,"selectedCandidateDateId":null,"candidateDates":[
  {"id":"candidate-1","date":"2027-05-10","startTime":"20:00:00"},
  {"id":"candidate-2","date":"2027-05-11","startTime":null}]}}
 ```
@@ -189,6 +189,41 @@ consulta también dan 422. No se crea nada al rechazar el alta. Autorización, C
 `startsAt=null`. Para editar datos generales, `PUT /api/events/{id}` incluye `eventType=DATE_POLL`,
 omite inicio/fin y conserva un plazo. No cambia candidatas ni convierte el tipo; quitar el plazo da 422.
 Las opciones de asistencia son propias de `FIXED_DATE`: reemplazarlas en una consulta da 409.
+
+**Reemplazar candidatas (paso 3).** Fuente: `CandidateDatesIntegrationTest`. Con sesión y CSRF,
+en DRAFT o PUBLISHED:
+
+```http
+PUT /api/events/event-demo/candidate-dates
+Content-Type: application/json
+
+{"pollRevision":0,"candidateDates":[
+ {"id":"candidate-1","date":"2027-05-14","startTime":"20:00:00"},
+ {"id":"candidate-2","date":"2027-05-11","startTime":null}]}
+```
+
+```http
+HTTP/1.1 200 OK
+
+{"id":"event-demo","eventType":"DATE_POLL","datePoll":{"pollRevision":1,
+ "selectedCandidateDateId":null,"candidateDates":[
+ {"id":"candidate-1","date":"2027-05-14","startTime":"20:00:00"},
+ {"id":"candidate-2","date":"2027-05-11","startTime":null}]}}
+```
+
+Se envía la lista completa y la revisión leída, independiente de la versión del documento. Los ids existentes
+se conservan; sin id se reutiliza una fecha/hora coincidente o se genera uno. Cambiar fecha/hora, añadir o
+quitar avanza una ronda y borra la selección. Repetir no escribe; reordenar conserva ronda y selección.
+Una edición obsoleta que cambia la configuración da 409; repetir el mismo cambio ya aplicado sigue
+siendo idempotente, incluso con la revisión anterior. Una revisión futura da 409; ausente/negativa, 422.
+Una revisión antigua que referencia una candidata eliminada también da 409; con revisión actual un id
+desconocido da 422, igual que ids duplicados, fechas ausentes o una lista fuera de límites. Un tipo fijo o estado cerrado
+da 409; otro anfitrión, 404. Cuerpo ilegible, 400, antes de propiedad y validación de negocio.
+
+La revisión invalida lógicamente las disponibilidades anteriores; el flujo que las escribe/lee se incorpora
+en el paso 5. No se borra ningún invitado, token, apertura o cuota ni se crea historial. Elegir fecha llega
+en el paso 7. Si el plazo venció, cambiar candidatas no lo amplía: el anfitrión fija otro plazo obligatorio,
+también en consultas publicadas. Dos editores concurrentes no se pisan: uno recibe 409 y recarga antes de reintentar.
 
 ### Paso 3: contrato del lote y ejemplo UC-2
 
@@ -277,7 +312,7 @@ con una lista explícita no vacía.
 
 | Qué | Llamada | Reglas |
 |---|---|---|
-| Cambiar el plazo | `PUT …/response-deadline` | En `DRAFT`, y en `PUBLISHED` solo antes del inicio. Nunca posterior al inicio |
+| Cambiar el plazo | `PUT …/response-deadline` | Fecha fija: DRAFT, o PUBLISHED antes del inicio, nunca posterior a él. Consulta: DRAFT/PUBLISHED con plazo obligatorio |
 | Cambiar opciones | `PUT …/response-options` | Se pueden renombrar y añadir. No eliminar ni cambiar si cuenta como asistencia una opción con respuestas (409) |
 | Cancelar | `POST …/cancel` `{reason?}` | Solo desde `PUBLISHED`; irreversible. Desde `DRAFT`, 409 |
 | Editar invitados | `PUT …/guests/{guestId}` | 200; estado cerrado o contacto duplicado, 409; ausente, 404 |
@@ -540,6 +575,7 @@ Se emite además la cookie descrita, sin sesión ni CSRF. El recorrido manual co
 | `GET /api/auth/me` | 1 |
 | `POST /api/events` | 2 |
 | `PUT /api/events/{id}` y `…/response-options`, `…/venue`, `…/online-access`, `…/response-deadline` | 2 |
+| `PUT /api/events/{id}/candidate-dates` | 2 (consulta de fechas) |
 | `POST /api/events/{id}/publish` y `…/cancel` | 2 |
 | `POST /api/events/{id}/guests` | 2 |
 | `PUT /api/events/{id}/guests/{guestId}`, `DELETE /api/events/{id}/guests/{guestId}` | 2 |
@@ -600,6 +636,7 @@ se informan como resultados FAILED/SKIPPED dentro del 200, no cambiando el estad
 | PUT /api/events/{id}/venue | Sí | Sí | 200 + EventResponse | 400, 401, 403, 404, 409 estado/modalidad/versión, 422 |
 | PUT /api/events/{id}/online-access | Sí | Sí | 200 + EventResponse | 400, 401, 403, 404, 409 estado/modalidad/versión, 422 |
 | PUT /api/events/{id}/response-deadline | Sí | Sí | 200 + EventResponse | 400, 401, 403, 404, 409 estado/inicio/carrera, 422 plazo posterior al inicio |
+| PUT /api/events/{id}/candidate-dates | Sí | Sí | 200 + EventResponse | 400, 401, 403, 404, 409 tipo/estado/revisión/versión, 422 revisión o candidatas inválidas |
 | POST /api/events/{id}/publish | Sí | Sí | 200 + EventResponse PUBLISHED | 401, 403, 404, 409 estado/versión, 422 publicación incompleta |
 | POST /api/events/{id}/cancel | Sí | Sí | 200 + EventResponse CANCELLED | 400 body opcional ilegible, 401, 403, 404, 409 estado/versión |
 | POST /api/events/{id}/guests | Sí | Sí | 201 + Location individual + GuestInvitationResponse | 400, 401, 403 CSRF, 404, 409 duplicado/estado/capacidad, 422 |

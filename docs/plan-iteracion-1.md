@@ -15,11 +15,11 @@ de despliegue público de §7 y la deuda abierta de §6, incluida D-UNVERIFIED-S
 El frontend Angular no se ha empezado.
 Los recorridos y ejemplos del API están en [casos-de-uso.md](casos-de-uso.md), con la verificación de rutas, seguridad y resultados.
 
-`mvn clean verify`: 1.147 tests, 0 fallos, 0 errores y 0 omitidos en la última ejecución completa,
-limpia y aislada (paso 2, borradores DATE_POLL). Añade 58 casos a la base anterior: 26 de dominio,
-3 de configuración y 29 con servidor real. El unitario de creación existente solo adapta su
-constructor para recibir los límites; conserva sus aserciones. En el paso 1 el listado pasó de nueve
-a diez campos para incluir `eventType`.
+`mvn clean verify`: 1.203 tests, 0 fallos, 0 errores y 0 omitidos en la última ejecución completa,
+limpia y aislada (paso 3, edición de candidatas). Añade 56 casos a la base anterior: 31 de dominio
+y 25 con servidor real, incluida concurrencia. No modifica tests anteriores. El paso 2 añadió 58 casos
+y adaptó el constructor del unitario de creación, conservando sus aserciones. En el paso 1 el listado
+pasó de nueve a diez campos para incluir `eventType`.
 La verificación anterior de `a85d4e6` sufrió errores DNS de Atlas al arrancar tres contextos;
 tras recuperarse la red, aquella suite pasó sin cambios de código ni tests entre ambas ejecuciones.
 Las ejecuciones negativas de mutación se conservan solo como evidencia, no como resultado de la suite final.
@@ -56,6 +56,7 @@ Maven por defecto, springdoc-openapi, iCal4j 4.2.0, libphonenumber 9.0.43, Mailj
 | Invitados — enlace público | RF-2.19: intención en borrador, token al publicar, interruptor revocable, alta inmediata con contacto opcional y cookie de fricción. Topes atómicos 25/500, descarte silencioso de contactos, origen en panel y exclusión del correo; WhatsApp permitido |
 | Tipos temporales — paso 1 | `EventSchedule` y `FixedDateSchedule`; `eventType=FIXED_DATE` en persistencia y vistas, también para documentos antiguos sin discriminador. Base de compatibilidad de la ampliación, en `024d09a` |
 | Borradores DATE_POLL — paso 2 | Alta, detalle, listado y edición de datos generales; candidatas con id, fecha y hora opcional, sin fin, y plazo obligatorio. Máximo configurable 10; sin opciones de asistencia ni fechas de relleno. Publicación pendiente del paso 4 |
+| Candidatas DATE_POLL — paso 3 | PUT /api/events/{id}/candidate-dates con revisión propia, selección que se limpia al cambiar y reintentos idempotentes. Reordenar no invalida. Concurrencia con @Version y conservación de invitados/cuotas. Lectura/escritura de disponibilidades por revisión pendiente del paso 5 |
 
 ### Endpoints
 
@@ -69,6 +70,7 @@ POST   /api/events                 GET    /api/events              GET    /api/e
 PUT    /api/events/{id}            PUT    /api/events/{id}/response-options
 PUT    /api/events/{id}/venue      PUT    /api/events/{id}/online-access
 PUT    /api/events/{id}/response-deadline
+PUT    /api/events/{id}/candidate-dates
 POST   /api/events/{id}/publish    POST   /api/events/{id}/cancel
 GET    /api/events/{id}/dashboard
 GET    /api/events/{id}/public-invitation   PUT /api/events/{id}/public-invitation
@@ -147,9 +149,9 @@ Orden de implementación aprobado, con verificación completa antes de cada comm
 1. **Compatibilidad temporal (cerrada):** tipo explícito, fechas fijas encapsuladas y lectura de documentos antiguos.
 2. **Borradores de consulta (cerrada):** entre 2 y 10 candidatas, con tope configurable, id, fecha obligatoria
    y hora opcional, sin fin; plazo obligatorio.
-3. **Cambios de candidatas (siguiente):** revisión propia e invalidación de todas las disponibilidades al cambiar fechas;
+3. **Cambios de candidatas (cerrada):** revisión propia e invalidación lógica al cambiar fechas;
    repetir una configuración o reordenarla no invalida. Se mantienen invitados, tokens, aperturas y cuotas.
-4. **Publicación y difusión:** publicar sin fecha definitiva y adaptar vistas públicas, alta por enlace y mensajes.
+4. **Publicación y difusión (siguiente):** publicar sin fecha definitiva y adaptar vistas públicas, alta por enlace y mensajes.
 5. **Disponibilidad:** respuesta múltiple, incluida lista vacía explícita; última versión, revisión vigente,
    plazos y cambios controlados atómicamente. Una revisión nueva permite volver a contestar.
 6. **Seguimiento:** totales y personas por candidata, pendientes y no disponibles, sin consultas por evento.
@@ -185,13 +187,34 @@ existentes siguen aplicándose.
   `app.events.max-candidate-dates` (10 por defecto; configuración menor de 2 impide el arranque).
 - El plazo es obligatorio en todas las escrituras de consultas. Creación, edición general y plazo
   específico comparten validación de dominio. No se compara con un inicio definitivo inexistente.
-- El límite de candidatas se aplica al crear; reducirlo no impide leer datos existentes. Persistencia
+- El límite de candidatas se aplica al crear y reemplazar; reducirlo no impide leer datos existentes. Persistencia
   embebida con fecha/hora como texto ISO, sin instantes auxiliares ni migración de eventos fijos.
 - La validación web condicional conserva el 400 anterior al faltar inicio/fin en fecha fija. Las reglas
   de candidatas y plazo dan 422. Modalidad, propiedad, CSRF y correo verificado mantienen sus reglas.
 - Editar datos generales de una consulta conserva ids, fechas, horas e intención pública; se incluye
-  `eventType=DATE_POLL` en el PUT. Cambiar candidatas se incorpora en el paso 3. Publicar consultas da
+  `eventType=DATE_POLL` en el PUT. Las candidatas cambian por su endpoint específico (paso 3). Publicar consultas da
   de momento 422 sin escribir, hasta implementar el flujo público en el paso 4.
+
+### Cambios de candidatas — paso 3
+
+- PUT /api/events/{id}/candidate-dates recibe `{pollRevision,candidateDates:[{id?,date,startTime?}]}`.
+  Sesión, CSRF y propiedad en aplicación. DRAFT/PUBLISHED, sin convertir eventos de fecha fija;
+  CANCELLED/FINISHED dan 409. Conserva validaciones de cantidad, fechas únicas y horas opcionales.
+- `pollRevision` arranca en cero, también si falta en Mongo, y es distinta de `version`. Un cambio real
+  de fecha/hora, alta o baja avanza una ronda y quita la selección. Los ids conocidos se conservan;
+  sin id se reutiliza la misma fecha/hora o se genera uno. No se guarda historial.
+- Idéntico es no-op sin escritura. Reordenar guarda el orden, conservando revisión y selección.
+  Una edición obsoleta que cambia las candidatas da 409; repetir un cambio ya aplicado con la revisión
+  anterior sigue siendo idempotente. Una revisión futura siempre da 409; ausente/negativa, 422.
+  Una candidata ya eliminada en una pantalla antigua da 409, no el 422 de un id desconocido con revisión actual.
+- Se usa guardado completo con @Version. El 409 concurrente es seguro y el cliente reintenta tras
+  recargar. Invitados, tokens, aperturas y cuotas se conservan. Editar datos generales o el plazo no
+  reinicia la ronda ni la selección; los campos nuevos se conservan en el mapper.
+- La invalidez de disponibilidades se define por revisión. No se añaden ni borran respuestas aquí:
+  el flujo de lectura/escritura de disponibilidad y sus filtros de revisión se incorpora en el paso 5.
+  `selectedCandidateDateId` queda preparado y se limpia al cambiar candidatas; elegirlo llega en el 7.
+- Cambiar candidatas no prorroga el plazo. El anfitrión puede fijar un nuevo plazo obligatorio también
+  en PUBLISHED cuando se trata de una consulta, sin depender de un inicio definitivo inexistente.
 
 ### R12 — Verificación de correo y recuperación de contraseña (cerrada)
 
@@ -523,7 +546,7 @@ salud de Mongo), D-7 (opciones en eventos publicados, R8), D-CONFIRMED-LINK (R8)
   invitación con su token puede aparecer en los logs del framework.
 - **Invalidación de sesiones:** implementada con SessionRegistry desde el commit 1 de R12, válida solo
   con una instancia y sesiones en memoria. El filtro rechaza cada sesión expirada en su siguiente acceso.
-- **Versión y escrituras completas:** editar evento, opciones, publicar y cancelar reescriben el documento
+- **Versión y escrituras completas:** editar evento, opciones, candidatas, publicar y cancelar reescriben el documento
   completo y mantienen la comparación de versión esperada. Una apertura concurrente puede causar 409: es el
   resultado seguro y el cliente reintenta. Las escrituras parciales de invitado no necesitan esa comparación;
   alta individual, lote, edición y borrado ya no la usan. Todas siguen incrementando version para proteger los save completos.

@@ -13,7 +13,7 @@ embebidas en el evento. El muro social y Telegram siguen pendientes.
 
 ## `Event` (agregado raíz)
 
-### Tipos temporales — pasos 1 y 2 de la ampliación
+### Tipos temporales — pasos 1 a 3 de la ampliación
 
 `EventType` distingue `FIXED_DATE` y `DATE_POLL`. Omitirlo al crear mantiene `FIXED_DATE`.
 Desde el paso 2 se pueden crear, consultar y editar datos generales de borradores `DATE_POLL`.
@@ -51,8 +51,8 @@ añaden `eventType`; mantienen todos los campos anteriores y sus políticas de p
   Reemplazar opciones de asistencia de un `DATE_POLL` da 409.
 - `PUT /api/events/{id}` permite editar los datos generales del borrador indicando `eventType=DATE_POLL`,
   sin `startsAt` ni `endsAt`, y con plazo. Conserva ids, fechas y horas de las candidatas y la intención
-  del enlace público. El tipo no se puede convertir. La sustitución de candidatas llega en el paso 3.
-- Las vistas del anfitrión incluyen `datePoll: {candidateDates:[{id,date,startTime}]}` solo para consultas;
+  del enlace público. El tipo no se puede convertir. Las candidatas cambian por su endpoint específico.
+- Las vistas del anfitrión incluyen `datePoll: {candidateDates:[{id,date,startTime}],pollRevision,selectedCandidateDateId}` solo para consultas;
   inicio y fin definitivos son null. El listado conserva sus diez campos, con `eventType=DATE_POLL`
   y `startsAt=null`. Los datos generales de modalidad, lugar/acceso y propiedad se validan como antes.
 
@@ -83,8 +83,50 @@ Las excepciones son `InvalidCandidateDateCountException`, `MissingCandidateDateE
 En Mongo, `datePoll.candidateDates` embebe `{_id,date,startTime?}` con fecha y hora como texto ISO.
 Spring Data representa como `_id` el `id` lógico de cada candidata; el JSON del API usa `id`.
 No se guarda una medianoche ni una fecha auxiliar para representar sus componentes. `startsAt` y
-`endsAt` se omiten en consultas sin fecha definitiva. El máximo configurable se aplica al crear;
+`endsAt` se omiten en consultas sin fecha definitiva. El máximo configurable se aplica al crear y reemplazar candidatas;
 reducirlo no impide leer las consultas existentes. No hay índices ni migraciones nuevos.
+
+### Reemplazo de candidatas y revisión de consulta — paso 3
+
+`PUT /api/events/{id}/candidate-dates` requiere sesión, CSRF y propiedad comprobada en aplicación
+(404 si el evento es ajeno). Admite DRAFT y PUBLISHED; CANCELLED/FINISHED y un evento FIXED_DATE dan 409.
+Devuelve 200 con EventResponse. El cuerpo representa la lista completa:
+
+```json
+{"pollRevision":0,"candidateDates":[
+  {"id":"candidate-1","date":"2027-05-14","startTime":"20:00:00"},
+  {"id":"candidate-2","date":"2027-05-11","startTime":null}
+]}
+```
+
+- Los ids existentes se conservan; los desconocidos con revisión actual dan 422 (`UnknownCandidateDateIdException`).
+  Sin id se reutiliza una candidata con la misma fecha y hora, o se genera una identidad nueva.
+  Se mantienen las reglas de cantidad, fecha obligatoria, ausencia de fin, fechas e ids únicos.
+- `pollRevision` es obligatorio y no negativo (422, `InvalidPollRevisionException`). Nace en cero;
+  la ausencia del campo en documentos anteriores también significa cero, sin migración al leer.
+- Una modificación de fecha u hora, alta o baja incrementa la revisión **una sola vez** y elimina
+  `selectedCandidateDateId`. Intercambiar fechas entre ids también cambia su significado y avanza la ronda.
+  Las disponibilidades de otra revisión quedan lógicamente invalidadas. Este paso no implementa aún
+  su lectura/escritura: el paso 5 aplicará esa revisión al registrar y consultar disponibilidades.
+- Repetir una configuración con o sin ids no incrementa la revisión ni escribe. Reordenar conserva
+  revisión y selección, pero guarda el orden y aumenta `version`. Cambiar la revisión del documento
+  por otra operación del evento no equivale a cambiar la ronda de disponibilidad.
+- Una revisión obsoleta que intenta cambiar la configuración da 409 (`StalePollRevisionException`).
+  También si referencia una candidata que ya se eliminó: la pantalla debe recargar, no corregir un id.
+  Repetir el mismo cambio ya aplicado con su revisión anterior es idempotente y no regenera ids.
+  Una revisión futura siempre da 409.
+- `selectedCandidateDateId` es nullable y, si existe, debe referenciar una candidata. Se persiste y
+  conserva en cambios generales y reordenaciones; la operación de elegir fecha llegará en el paso 7.
+- El reemplazo usa el puerto EventRepositoryPort y un guardado completo con @Version, como las demás
+  ediciones de configuración del agregado. Dos editores concurrentes no pueden pisarse: uno gana y
+  el otro recibe 409. Una petición idéntica no llama a save(). No toca invitados, tokens, aperturas,
+  cuotas ni documentos de responses; no se crea un historial de configuraciones o respuestas.
+- Cambiar candidatas no amplía un plazo vencido: la consulta sigue cerrada. El anfitrión puede fijar
+  otro plazo obligatorio también en PUBLISHED; no se compara con un inicio inexistente. CANCELLED
+  y FINISHED siguen bloqueando el cambio. La publicación desde el API aún corresponde al paso 4.
+
+La revisión y la selección se guardan en datePoll y se conservan al rehidratar o editar otros campos.
+Una revisión negativa o una selección desconocida en Mongo es corrupción almacenada: 500 saneado.
 
 ### Campos actuales
 
@@ -313,8 +355,8 @@ LinkVisibility { ON_CONFIRMATION, HOURS_BEFORE, ALWAYS }
 ### Plazo editable (preparación de R8)
 
 `Event.changeResponseDeadline(deadline, now)` permite cambiar el plazo en DRAFT y en PUBLISHED solo antes
-de `startsAtInstant()` para fecha fija. Las consultas disponibles todavía son borradores y exigen plazo
-no nulo en todas las entradas. El inicio exacto y los estados CANCELLED/FINISHED producen
+de `startsAtInstant()` para fecha fija. En consultas admite DRAFT y PUBLISHED, con plazo
+no nulo y sin comparar con un inicio inexistente. El inicio exacto en fecha fija y los estados CANCELLED/FINISHED producen
 `ResponseDeadlineNotEditableException` (409). El instante procede del Clock inyectado en aplicación.
 La misma validación que usan creación y `edit()` exige plazo no posterior a startsAt
 (`InvalidResponseDeadlineException`, 422) en fecha fija. null elimina el plazo solo en `FIXED_DATE`;
@@ -351,7 +393,7 @@ usa `$pull`. Filtran por id, propietario, estado permitido y las condiciones pro
 e incrementan `version` en la misma escritura. Un conflicto se traduce a 409. Esto protege las reglas
 validadas en el agregado y evita que un `save()` anterior borre una escritura parcial.
 La comparación de versión esperada se mantiene solo en las escrituras que reescriben el documento completo
-del evento: editar evento, opciones, publicar y cancelar. Una apertura concurrente puede provocar un 409
+del evento: editar evento, opciones, candidatas, publicar y cancelar. Una apertura concurrente puede provocar un 409
 seguro en esas operaciones; el cliente recarga y reintenta.
 El índice impone unicidad entre eventos; la regla de dominio y la escritura condicionada evitan duplicados
 dentro del mismo `guests[]`. Ver `docs/modelo-invitado.md`.
@@ -422,6 +464,7 @@ las fechas no se exigen en consultas. Las reglas de candidatas y plazo se valida
 | `GET` | `/api/events` | — (el host se lee del principal autenticado) | `200` (lista de `EventSummaryResponse`: `id`, `title`, `startsAt`, `modality`, `status`, `totalGuests`, `answered`, `pending`, `attending`, `eventType`), `401` si no hay sesión |
 | `PUT` | `/api/events/{id}` | `UpdateEventRequest` (título, fechas, zona horaria, modalidad, venue/onlineAccess opcionales, `allowComment`, `allowResponseChange`, `responseDeadline`) | `200` (`EventResponse` completo), `404`, `409` (no `DRAFT`), `422` |
 | `PUT` | `/api/events/{id}/response-deadline` | `{ "responseDeadline": LocalDateTime o null }`, sesión y CSRF | `200` (`EventResponse`), `401`, `403`, `404` (inexistente o ajeno), `409` (estado, inicio alcanzado o carrera), `422` (plazo posterior al inicio) |
+| `PUT` | `/api/events/{id}/candidate-dates` | `{pollRevision,candidateDates:[{id?,date,startTime?}]}`, sesión y CSRF | `200` (`EventResponse`), `400`, `401`, `403`, `404`, `409` (tipo/estado/revisión/versión), `422` (reglas de candidatas/revisión) |
 | `POST` | `/api/events/{id}/publish` | — | `200` (`EventResponse` completo), `404`, `409` (no `DRAFT`), `422` (falta venue/onlineAccess o < 2 opciones) |
 | `POST` | `/api/events/{id}/cancel` | `CancelEventRequest` (`reason` opcional) | `200` (`EventResponse` completo con `cancelledAt`), `404`, `409` (no `PUBLISHED`) |
 | `PUT` | `/api/events/{id}/response-options` | `ReplaceResponseOptionsRequest` (solo la lista de opciones) | `200` (`EventResponse` completo), `404`, `409`, `422` |

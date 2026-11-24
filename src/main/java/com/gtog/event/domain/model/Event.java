@@ -148,6 +148,12 @@ public class Event {
 		}
 	}
 
+	public void replaceCandidateDates(List<CandidateDateEdit> edits, Long expectedRevision, DatePollLimits limits) {
+		if (status != EventStatus.DRAFT && status != EventStatus.PUBLISHED) { throw new EventNotEditableException(id); }
+		if (!(schedule instanceof DatePollSchedule poll)) { throw new EventScheduleConflictException(); }
+		this.schedule = poll.replaceCandidates(edits, expectedRevision, limits);
+	}
+
 	public void replaceResponseOptions(List<ResponseOptionEdit> edits, Set<String> answeredOptionIds) {
 		if (status != EventStatus.DRAFT && status != EventStatus.PUBLISHED) {
 			throw new EventNotEditableException(id);
@@ -246,7 +252,7 @@ public class Event {
 	}
 
 	public void changeResponseDeadline(LocalDateTime responseDeadline, Instant now) {
-		if (status != EventStatus.DRAFT && !(status == EventStatus.PUBLISHED && now.isBefore(startsAtInstant()))) {
+		if (status != EventStatus.DRAFT && !(status == EventStatus.PUBLISHED && (schedule instanceof DatePollSchedule || now.isBefore(startsAtInstant())))) {
 			throw new ResponseDeadlineNotEditableException();
 		}
 		schedule.validateResponseDeadline(responseDeadline);
@@ -264,7 +270,7 @@ public class Event {
 		EventSchedule updatedSchedule;
 		if (schedule instanceof DatePollSchedule poll) {
 			if (edit.startsAt() != null || edit.endsAt() != null) { throw new IncompatibleEventScheduleException(); }
-			updatedSchedule = new DatePollSchedule(poll.candidateDates(), edit.timeZone());
+			updatedSchedule = poll.withTimeZone(edit.timeZone());
 		} else {
 			updatedSchedule = FixedDateSchedule.create(edit.startsAt(), edit.endsAt(), edit.timeZone());
 		}

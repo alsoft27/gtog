@@ -108,8 +108,10 @@ confirmación de asistencia. El vencimiento del plazo, o todas las respuestas si
 solo provocará un aviso por correo al anfitrión; no cerrará anticipadamente las respuestas ni avisará a
 los invitados. El desarrollo se divide en pasos en el plan. Desde el paso 2 se puede crear y consultar
 un borrador `DATE_POLL`, y editar sus datos generales conservando las candidatas. Admite entre dos y
-diez fechas distintas (máximo configurable), mezclando horas opcionales, y plazo obligatorio. Todavía
-no se publica ni se reciben disponibilidades: corresponden a los pasos 4 y 5. Los eventos de fecha
+diez fechas distintas (máximo configurable), mezclando horas opcionales, y plazo obligatorio. El paso 3
+permite reemplazar candidatas: los cambios reales avanzan la revisión e invalidan la ronda anterior,
+mientras que repetir o reordenar la conserva. Invitados, tokens y estados de invitación no cambian.
+Todavía no se publica ni se reciben disponibilidades: corresponden a los pasos 4 y 5. Los eventos de fecha
 definida mantienen el flujo completo; omitir `eventType` conserva `FIXED_DATE`, también en documentos antiguos.
 
 **Estados del evento:** `DRAFT → PUBLISHED`, más `CANCELLED` (solo desde `PUBLISHED`, irreversible).
