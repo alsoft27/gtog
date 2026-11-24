@@ -1,6 +1,6 @@
 # gtog — Plan, decisiones y deuda técnica
 
-Estado a 23 de noviembre de 2026. Es el documento para retomar el proyecto: dónde estamos, qué queda, qué se
+Estado a 24 de noviembre de 2026. Es el documento para retomar el proyecto: dónde estamos, qué queda, qué se
 decidió y por qué, qué está pendiente de decidir y qué deuda hay. Qué hace la aplicación está en
 `definicion-funcional.md`; el contrato técnico de cada agregado, en `modelo-evento.md`, `modelo-invitado.md` y
 `modelo-usuario.md`. Las instrucciones para el agente están en `AGENTS.md`.
@@ -15,9 +15,11 @@ de despliegue público de §7 y la deuda abierta de §6, incluida D-UNVERIFIED-S
 El frontend Angular no se ha empezado.
 Los recorridos y ejemplos del API están en [casos-de-uso.md](casos-de-uso.md), con la verificación de rutas, seguridad y resultados.
 
-`mvn clean verify`: 1.079 tests, 0 fallos, 0 errores y 0 omitidos en la última ejecución completa,
-limpia y aislada (`a85d4e6`). El primer intento sufrió errores DNS de Atlas al arrancar tres contextos;
-tras recuperarse la red, la suite pasó sin cambios de código ni tests entre ambas ejecuciones.
+`mvn clean verify`: 1.089 tests, 0 fallos, 0 errores y 0 omitidos en la última ejecución completa,
+limpia y aislada (paso 1 de compatibilidad temporal). Incluye siete pruebas nuevas de dominio y tres
+con servidor real; la expectativa del listado pasa de nueve a diez campos y comprueba `eventType`.
+La verificación anterior de `a85d4e6` sufrió errores DNS de Atlas al arrancar tres contextos;
+tras recuperarse la red, aquella suite pasó sin cambios de código ni tests entre ambas ejecuciones.
 Las ejecuciones negativas de mutación se conservan solo como evidencia, no como resultado de la suite final.
 El endpoint del lote está verificado con servidor real, privacidad y regresión individual. Las mutaciones
 de duplicados y capacidad hicieron fallar sus tests concurrentes y quedaron restauradas, sin versionarlas.
@@ -50,6 +52,7 @@ Maven por defecto, springdoc-openapi, iCal4j 4.2.0, libphonenumber 9.0.43, Mailj
 | Invitados — concurrencia (commit A) | Edición con arrayFilters y unicidad explícita, y borrado parcial, sin comparar versión esperada; preservan aperturas y cuotas. Tests autorizados de concurrencia y reserva obsoleta actualizados al nuevo comportamiento |
 | Invitados — lote (commits 1 y 2) | POST /api/events/{id}/guests/batch, todo o nada y errores por posición; dominio compartido con el individual y una escritura atómica, con unicidad y capacidad en el filtro. RF-2.18 implementado; RF-2.4 sigue en frontend |
 | Invitados — enlace público | RF-2.19: intención en borrador, token al publicar, interruptor revocable, alta inmediata con contacto opcional y cookie de fricción. Topes atómicos 25/500, descarte silencioso de contactos, origen en panel y exclusión del correo; WhatsApp permitido |
+| Tipos temporales — paso 1 | `EventSchedule` y `FixedDateSchedule`; `eventType=FIXED_DATE` en persistencia y vistas, también para documentos antiguos sin discriminador. Los flujos actuales conservan fechas, respuestas, calendario y controles existentes; `DATE_POLL` todavía no se puede crear |
 
 ### Endpoints
 
@@ -127,6 +130,38 @@ Estas comprobaciones son manuales; los tests automáticos no confirman por sí s
 ---
 
 ## 2. Lo que queda
+
+### Eventos con fecha por definir — ampliación aprobada
+
+Se incorpora sin alterar los eventos existentes. El paso 1 introduce `EventType`, la configuración
+temporal del dominio (`EventSchedule` / `FixedDateSchedule`) y el discriminador `eventType` en Mongo
+y en las vistas del anfitrión, listado, invitación y enlace público. Ausente equivale a `FIXED_DATE`;
+rehidratar documentos antiguos no provoca escrituras de migración. Las peticiones actuales siguen creando fecha fija;
+`DATE_POLL` todavía no se puede crear. No hay migración ni nuevas dependencias.
+
+Orden de implementación aprobado, con verificación completa antes de cada commit y sin push:
+
+1. **Compatibilidad temporal (cerrada):** tipo explícito, fechas fijas encapsuladas y lectura de documentos antiguos.
+2. **Borradores de consulta (siguiente):** entre 2 y 10 candidatas, con tope configurable, id, fecha obligatoria
+   y hora opcional, sin fin; plazo obligatorio.
+3. **Cambios de candidatas:** revisión propia e invalidación de todas las disponibilidades al cambiar fechas;
+   repetir una configuración o reordenarla no invalida. Se mantienen invitados, tokens, aperturas y cuotas.
+4. **Publicación y difusión:** publicar sin fecha definitiva y adaptar vistas públicas, alta por enlace y mensajes.
+5. **Disponibilidad:** respuesta múltiple, incluida lista vacía explícita; última versión, revisión vigente,
+   plazos y cambios controlados atómicamente. Una revisión nueva permite volver a contestar.
+6. **Seguimiento:** totales y personas por candidata, pendientes y no disponibles, sin consultas por evento.
+7. **Fecha definitiva:** elegir o cambiar entre candidatas conservando disponibilidades; mantener la hora
+   opcional y adaptar calendario y visibilidad sin inventar inicio ni fin.
+8. **Aviso al anfitrión:** correo al vencer el plazo o cuando todos respondan sin enlace público activo,
+   una vez por revisión; Clock, reclamación atómica, transporte falso en tests y recorrido manual.
+
+Reglas acordadas: la selección de fecha no equivale a confirmación de asistencia. Editar candidatas
+invalida respuestas y quita la selección definitiva; si venció el plazo, el anfitrión debe cambiarlo.
+Los invitados no proponen fechas. Solo se guarda su última respuesta, sin histórico de versiones.
+El aviso va únicamente al anfitrión por correo y no cierra las respuestas anticipadamente; los invitados
+ven la elección en la aplicación o se enteran por sus propios medios. Un aviso automático a invitados
+queda para una funcionalidad futura. Las protecciones del enlace público, privacidad, límites y cuotas
+existentes siguen aplicándose.
 
 ### Aplazado
 
@@ -244,7 +279,8 @@ conserva la identidad de cada opción al renombrarla, porque las respuestas la r
 **Un evento es presencial o en línea, nunca ambos.** El híbrido obliga a que la respuesta indique el canal de
 asistencia, lo que acopla ubicación y opciones.
 
-**La fecha la fija el anfitrión.** La votación entre fechas es una iteración posterior.
+**La fecha la fija el anfitrión.** La ampliación de consulta de disponibilidad entre candidatas está aprobada
+y en desarrollo (§2); no seleccionará automáticamente una ganadora ni confundirá disponibilidad con asistencia.
 
 **El plazo de respuesta aplica a toda escritura** y se interpreta en la zona del evento. El anfitrión lo
 cambia en DRAFT o en PUBLISHED antes del inicio, y nunca puede ser posterior al inicio, de modo que no se

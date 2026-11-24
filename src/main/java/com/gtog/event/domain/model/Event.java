@@ -1,6 +1,5 @@
 package com.gtog.event.domain.model;
 
-import java.time.DateTimeException;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -18,9 +17,7 @@ public class Event {
 	private final String hostId;
 	private String title;
 	private String description;
-	private LocalDateTime startsAt;
-	private LocalDateTime endsAt;
-	private String timeZone;
+	private FixedDateSchedule schedule;
 	private Modality modality;
 	private EventStatus status;
 	private List<ResponseOption> responseOptions;
@@ -35,8 +32,8 @@ public class Event {
 	private List<Guest> guests = List.of();
 	private PublicInvitation publicInvitation = new PublicInvitation(false, null);
 
-	private Event(String id, String hostId, String title, String description, LocalDateTime startsAt,
-			LocalDateTime endsAt, String timeZone, Modality modality, EventStatus status,
+	private Event(String id, String hostId, String title, String description, FixedDateSchedule schedule,
+			Modality modality, EventStatus status,
 			List<ResponseOption> responseOptions, boolean allowComment, boolean allowResponseChange,
 			LocalDateTime responseDeadline, Venue venue, OnlineAccess onlineAccess, Instant cancelledAt,
 			String cancellationReason, Long version) {
@@ -44,9 +41,7 @@ public class Event {
 		this.hostId = hostId;
 		this.title = title;
 		this.description = description;
-		this.startsAt = startsAt;
-		this.endsAt = endsAt;
-		this.timeZone = timeZone;
+		this.schedule = schedule;
 		this.modality = modality;
 		this.status = status;
 		this.responseOptions = responseOptions;
@@ -234,7 +229,7 @@ public class Event {
 
 	public boolean acceptsResponses(Instant now) {
 		return status == EventStatus.PUBLISHED && now.isBefore(endsAtInstant())
-				&& (responseDeadline == null || !now.isAfter(responseDeadline.atZone(ZoneId.of(timeZone)).toInstant()));
+				&& (responseDeadline == null || !now.isAfter(responseDeadline.atZone(ZoneId.of(getTimeZone())).toInstant()));
 	}
 
 	public void requireAcceptingResponses(Instant now) {
@@ -249,7 +244,7 @@ public class Event {
 		if (status != EventStatus.DRAFT && !(status == EventStatus.PUBLISHED && now.isBefore(startsAtInstant()))) {
 			throw new ResponseDeadlineNotEditableException();
 		}
-		validateResponseDeadline(responseDeadline, startsAt);
+		schedule.validateResponseDeadline(responseDeadline);
 		this.responseDeadline = responseDeadline;
 	}
 
@@ -260,11 +255,8 @@ public class Event {
 		if (edit.title() == null || edit.title().isBlank()) {
 			throw new BlankEventTitleException();
 		}
-		ZoneId zoneId = parseTimeZone(edit.timeZone());
-		if (!edit.endsAt().atZone(zoneId).toInstant().isAfter(edit.startsAt().atZone(zoneId).toInstant())) {
-			throw new InvalidEventPeriodException(edit.startsAt(), edit.endsAt());
-		}
-		validateResponseDeadline(edit.responseDeadline(), edit.startsAt());
+		FixedDateSchedule updatedSchedule = FixedDateSchedule.create(edit.startsAt(), edit.endsAt(), edit.timeZone());
+		updatedSchedule.validateResponseDeadline(edit.responseDeadline());
 
 		Modality newModality = edit.modality();
 		if (newModality != this.modality) {
@@ -294,9 +286,7 @@ public class Event {
 
 		this.title = edit.title();
 		this.description = edit.description();
-		this.startsAt = edit.startsAt();
-		this.endsAt = edit.endsAt();
-		this.timeZone = edit.timeZone();
+		this.schedule = updatedSchedule;
 		this.modality = newModality;
 		this.allowComment = edit.allowComment();
 		this.allowResponseChange = edit.allowResponseChange();
@@ -367,12 +357,6 @@ public class Event {
 		}
 	}
 
-	private static void validateResponseDeadline(LocalDateTime responseDeadline, LocalDateTime startsAt) {
-		if (responseDeadline != null && responseDeadline.isAfter(startsAt)) {
-			throw new InvalidResponseDeadlineException(responseDeadline, startsAt);
-		}
-	}
-
 	private static boolean resolveAllowComment(Boolean allowComment) {
 		return allowComment != null && allowComment;
 	}
@@ -381,22 +365,14 @@ public class Event {
 		return allowResponseChange == null || allowResponseChange;
 	}
 
-	private static ZoneId parseTimeZone(String timeZone) {
-		try {
-			return ZoneId.of(timeZone);
-		} catch (DateTimeException e) {
-			throw new InvalidTimeZoneException(timeZone);
-		}
-	}
-
 	// El instante se calcula al vuelo a partir de la hora local: si cambian las reglas horarias de la zona
 	// antes de la fecha del evento, este cálculo siempre refleja la hora local prevista, no un instante congelado.
 	public Instant startsAtInstant() {
-		return startsAt.atZone(ZoneId.of(timeZone)).toInstant();
+		return schedule.startsAtInstant();
 	}
 
 	public Instant endsAtInstant() {
-		return endsAt.atZone(ZoneId.of(timeZone)).toInstant();
+		return schedule.endsAtInstant();
 	}
 
 	public String getId() {
@@ -416,15 +392,19 @@ public class Event {
 	}
 
 	public LocalDateTime getStartsAt() {
-		return startsAt;
+		return schedule.startsAt();
 	}
 
 	public LocalDateTime getEndsAt() {
-		return endsAt;
+		return schedule.endsAt();
 	}
 
+	public EventType getEventType() { return schedule.type(); }
+
+	public EventSchedule getSchedule() { return schedule; }
+
 	public String getTimeZone() {
-		return timeZone;
+		return schedule.timeZone();
 	}
 
 	public Modality getModality() {
@@ -563,15 +543,12 @@ public class Event {
 			if (title == null || title.isBlank()) {
 				throw new BlankEventTitleException();
 			}
-			ZoneId zoneId = parseTimeZone(timeZone);
-			if (!endsAt.atZone(zoneId).toInstant().isAfter(startsAt.atZone(zoneId).toInstant())) {
-				throw new InvalidEventPeriodException(startsAt, endsAt);
-			}
-			validateResponseDeadline(responseDeadline, startsAt);
+			FixedDateSchedule schedule = FixedDateSchedule.create(startsAt, endsAt, timeZone);
+			schedule.validateResponseDeadline(responseDeadline);
 			validateModalityInvariant(modality, venue, onlineAccess);
 			List<ResponseOption> resolvedResponseOptions = buildInitialResponseOptions(responseOptions);
 			validateResponseOptions(resolvedResponseOptions);
-			Event event = new Event(UUID.randomUUID().toString(), hostId, title, description, startsAt, endsAt, timeZone,
+			Event event = new Event(UUID.randomUUID().toString(), hostId, title, description, schedule,
 					modality, EventStatus.DRAFT, resolvedResponseOptions, resolveAllowComment(allowComment),
 					resolveAllowResponseChange(allowResponseChange), responseDeadline, venue, onlineAccess, null, null,
 					null);
@@ -704,7 +681,7 @@ public class Event {
 		}
 
 		public Event build() {
-			Event event = new Event(id, hostId, title, description, startsAt, endsAt, timeZone, modality, status,
+			Event event = new Event(id, hostId, title, description, FixedDateSchedule.reconstitute(startsAt, endsAt, timeZone), modality, status,
 					responseOptions, allowComment, allowResponseChange, responseDeadline, venue, onlineAccess,
 					cancelledAt, cancellationReason, version);
 			event.guests = guests;

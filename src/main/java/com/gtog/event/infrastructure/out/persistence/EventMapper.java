@@ -3,6 +3,7 @@ package com.gtog.event.infrastructure.out.persistence;
 import org.springframework.stereotype.Component;
 
 import com.gtog.event.domain.model.Event;
+import com.gtog.event.domain.model.EventType;
 import com.gtog.event.domain.model.EventDomainException;
 import com.gtog.event.domain.model.PublicInvitation;
 import com.gtog.shared.StoredDataIntegrityException;
@@ -43,11 +44,15 @@ public class EventMapper {
 				event.getCancellationReason(),
 				event.getVersion(),
 				event.getGuests().stream().map(guestMapper::toDocument).toList(),
-				new PublicInvitationDocument(event.getPublicInvitation().enabled(), event.getPublicInvitation().token()));
+				new PublicInvitationDocument(event.getPublicInvitation().enabled(), event.getPublicInvitation().token()), event.getEventType().name());
 	}
 
 	public Event toDomain(EventDocument document) {
 		try {
+			// Los documentos anteriores no tenían discriminador. DATE_POLL se habilita en la siguiente rebanada.
+			if (document.getEventType() != null && !EventType.FIXED_DATE.name().equals(document.getEventType())) {
+				throw new StoredDataIntegrityException(document.getId(), IllegalArgumentException.class);
+			}
 			return reconstitute(document);
 		} catch (EventDomainException exception) {
 			throw new StoredDataIntegrityException(document.getId(), exception.getClass());

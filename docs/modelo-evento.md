@@ -13,6 +13,30 @@ embebidas en el evento. El muro social y Telegram siguen pendientes.
 
 ## `Event` (agregado raíz)
 
+### Tipos temporales — paso 1 de la ampliación
+
+`EventType` distingue `FIXED_DATE` y `DATE_POLL`. Este paso prepara la compatibilidad:
+los casos de uso actuales siguen creando exclusivamente `FIXED_DATE`, sin cambiar sus peticiones.
+La creación de `DATE_POLL` con candidatas se incorpora en el paso 2; todavía no está disponible.
+
+`EventSchedule` es el contrato temporal del dominio. Su implementación actual, `FixedDateSchedule`,
+encapsula inicio, fin y zona horaria. Creación y edición comparten ahí las validaciones de zona,
+período y plazo. `Event` conserva sus getters de fechas y conversiones a UTC para los consumidores
+existentes; no se introducen fechas ni horas de relleno. La rehidratación conserva su contrato previo,
+sin volver a aplicar las validaciones de creación.
+
+Mongo conserva `startsAt`, `endsAt` y `timeZone` en la raíz del documento y añade `eventType` como cadena.
+La ausencia del discriminador se interpreta como `FIXED_DATE`, sin migración ni escrituras de relleno al rehidratar.
+El siguiente guardado completo añade el discriminador; las actualizaciones parciales conservan los datos
+existentes. Un tipo almacenado desconocido no se interpreta como fecha fija: es un error de integridad
+de almacenamiento (500 saneado).
+
+`EventResponse`, `EventSummaryResponse`, `InvitationResponse` y la vista previa del enlace público
+añaden `eventType`; mantienen todos los campos anteriores y sus políticas de privacidad y caché.
+`EventSchedule` nunca se serializa directamente en la frontera web.
+
+### Campos actuales
+
 Vive en `com.gtog.event.domain.model.Event`. Es una clase plana, sin anotaciones de framework, con dos builders
 internos en vez de factory methods con parámetros posicionales (la lista de campos ya ha cambiado de forma en
 tres rebanadas seguidas): `Event.builder()...build()` valida todas las reglas de negocio, genera el id y aplica
@@ -25,6 +49,8 @@ persistido sin generar identidad ni aplicar defaults nuevos; valida la integrida
 | `hostId` | `String` | Identificador del anfitrión. Desde R5 proviene del usuario autenticado (sesión), nunca del body del request. |
 | `title` | `String` | Título del evento. Obligatorio. |
 | `description` | `String` | Descripción libre. Opcional. |
+| `eventType` | `EventType` (derivado de `schedule`) | `FIXED_DATE` en los flujos disponibles; `DATE_POLL` se habilita en los siguientes pasos. |
+| `schedule` | `EventSchedule` | Configuración temporal; actualmente `FixedDateSchedule`, con fechas y zona. |
 | `startsAt` / `endsAt` | `LocalDateTime` | Hora local del evento. `endsAt` debe ser estrictamente posterior a `startsAt` una vez interpretados con `timeZone` (`InvalidEventPeriodException` si no). |
 | `timeZone` | `String` | Zona horaria IANA (`region/ciudad`, p. ej. `Europe/Madrid`). Se valida con `ZoneId.of(...)`; si no existe, `InvalidTimeZoneException`. |
 | `modality` | `Modality` | `IN_PERSON` o `ONLINE`. Un evento nunca es las dos cosas (modalidad híbrida fuera de alcance). |
@@ -327,7 +353,7 @@ public record CreateEventRequest(
 | `POST` | `/api/events` | `CreateEventRequest` | `201` + `Location`, `400`, `422` |
 | `GET` | `/api/events/{id}` | — | `200` (`EventResponse` completo), `404` |
 | `GET` | `/api/events/{id}/dashboard` | — (sesión del propietario) | `200` (`EventDashboardResponse`) con no-store exacto; `401`, `404` |
-| `GET` | `/api/events` | — (el host se lee del principal autenticado) | `200` (lista de `EventSummaryResponse`: `id`, `title`, `startsAt`, `modality`, `status`, `totalGuests`, `answered`, `pending`, `attending`), `401` si no hay sesión |
+| `GET` | `/api/events` | — (el host se lee del principal autenticado) | `200` (lista de `EventSummaryResponse`: `id`, `title`, `startsAt`, `modality`, `status`, `totalGuests`, `answered`, `pending`, `attending`, `eventType`), `401` si no hay sesión |
 | `PUT` | `/api/events/{id}` | `UpdateEventRequest` (título, fechas, zona horaria, modalidad, venue/onlineAccess opcionales, `allowComment`, `allowResponseChange`, `responseDeadline`) | `200` (`EventResponse` completo), `404`, `409` (no `DRAFT`), `422` |
 | `PUT` | `/api/events/{id}/response-deadline` | `{ "responseDeadline": LocalDateTime o null }`, sesión y CSRF | `200` (`EventResponse`), `401`, `403`, `404` (inexistente o ajeno), `409` (estado, inicio alcanzado o carrera), `422` (plazo posterior al inicio) |
 | `POST` | `/api/events/{id}/publish` | — | `200` (`EventResponse` completo), `404`, `409` (no `DRAFT`), `422` (falta venue/onlineAccess o < 2 opciones) |
@@ -385,7 +411,7 @@ Desde el commit 2, `EventQueryService.listEventsByHost(...)` lee los eventos del
 llama una sola vez a ese mismo puerto. Agrupa las respuestas por eventId en memoria y pasa cada grupo a
 `EventAttendanceSummary.calculate(...)`, igual que el panel. Devuelve `EventSummary`, un record de dominio
 con el evento y sus Totals. No se consulta responses si no hay eventos ni se hace una consulta por evento.
-`EventSummaryResponse` mapea campo a campo id, title, startsAt, modality, status y totalGuests, answered,
+`EventSummaryResponse` mapea campo a campo id, title, startsAt, modality, status, eventType y totalGuests, answered,
 pending y attending; no expone byOption, invitados, respuestas ni contactos. Los documentos huérfanos y las
 opciones desconocidas siguen exactamente las mismas reglas que el panel. Ambas lecturas conservan los
 documentos y version. El listado no añade una política de caché propia. La ausencia de paginación y el

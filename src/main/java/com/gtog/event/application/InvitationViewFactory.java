@@ -24,7 +24,7 @@ public final class InvitationViewFactory {
 				access == null ? null : new InvitationView.OnlineAccessInfo(access.platform(), access.linkVisibility(), access.hoursBefore()),
 				event.visibleOnlineAccess(guestHasConfirmed(event, response), now).orElse(null),
 				response == null ? null : new InvitationView.MyResponse(response.responseOptionId(), response.comment(), response.answeredAt(), response.updatedAt()),
-				response != null && canRespond, canRespond);
+				response != null && canRespond, canRespond, event.getEventType());
 	}
 
 	private static boolean guestHasConfirmed(Event event, GuestResponse response) {

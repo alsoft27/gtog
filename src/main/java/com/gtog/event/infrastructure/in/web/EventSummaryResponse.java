@@ -5,6 +5,7 @@ import java.time.LocalDateTime;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 import com.gtog.event.domain.model.EventStatus;
+import com.gtog.event.domain.model.EventType;
 import com.gtog.event.domain.model.EventSummary;
 import com.gtog.event.domain.model.Modality;
 
@@ -35,7 +36,8 @@ public record EventSummaryResponse(
 		int pending,
 
 		@Schema(description = "Invitados cuya opción actual cuenta como asistencia", example = "1")
-		int attending) {
+		int attending,
+		@Schema(description = "Tipo temporal del evento") EventType eventType) {
 
 	public static EventSummaryResponse from(EventSummary summary) {
 		var event = summary.event();
@@ -49,6 +51,6 @@ public record EventSummaryResponse(
 				totals.guests(),
 				totals.answered(),
 				totals.pending(),
-				totals.attending());
+				totals.attending(), event.getEventType());
 	}
 }

@@ -94,7 +94,8 @@ class EventListingAttendanceIntegrationTest {
 
 		mvc.perform(get("/api/events")).andExpect(status().isOk())
 				.andExpect(header().string("Cache-Control", SECURITY_CACHE_CONTROL))
-				.andExpect(jsonPath("$.length()").value(1)).andExpect(jsonPath("$[0].length()").value(9))
+				.andExpect(jsonPath("$.length()").value(1)).andExpect(jsonPath("$[0].length()").value(10))
+				.andExpect(jsonPath("$[0].eventType").value("FIXED_DATE"))
 				.andExpect(jsonPath("$[0].id").value(event.getId()))
 				.andExpect(jsonPath("$[0].title").value(event.getTitle()))
 				.andExpect(jsonPath("$[0].startsAt").exists()).andExpect(jsonPath("$[0].modality").value("IN_PERSON"))

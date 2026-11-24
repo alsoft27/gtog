@@ -8,6 +8,7 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 import com.gtog.event.domain.model.EventStatus;
+import com.gtog.event.domain.model.EventType;
 import com.gtog.event.domain.model.InvitationView;
 import com.gtog.event.domain.model.LinkVisibility;
 import com.gtog.event.domain.model.Modality;
@@ -21,7 +22,8 @@ public record InvitationResponse(GuestName guest, String title, String descripti
 		Instant cancelledAt, String cancellationReason, OnlineAccessInfo onlineAccessInfo,
 		@Schema(description = "Bloque omitido completamente mientras el acceso no sea visible") OnlineAccessDetails onlineAccess, MyResponse myResponse,
 		@Schema(description = "Permite modificar una respuesta existente; false si todavía no ha respondido.") boolean canChangeResponse,
-		@Schema(description = "Puede responder ahora: PUBLISHED, plazo inclusive, antes del fin y, si ya respondió, cambios habilitados.") boolean canRespond) {
+		@Schema(description = "Puede responder ahora: PUBLISHED, plazo inclusive, antes del fin y, si ya respondió, cambios habilitados.") boolean canRespond,
+		@Schema(description = "Tipo temporal del evento") EventType eventType) {
 
 	public record MyResponse(String responseOptionId, String comment, Instant answeredAt, Instant updatedAt) {}
 
@@ -43,6 +45,6 @@ public record InvitationResponse(GuestName guest, String title, String descripti
 				info == null ? null : new OnlineAccessInfo(info.platform(), info.linkVisibility(), info.hoursBefore()),
 				access == null ? null : new OnlineAccessDetails(access.url(), access.roomId(), access.password(), access.instructions()),
 				view.myResponse() == null ? null : new MyResponse(view.myResponse().responseOptionId(), view.myResponse().comment(), view.myResponse().answeredAt(), view.myResponse().updatedAt()),
-				view.canChangeResponse(), view.canRespond());
+				view.canChangeResponse(), view.canRespond(), view.eventType());
 	}
 }

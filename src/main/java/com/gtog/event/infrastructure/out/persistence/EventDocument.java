@@ -34,6 +34,7 @@ public class EventDocument {
 	private final Long version;
 	private final List<GuestDocument> guests;
 	private final PublicInvitationDocument publicInvitation;
+	private final String eventType;
 
 	public EventDocument(String id, String hostId, String title, String description, LocalDateTime startsAt,
 			LocalDateTime endsAt, String timeZone, String modality, String status,
@@ -55,13 +56,24 @@ public class EventDocument {
 				version, guests, null);
 	}
 
-	@PersistenceCreator
 	public EventDocument(String id, String hostId, String title, String description, LocalDateTime startsAt,
 			LocalDateTime endsAt, String timeZone, String modality, String status,
 			List<ResponseOptionDocument> responseOptions, boolean allowComment, boolean allowResponseChange,
 			LocalDateTime responseDeadline, VenueDocument venue, OnlineAccessDocument onlineAccess,
 			Instant cancelledAt, String cancellationReason, Long version, List<GuestDocument> guests,
 			PublicInvitationDocument publicInvitation) {
+		this(id, hostId, title, description, startsAt, endsAt, timeZone, modality, status, responseOptions,
+				allowComment, allowResponseChange, responseDeadline, venue, onlineAccess, cancelledAt, cancellationReason,
+				version, guests, publicInvitation, null);
+	}
+
+	@PersistenceCreator
+	public EventDocument(String id, String hostId, String title, String description, LocalDateTime startsAt,
+			LocalDateTime endsAt, String timeZone, String modality, String status,
+			List<ResponseOptionDocument> responseOptions, boolean allowComment, boolean allowResponseChange,
+			LocalDateTime responseDeadline, VenueDocument venue, OnlineAccessDocument onlineAccess,
+			Instant cancelledAt, String cancellationReason, Long version, List<GuestDocument> guests,
+			PublicInvitationDocument publicInvitation, String eventType) {
 		this.id = id;
 		this.hostId = hostId;
 		this.title = title;
@@ -82,6 +94,7 @@ public class EventDocument {
 		this.version = version;
 		this.guests = guests == null ? List.of() : List.copyOf(guests);
 		this.publicInvitation = publicInvitation;
+		this.eventType = eventType;
 	}
 
 	public String getId() {
@@ -159,5 +172,6 @@ public class EventDocument {
 	public Long getVersion() {
 		return version;
 	}
+	public String getEventType() { return eventType; }
 	public PublicInvitationDocument getPublicInvitation() { return publicInvitation; }
 }

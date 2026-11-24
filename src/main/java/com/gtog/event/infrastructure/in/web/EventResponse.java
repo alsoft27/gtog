@@ -7,12 +7,11 @@ import java.util.List;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 import com.gtog.event.domain.model.Event;
+import com.gtog.event.domain.model.EventType;
 import com.gtog.event.domain.model.EventStatus;
 import com.gtog.event.domain.model.Modality;
 
-// DTO para el ANFITRION: expone el onlineAccess completo, sin filtrar por LinkVisibility. El endpoint publico
-// del invitado (/api/invitations/{token}, todavia sin implementar) necesitara su propio DTO que llame a
-// Event.visibleOnlineAccess(...) y omita el campo por completo cuando la regla de visibilidad no lo permita.
+// Vista del anfitrión: el acceso completo no se reutiliza en las vistas públicas del invitado.
 public record EventResponse(
 
 		@Schema(description = "Identificador del evento", example = "68a1f2c9e4b0a1234567890a")
@@ -68,7 +67,8 @@ public record EventResponse(
 		@Schema(description = "Motivo de la cancelacion, null si no esta cancelado o no se indico motivo")
 		String cancellationReason,
 		@Schema(description = "Intención en borrador; enlace activo o conservado en los demás estados. Nunca contiene el token.")
-		boolean publicInvitationEnabled) {
+		boolean publicInvitationEnabled,
+		@Schema(description = "Tipo temporal del evento; los eventos existentes son FIXED_DATE") EventType eventType) {
 
 	public static EventResponse from(Event event) {
 		return new EventResponse(
@@ -88,6 +88,6 @@ public record EventResponse(
 				event.getVenue() == null ? null : VenueResponse.from(event.getVenue()),
 				event.getOnlineAccess() == null ? null : OnlineAccessResponse.from(event.getOnlineAccess()),
 				event.getCancelledAt(),
-				event.getCancellationReason(), event.isPublicInvitationEnabled());
+				event.getCancellationReason(), event.isPublicInvitationEnabled(), event.getEventType());
 	}
 }

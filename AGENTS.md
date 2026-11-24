@@ -67,7 +67,7 @@ Usa estas equivalencias entre la especificación en español y el código en ing
 
 ## Lo que no debes hacer
 
-- **No añadas funcionalidad de iteraciones futuras.** Muro social, votación de varias fechas, acompañantes, check-in y modalidad híbrida están fuera de alcance a propósito. Si crees que algo lo necesita, pregunta antes.
+- **No añadas funcionalidad de iteraciones futuras.** Muro social, acompañantes, check-in y modalidad híbrida están fuera de alcance a propósito. Si crees que algo lo necesita, pregunta antes. La consulta de disponibilidad entre fechas está aprobada y se desarrolla por los pasos de docs/plan-iteracion-1.md, §2.
 - **No añadas dependencias sin preguntar.** MapStruct, Lombok, ModelMapper y similares son decisiones de arquitectura, no detalles.
 - **No pongas anotaciones de framework en `domain/`.** Es la forma más fácil de destruir la arquitectura sin darse cuenta.
 - **No generes todas las colecciones y casos de uso de golpe.** Trabajamos por rebanada vertical: dominio, puerto, adaptador, controlador y test, funcionando de punta a punta antes de pasar a la siguiente.

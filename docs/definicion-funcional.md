@@ -94,9 +94,20 @@ o alta por enlace público con contacto opcional; invitación por
 correo o WhatsApp; opciones de respuesta configurables; página pública del invitado sin registro; panel de
 seguimiento.
 
-**No entra:** muro social, votación de varias fechas, modalidad híbrida, importación desde agenda, carga CSV,
+**No entra:** muro social, modalidad híbrida, importación desde agenda, carga CSV,
 acompañantes, campos adicionales, check-in, cuentas de empresa, recordatorios automáticos, Telegram, plantilla
 de mensaje editable, aplicación móvil.
+
+**Ampliación aprobada, en desarrollo: eventos con fecha por definir.** El anfitrión propondrá fechas
+candidatas con fecha obligatoria y hora opcional, sin hora de fin, y un plazo obligatorio para contestar.
+El invitado podrá indicar disponibilidad en una, varias o ninguna; una respuesta sin disponibilidad se
+distinguirá de no haber respondido. Cambiar las candidatas invalidará las disponibilidades anteriores;
+se conserva solo la última respuesta. Elegir o cambiar la candidata definitiva sin alterar las candidatas
+conservará las disponibilidades y la hora opcional, sin inventar horarios ni convertir disponibilidad en
+confirmación de asistencia. El vencimiento del plazo, o todas las respuestas sin enlace público activo,
+solo provocará un aviso por correo al anfitrión; no cerrará anticipadamente las respuestas ni avisará a
+los invitados. El desarrollo se divide en pasos en el plan. De momento, los flujos disponibles siguen
+siendo de fecha definida; las vistas añaden `eventType=FIXED_DATE`, también para eventos antiguos.
 
 **Estados del evento:** `DRAFT → PUBLISHED`, más `CANCELLED` (solo desde `PUBLISHED`, irreversible).
 `FINISHED` existe en el modelo pero ningún mecanismo lleva un evento a ese estado. Un borrador no se puede
@@ -252,7 +263,6 @@ Capacidades previstas y no construidas, sin numeración de requisitos porque no 
 - **Muro social.** Espacio privado por evento con fotos, comentarios y reacciones; moderación y límites de
   almacenamiento. El acceso depende de estar invitado (el token), no de haber respondido ni confirmado. La
   confirmación solo gobierna la visibilidad del enlace de la sala.
-- **Votación de fechas.** Varias fechas candidatas con disponibilidad por invitado y cierre por plazo.
 - **Aplicación móvil.** Importación desde la agenda del teléfono, cámara directa al muro, notificaciones push,
   check-in por código QR y consulta sin conexión.
 - **Más modalidades y datos del evento.** Modalidad híbrida (exige que la respuesta indique el canal de
