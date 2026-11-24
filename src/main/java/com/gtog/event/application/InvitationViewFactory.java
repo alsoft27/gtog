@@ -2,6 +2,8 @@ package com.gtog.event.application;
 
 import java.time.Instant;
 import com.gtog.event.domain.model.Event;
+import com.gtog.event.domain.model.EventType;
+import com.gtog.event.domain.model.DatePollView;
 import com.gtog.event.domain.model.EventStatus;
 import com.gtog.event.domain.model.Guest;
 import com.gtog.event.domain.model.GuestResponse;
@@ -14,7 +16,9 @@ public final class InvitationViewFactory {
 	public static InvitationView create(Event event, Guest guest, Instant now, GuestResponse response) {
 		OnlineAccess access = event.getOnlineAccess();
 		boolean cancelled = event.getStatus() == EventStatus.CANCELLED;
-		boolean canRespond = event.responseAcceptancePolicy(now).canRespond(response != null);
+		// El paso 5 incorporará la disponibilidad; el PUT de asistencia pertenece solo a FIXED_DATE.
+		if (event.getEventType() == EventType.DATE_POLL) { response = null; }
+		boolean canRespond = event.getEventType() == EventType.FIXED_DATE && event.responseAcceptancePolicy(now).canRespond(response != null);
 		return new InvitationView(guest.getName(), event.getTitle(), event.getDescription(), event.getStatus(),
 				event.getModality(), event.getStartsAt(), event.getEndsAt(), event.getTimeZone(), event.startsAtInstant(),
 				event.endsAtInstant(), event.getVenue(), event.getResponseOptions().stream()
@@ -24,7 +28,7 @@ public final class InvitationViewFactory {
 				access == null ? null : new InvitationView.OnlineAccessInfo(access.platform(), access.linkVisibility(), access.hoursBefore()),
 				event.visibleOnlineAccess(guestHasConfirmed(event, response), now).orElse(null),
 				response == null ? null : new InvitationView.MyResponse(response.responseOptionId(), response.comment(), response.answeredAt(), response.updatedAt()),
-				response != null && canRespond, canRespond, event.getEventType());
+				response != null && canRespond, canRespond, event.getEventType(), DatePollView.from(event.getSchedule()));
 	}
 
 	private static boolean guestHasConfirmed(Event event, GuestResponse response) {

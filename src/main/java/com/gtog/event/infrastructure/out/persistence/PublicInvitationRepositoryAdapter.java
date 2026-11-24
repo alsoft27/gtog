@@ -74,6 +74,13 @@ public class PublicInvitationRepositoryAdapter implements PublicInvitationReposi
 				.append("endsAt", mongo.getConverter().convertToMongoType(snapshot.getEndsAt()))
 				.append("timeZone", snapshot.getTimeZone())
 				.append("responseDeadline", mongo.getConverter().convertToMongoType(snapshot.getResponseDeadline()));
+		if (snapshot.getSchedule() instanceof DatePollSchedule poll) {
+			filter.append("eventType", "DATE_POLL")
+					.append("datePoll.pollRevision", poll.pollRevision() == 0 ? new Document("$in", java.util.Arrays.asList(0L, null)) : poll.pollRevision())
+					.append("datePoll.selectedCandidateDateId", poll.selectedCandidateDateId());
+		} else {
+			filter.append("eventType", new Document("$in", java.util.Arrays.asList("FIXED_DATE", null)));
+		}
 		// Ambos topes se comprueban en el $push, para que dos altas no consuman la misma plaza.
 		filter.append("$expr", new Document("$and", List.of(
 				new Document("$lt", List.of(total, limits.maxPerEvent())),

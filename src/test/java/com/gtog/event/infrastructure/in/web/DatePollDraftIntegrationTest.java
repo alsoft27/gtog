@@ -194,11 +194,16 @@ class DatePollDraftIntegrationTest {
 		assertThat(JsonPath.parse(response.body()).read("$.datePoll.candidateDates", List.class)).hasSize(4);
 		assertThat(bson(id)).isEqualTo(before);
 	}
-	@Test void publicationAndReplacingAttendanceOptionsAreNotAvailableForPollDraftsYet() throws Exception {
+	@Test void publicationPreservesThePollButReplacingAttendanceOptionsRemainsForbidden() throws Exception {
 		String id = create(); Document before = bson(id);
-		assertThat(send("POST", "/api/events/" + id + "/publish", "", auth).statusCode()).isEqualTo(422);
+		// Se retira la guarda temporal del paso 2, conservando las comprobaciones de integridad.
+		assertThat(send("POST", "/api/events/" + id + "/publish", "", auth).statusCode()).isEqualTo(200);
+		Document published = bson(id);
+		assertThat(published.getString("status")).isEqualTo("PUBLISHED");
+		assertThat(published.get("datePoll", Document.class)).isEqualTo(before.get("datePoll", Document.class));
+		assertThat(published.getLong("version")).isEqualTo(before.getLong("version") + 1);
 		assertThat(send("PUT", "/api/events/" + id + "/response-options", "{\"responseOptions\":[{\"label\":\"Sí\",\"countsAsAttendance\":true},{\"label\":\"No\",\"countsAsAttendance\":false}]}", auth).statusCode()).isEqualTo(409);
-		assertThat(bson(id)).isEqualTo(before);
+		assertThat(bson(id)).isEqualTo(published);
 	}
 	@Test void anUnverifiedHostCannotCreatePolls() throws Exception {
 		mongo.getCollection("users").updateOne(new Document("_id", "host"), new Document("$set", new Document("emailVerified", false)));

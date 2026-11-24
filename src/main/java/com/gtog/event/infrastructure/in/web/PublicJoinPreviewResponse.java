@@ -12,7 +12,7 @@ public record PublicJoinPreviewResponse(String title, String description, EventS
 		LocalDateTime startsAt, LocalDateTime endsAt, String timeZone, Instant startsAtInstant, Instant endsAtInstant,
 		VenueResponse venue, OnlinePlatform onlineAccessInfo, boolean canJoin, boolean alreadyJoined,
 		@Schema(description = "Solo con la cookie de un invitado PUBLIC_LINK vivo de este evento") String invitationPath,
-		@Schema(description = "Tipo temporal del evento") EventType eventType) {
+		@Schema(description = "Tipo temporal del evento") EventType eventType, PublicDatePollResponse datePoll) {
 	public record OnlinePlatform(String platform) {}
 	public static PublicJoinPreviewResponse from(PublicInvitationPreview preview) {
 		Event event = preview.event();
@@ -20,6 +20,7 @@ public record PublicJoinPreviewResponse(String title, String description, EventS
 				event.getStartsAt(), event.getEndsAt(), event.getTimeZone(), event.startsAtInstant(), event.endsAtInstant(),
 				event.getVenue() == null ? null : VenueResponse.from(event.getVenue()),
 				event.getOnlineAccess() == null ? null : new OnlinePlatform(event.getOnlineAccess().platform()),
-				preview.canJoin(), preview.alreadyJoined(), preview.invitationPath(), event.getEventType());
+				preview.canJoin(), preview.alreadyJoined(), preview.invitationPath(), event.getEventType(),
+				PublicDatePollResponse.from(DatePollView.from(event.getSchedule())));
 	}
 }

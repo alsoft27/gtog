@@ -5,6 +5,9 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Locale;
 import com.gtog.event.domain.model.Venue;
+import com.gtog.event.domain.model.EventSchedule;
+import com.gtog.event.domain.model.FixedDateSchedule;
+import com.gtog.event.domain.model.DatePollSchedule;
 
 public final class InvitationMessageFormatter {
 	private static final DateTimeFormatter DATE_TIME = DateTimeFormatter.ofPattern("dd/MM/uuuu HH:mm", Locale.forLanguageTag("es"));
@@ -24,6 +27,23 @@ public final class InvitationMessageFormatter {
 		return "Inicio: " + startsAt.format(DATE_TIME) + "\nFin: " + endsAt.format(DATE_TIME)
 				+ "\nZona horaria: " + timeZone + "\n"
 				+ (venue != null ? "Lugar: " + venue : "Plataforma: " + singleLine(platform)) + "\n";
+	}
+
+	public static String scheduleAndLocation(EventSchedule schedule, LocalDateTime responseDeadline, String venue, String platform) {
+		if (schedule instanceof FixedDateSchedule fixed) {
+			return scheduleAndLocation(fixed.startsAt(), fixed.endsAt(), fixed.timeZone(), venue, platform);
+		}
+		DatePollSchedule poll = (DatePollSchedule) schedule;
+		var date = DateTimeFormatter.ofPattern("dd/MM/uuuu", Locale.forLanguageTag("es"));
+		var time = DateTimeFormatter.ofPattern("HH:mm", Locale.forLanguageTag("es"));
+		StringBuilder text = new StringBuilder("Fecha por definir.\nFechas propuestas:\n");
+		for (var candidate : poll.candidateDates()) {
+			text.append("- ").append(candidate.date().format(date));
+			text.append(candidate.startTime() == null ? " (sin hora definida)" : " a las " + candidate.startTime().format(time)).append("\n");
+		}
+		return text.append("Zona horaria: ").append(poll.timeZone()).append("\n")
+				.append("Plazo para responder: ").append(responseDeadline.format(DATE_TIME)).append("\n")
+				.append(venue != null ? "Lugar: " + venue : "Plataforma: " + singleLine(platform)).append("\n").toString();
 	}
 
 	public static String abbreviate(String value, int maxGraphemes) {

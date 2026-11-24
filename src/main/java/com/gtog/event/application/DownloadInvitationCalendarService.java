@@ -3,6 +3,7 @@ package com.gtog.event.application;
 import java.time.Clock;
 import org.springframework.stereotype.Service;
 import com.gtog.event.domain.model.Event;
+import com.gtog.event.domain.model.EventType;
 import com.gtog.event.domain.model.EventStatus;
 import com.gtog.event.domain.model.Guest;
 import com.gtog.event.domain.model.InvitationCalendarData;
@@ -35,6 +36,7 @@ public class DownloadInvitationCalendarService implements DownloadInvitationCale
 		Guest guest = event.getGuests().stream().filter(candidate -> candidate.getToken().equals(token))
 				.findFirst().orElseThrow(InvitationNotFoundException::new);
 		if (event.getStatus() == EventStatus.CANCELLED) { throw new InvitationCalendarNotAvailableException(); }
+		if (event.getEventType() == EventType.DATE_POLL) { throw InvitationCalendarNotAvailableException.withoutDefinitiveDate(); }
 		var now = clock.instant();
 		var view = InvitationViewFactory.create(event, guest, now, responses.find(event.getId(), token).orElse(null));
 		// Comparte exactamente el filtrado del JSON; el renderizador nunca recibe el acceso oculto completo.

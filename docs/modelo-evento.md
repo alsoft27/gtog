@@ -13,12 +13,12 @@ embebidas en el evento. El muro social y Telegram siguen pendientes.
 
 ## `Event` (agregado raíz)
 
-### Tipos temporales — pasos 1 a 3 de la ampliación
+### Tipos temporales — pasos 1 a 4 de la ampliación
 
 `EventType` distingue `FIXED_DATE` y `DATE_POLL`. Omitirlo al crear mantiene `FIXED_DATE`.
 Desde el paso 2 se pueden crear, consultar y editar datos generales de borradores `DATE_POLL`.
-La publicación de consultas se habilitará en el paso 4 y sus respuestas en el paso 5; de momento,
-publicar una consulta devuelve 422 y no modifica el documento.
+Desde el paso 4 se pueden publicar sin fecha definitiva, consultar desde los enlaces públicos y enviar
+invitaciones por correo o WhatsApp. La respuesta de disponibilidad se incorpora en el paso 5.
 
 `EventSchedule` es el contrato temporal del dominio. `FixedDateSchedule` encapsula inicio, fin y zona;
 `DatePollSchedule`, las candidatas y la zona, sin inicio ni fin definitivos. Creación y edición comparten
@@ -123,10 +123,42 @@ Devuelve 200 con EventResponse. El cuerpo representa la lista completa:
   cuotas ni documentos de responses; no se crea un historial de configuraciones o respuestas.
 - Cambiar candidatas no amplía un plazo vencido: la consulta sigue cerrada. El anfitrión puede fijar
   otro plazo obligatorio también en PUBLISHED; no se compara con un inicio inexistente. CANCELLED
-  y FINISHED siguen bloqueando el cambio. La publicación desde el API aún corresponde al paso 4.
+  y FINISHED siguen bloqueando el cambio. Desde el paso 4 se publican desde el API sin fecha definitiva.
 
 La revisión y la selección se guardan en datePoll y se conservan al rehidratar o editar otros campos.
 Una revisión negativa o una selección desconocida en Mongo es corrupción almacenada: 500 saneado.
+
+### Publicación, vistas públicas y difusión — paso 4
+
+- `publish()` conserva las precondiciones de estado y modalidad. En `FIXED_DATE` siguen siendo
+  necesarias las opciones de asistencia; en `DATE_POLL` se publica la configuración validada de
+  candidatas y plazo. No genera inicio, fin, instantes UTC definitivos ni opciones «Asisto/No asisto».
+- Publicar conserva `pollRevision`, candidatas, invitados y cuotas. Si se pidió enlace público, su token
+  nace en la misma escritura que cambia el estado, con @Version y el generador seguro existente.
+- La invitación individual y la vista previa del enlace de alta añaden un bloque público
+  `datePoll: {candidateDates:[{id,date,startTime}],pollRevision,selectedCandidateDateId?}`. La proyección
+  es propia (`DatePollView` / `PublicDatePollResponse`), construida campo a campo, sin documentos Mongo,
+  anfitrión, otros invitados ni contactos. Los campos definitivos locales y UTC se omiten mientras no existen.
+- La invitación muestra únicamente el nombre del invitado actual y conserva OPENED atómico. No lee
+  documentos de asistencia como si fueran disponibilidades. En este paso `myResponse` se omite y
+  `canRespond` / `canChangeResponse` son false para consultas: el PUT de asistencia devuelve 409,
+  sin escribir. El flujo propio de disponibilidad se habilita en el paso 5.
+- La sala conserva su filtrado de dominio: ALWAYS puede mostrarse en PUBLISHED; ON_CONFIRMATION no
+  recibe una confirmación de disponibilidad pendiente de implementar; HOURS_BEFORE permanece oculto
+  mientras no exista un inicio definitivo. CANCELLED/FINISHED nunca revelan el acceso. La vista previa
+  del enlace de alta solo muestra plataforma, aunque la regla sea ALWAYS.
+- El calendario de una consulta sin fecha definitiva devuelve 409 ProblemDetail, instancia constante
+  y no-store exacto, también en FINISHED; no invoca el renderizador ni inventa una fecha o duración.
+  DRAFT y desconocido siguen dando el mismo 404. El calendario de fecha fija mantiene su contrato.
+- El alta pública comparte la política temporal: PUBLISHED y plazo inclusive, sin fin ficticio. Mantiene
+  cookie, contactos descartados, límites 25/500, origen PUBLIC_LINK y exclusión de correo. El filtro
+  atómico añade tipo, revisión y selección a la configuración leída, además de zona/plazo/fin. Una
+  configuración que cambia antes de escribir da 409 JOIN_CLOSED; no se reevalúa el reloj en Mongo.
+  Una apertura concurrente no bloquea el alta: no se compara version. Revisión ausente sigue siendo cero.
+- Correo y WhatsApp comparten el formateador temporal. Para consultas indican «Fecha por definir»,
+  candidatas con hora solo si existe, zona y plazo. No hay línea de fin. Conservan lugar o solo plataforma,
+  el enlace individual y los controles existentes de privacidad, cuotas y longitud; no notifican cambios
+  automáticamente a los invitados. La comprobación SMTP usa exclusivamente el capturador en tests.
 
 ### Campos actuales
 
@@ -218,8 +250,8 @@ fijo. El saneamiento público de ProblemDetail se describe en el plan, §3 Segur
 
 ### Máquina de estados
 
-El flujo completo siguiente está disponible para `FIXED_DATE`. Las consultas `DATE_POLL` de este paso
-permanecen en DRAFT; su publicación se habilitará al completar el paso 4.
+El flujo siguiente está disponible para ambos tipos. La publicación de consultas no exige fechas definitivas;
+sus respuestas de disponibilidad se incorporan en el paso 5.
 
 ```
 DRAFT ──publish()──► PUBLISHED ──cancel(reason, now)──► CANCELLED
@@ -486,7 +518,8 @@ no es una respuesta de asistencia ni un documento de `responses`.
 
 El calendario público `GET /api/invitations/{token}/calendar` devuelve 200 con archivo `.ics`, UTF-8, attachment
 y no-store exacto, sin sesión ni CSRF. DRAFT y desconocido comparten el 404 de R7; CANCELLED da 409 con
-ProblemDetail e instancia constante; FINISHED permite 200. No registra OPENED ni aumenta version.
+ProblemDetail e instancia constante; FINISHED de fecha fija permite 200. Una consulta sin fecha definitiva
+da 409 también en FINISHED, sin renderizar. No registra OPENED ni aumenta version.
 La proyección `InvitationCalendarData` contiene id del evento para UID, título, descripción, fechas locales,
 zona, venue, URL ya filtrada y el instante del Clock para DTSTAMP. `InvitationCalendarRendererPort` mantiene
 iCal4j fuera del dominio y la aplicación. No se envían invitados, contactos, token, respuesta propia,

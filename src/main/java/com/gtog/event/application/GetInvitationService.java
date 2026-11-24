@@ -6,6 +6,7 @@ import java.time.Instant;
 import org.springframework.stereotype.Service;
 
 import com.gtog.event.domain.model.Event;
+import com.gtog.event.domain.model.EventType;
 import com.gtog.event.domain.model.EventStatus;
 import com.gtog.event.domain.model.Guest;
 import com.gtog.event.domain.model.InvitationNotFoundException;
@@ -43,7 +44,7 @@ public class GetInvitationService implements GetInvitationUseCase {
 			ensurePublic(event);
 			guest = invitedGuest(event, token);
 		}
-		return InvitationViewFactory.create(event, guest, now, responses.find(event.getId(), token).orElse(null));
+		return InvitationViewFactory.create(event, guest, now, event.getEventType() == EventType.FIXED_DATE ? responses.find(event.getId(), token).orElse(null) : null);
 	}
 
 	private Event loadInvitation(String token) {

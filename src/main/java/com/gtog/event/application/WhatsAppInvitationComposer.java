@@ -11,7 +11,7 @@ public final class WhatsAppInvitationComposer {
 		String venue = event.getVenue() == null ? null : abbreviate(venue(event.getVenue()), 100);
 		String platform = event.getModality() == Modality.ONLINE ? event.getOnlineAccess().platform() : null;
 		String message = renderBody(abbreviate(guest.getName(), 100), abbreviate(hostName, 100), abbreviate(event.getTitle(), 100),
-				scheduleAndLocation(event.getStartsAt(), event.getEndsAt(), event.getTimeZone(), venue, platform), links.forGuest(guest.getToken()));
+				scheduleAndLocation(event.getSchedule(), event.getResponseDeadline(), venue, platform), links.forGuest(guest.getToken()));
 		return WhatsAppInvitationLink.create(guest.getPhoneE164(), message);
 	}
 

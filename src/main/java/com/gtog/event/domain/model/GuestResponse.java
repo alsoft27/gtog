@@ -10,6 +10,7 @@ public record GuestResponse(String eventId, String guestToken, String responseOp
 	private static final Pattern EMAIL_PATTERN = Pattern.compile("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$");
 
 	public static GuestResponse create(Event event, String token, String optionId, String comment, String email, Instant now) {
+		if (event.getEventType() != EventType.FIXED_DATE) { throw new EventScheduleConflictException(); }
 		event.requireAcceptingResponses(now);
 		if (event.getResponseOptions().stream().noneMatch(option -> option.id().equals(optionId))) {
 			throw new InvalidResponseOptionException();

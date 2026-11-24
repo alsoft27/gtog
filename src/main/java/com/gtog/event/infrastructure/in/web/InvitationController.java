@@ -45,7 +45,7 @@ public class InvitationController {
 
 	@Operation(summary = "Consulta una invitacion", description = "Sin sesion ni CSRF. Publicado, cancelado y finalizado "
 			+ "devuelven 200. Borrador y token desconocido devuelven el mismo 404. Solo un evento publicado "
-			+ "puede mostrar acceso online o registrar la primera apertura. Cache-Control: no-store.")
+			+ "puede mostrar acceso online o registrar la primera apertura. DATE_POLL muestra candidatas y revisión sin fechas definitivas. Cache-Control: no-store.")
 	@ApiResponses({
 			@ApiResponse(responseCode = "200", description = "Vista publica sin datos de contacto ni tokens"),
 			@ApiResponse(responseCode = "404", description = "Invitacion no disponible",
@@ -57,14 +57,14 @@ public class InvitationController {
 				.body(InvitationResponse.from(getInvitation.getInvitation(token)));
 	}
 
-	@Operation(summary = "Registra o cambia la respuesta", description = "Publico, sin sesion ni CSRF. Solo PUBLISHED, "
-			+ "hasta el plazo inclusive y antes del fin. Los cambios requieren permiso. El correo se guarda sin enviar nada.")
+	@Operation(summary = "Registra o cambia la asistencia de fecha fija", description = "Publico, sin sesion ni CSRF. Solo PUBLISHED, "
+			+ "hasta el plazo inclusive y antes del fin. Los cambios requieren permiso. DATE_POLL devuelve 409; la disponibilidad se incorpora por separado. El correo se guarda sin enviar nada.")
 	@ApiResponses({
 		@ApiResponse(responseCode = "200", description = "Invitacion con la respuesta actualizada",
 			content = @Content(schema = @Schema(implementation = InvitationResponse.class))),
 		@ApiResponse(responseCode = "400", description = "JSON invalido", content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
 		@ApiResponse(responseCode = "404", description = "Invitacion no disponible", content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
-		@ApiResponse(responseCode = "409", description = "Estado, plazo, fin o cambio no permitido", content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+		@ApiResponse(responseCode = "409", description = "Estado, tipo de evento, plazo, fin o cambio no permitido", content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
 		@ApiResponse(responseCode = "422", description = "Opcion, comentario o correo invalidos", content = @Content(schema = @Schema(implementation = ProblemDetail.class))) })
 	@PutMapping("/{token}/response")
 	public ResponseEntity<InvitationResponse> respond(@PathVariable String token, @RequestBody RecordGuestResponseRequest request) {
@@ -73,14 +73,14 @@ public class InvitationController {
 	}
 
 	@Operation(summary = "Descarga el calendario del evento", description = "Publico, sin sesion ni CSRF. Archivo iCalendar "
-			+ "con la zona del evento y enlace online solo si es visible para el invitado. CANCELLED devuelve 409; FINISHED, 200. "
+			+ "con la zona del evento y enlace online solo si es visible para el invitado. CANCELLED devuelve 409; FINISHED con fecha fija, 200. DATE_POLL sin fecha definitiva devuelve 409. "
 			+ "Borrador y token desconocido producen el mismo 404. No registra una apertura. Cache-Control: no-store.")
 	@ApiResponses({
 		@ApiResponse(responseCode = "200", description = "Archivo event.ics",
 				content = @Content(mediaType = "text/calendar", schema = @Schema(type = "string", format = "binary"))),
 		@ApiResponse(responseCode = "404", description = "Invitacion no disponible",
 				content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class))),
-		@ApiResponse(responseCode = "409", description = "Evento cancelado",
+		@ApiResponse(responseCode = "409", description = "Evento cancelado o sin fecha definitiva",
 				content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class))) })
 	@GetMapping(value = "/{token}/calendar", produces = "text/calendar")
 	public ResponseEntity<byte[]> calendar(@PathVariable String token) {

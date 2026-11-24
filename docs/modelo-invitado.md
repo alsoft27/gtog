@@ -303,6 +303,7 @@ EmailSenderPort recibe InvitationEmail (destinatario, asunto y cuerpo) y devuelv
 sin objetos de Spring ni excepciones SMTP. Su toString oculta el contenido. InvitationEmailComposer
 construye texto plano fijo en español, con nombre del anfitrión, título y fechas locales más la zona,
 lugar presencial o solo plataforma online, enlace individual y los textos fijos de respuesta y pie.
+Para DATE_POLL lista las candidatas, las horas que existen, la zona y el plazo; no crea inicio o fin.
 Neutraliza caracteres de control en asunto y nombres. Nunca incluye la URL, contraseña ni instrucciones
 de la sala, otros invitados ni el email dejado en GuestResponse. No hay plantilla editable.
 
@@ -322,8 +323,8 @@ se consulta sin añadir dependencias. Si no se puede comprobar el rechazo, se cl
 app.public-base-url define la base del enlace /r/{token}; app.mail.from y app.mail.from-name el remitente.
 MAILJET_API_KEY y MAILJET_SECRET_KEY no se guardan en ficheros. Sin credenciales o remitente el transporte
 devuelve EMAIL_NOT_CONFIGURED sin conectar y la aplicación arranca. Se trata como fallo de proveedor:
-compensa reservas y cuenta para el corte del lote. El renderizador recibe solo la plataforma, no Event
-ni OnlineAccess ni la URL de la sala. Los tests MIME serializan y decodifican Unicode y neutralizan CR/LF.
+compensa reservas y cuenta para el corte del lote. El formateador recibe solo plataforma, nunca OnlineAccess;
+el renderizador recibe texto público ya preparado, sin la URL de la sala. Los tests MIME serializan y decodifican Unicode y neutralizan CR/LF.
 management.health.mail.enabled=false
 evita conexiones en las sondas; propiedad comprobada contra el informe de condiciones de Boot 4.1.
 El perfil test usa exclusivamente un adaptador falso que captura mensajes; el adaptador SMTP se prueba
@@ -406,10 +407,14 @@ producen el mismo cuerpo. Éxito y 404 llevan exactamente `Cache-Control: no-sto
 - `guest`: exclusivamente `name`, sin id ni contactos.
 - `title`, `description`, `status`, `modality`, `startsAt`, `endsAt`, `timeZone`, `startsAtInstant` y `endsAtInstant`.
 - `eventType`: `FIXED_DATE` en los flujos públicos disponibles, también al consultar eventos anteriores sin discriminador.
-  Los borradores `DATE_POLL` aún no se publican; su flujo de disponibilidad se incorporará en pasos posteriores.
+  DATE_POLL ya se publica y muestra sus candidatas; su flujo de disponibilidad se incorpora en el paso 5.
   Desde el paso 3, la consulta lleva `pollRevision`: cambiar las candidatas invalida la ronda anterior,
   sin modificar invitados, tokens, estados de invitación ni cuotas. La lectura/escritura de disponibilidades
   por revisión se implementa en el paso 5; todavía no hay ese endpoint ni un historial de respuestas.
+- `datePoll`, solo en consultas: candidatas públicas con id, fecha y hora opcional, revisión y selección
+  si existe. Usa DTO propio público, sin anfitrión, contactos, persistencia ni otros invitados.
+  Inicio/fin definitivos e instantes UTC se omiten. En este paso canRespond/canChangeResponse son false,
+  myResponse se omite y el PUT de asistencia devuelve 409 sin guardar; la disponibilidad llega en el paso 5.
 - `venue` completo si es presencial; opciones de respuesta únicamente con `id` y `label`.
 - `allowComment`, `allowResponseChange`, `responseDeadline`; datos de cancelación solo si corresponde.
 - `onlineAccessInfo`: `platform`, `linkVisibility` y `hoursBefore`, sin secretos.
@@ -522,7 +527,7 @@ identificadores internos. Si no hay respuesta se omite el bloque. `canChangeResp
 existente, allowResponseChange y las mismas condiciones de tiempo y estado. El plazo rige toda escritura,
 incluida la primera: se acepta exactamente en el plazo, pero nunca en el instante exacto del fin.
 
-GET y PUT incluyen además `canRespond` (boolean). Es true si el evento está PUBLISHED, no ha vencido el
+En fecha fija, GET y PUT incluyen además `canRespond` (boolean). Es true si el evento está PUBLISHED, no ha vencido el
 plazo (inclusive), now es anterior a endsAtInstant y, si existe respuesta, allowResponseChange es true.
 Sin respuesta y con ventana abierta puede ser true aunque canChangeResponse sea false. Este último
 conserva su significado: `existe respuesta && canRespond`. CANCELLED y FINISHED devuelven ambos false;
@@ -560,6 +565,10 @@ y `Cache-Control: no-store` exacto. No marca OPENED ni escribe el evento.
 | PUBLISHED | 200 con calendario y enlace solo si es visible |
 | CANCELLED | 409 con ProblemDetail, instancia constante y no-store exacto; no se descarga un archivo |
 | FINISHED | 200; sin enlace online, porque visibleOnlineAccess exige PUBLISHED |
+
+La tabla de 200 con archivo corresponde a FIXED_DATE. Una consulta DATE_POLL sin fecha definitiva
+devuelve 409, también en FINISHED, sin invocar iCal4j. Mantiene no-store exacto, instance constante y
+ausencia del token en el cuerpo. La selección y adaptación del calendario se completan en el paso 7.
 
 `DownloadInvitationCalendarService` carga la respuesta propia y reutiliza `InvitationViewFactory` para el
 filtro del JSON. Solo pasa al puerto de renderizado una proyección `InvitationCalendarData`: id del evento,
@@ -616,6 +625,10 @@ Ambos son públicos sin sesión ni CSRF. El GET no escribe: título, descripció
 locales, zona e instantes UTC, venue presencial y solo plataforma en línea; nunca identidad del anfitrión,
 contactos ni secretos de sala. Incluye canJoin, alreadyJoined y, solo con cookie válida propia, invitationPath.
 CANCELLED/FINISHED conservan 200 con canJoin=false y POST 409 JOIN_CLOSED. Revocado e inventado comparten 404.
+En DATE_POLL la vista previa incluye el bloque público de candidatas y revisión, sin fechas definitivas.
+La ventana depende del plazo obligatorio, inclusive. La actualización del alta comprueba también tipo,
+revisión y selección leídos; si cambian devuelve 409 JOIN_CLOSED sin insertar. No compara version ni
+repite el reloj en Mongo, y mantiene los mismos límites, cookie y descarte silencioso de contactos.
 
 Precedencia del POST: cuerpo ilegible/ausente (400 del framework) → enlace (404) → cookie válida
 (409 ALREADY_JOINED, incluso si el evento cerró) → ventana de admisión (409 JOIN_CLOSED) → validación

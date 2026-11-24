@@ -203,17 +203,13 @@ public class Event {
 		if (status != EventStatus.DRAFT) {
 			throw new EventNotPublishableException(id);
 		}
-		// Publicación y vista del invitado se incorporan en el paso 4 de la ampliación.
-		if (getEventType() == EventType.DATE_POLL) {
-			throw new IncompleteEventForPublishException("date poll publication is not available yet");
-		}
 		if (modality == Modality.IN_PERSON && venue == null) {
 			throw new IncompleteEventForPublishException("the event has no venue");
 		}
 		if (modality == Modality.ONLINE && onlineAccess == null) {
 			throw new IncompleteEventForPublishException("the event has no online access");
 		}
-		if (responseOptions.size() < 2) {
+		if (getEventType() == EventType.FIXED_DATE && responseOptions.size() < 2) {
 			throw new IncompleteEventForPublishException("at least two response options are required");
 		}
 		PublicInvitation publishedLink = publicInvitation;
@@ -320,7 +316,7 @@ public class Event {
 		boolean visible = switch (onlineAccess.linkVisibility()) {
 			case ALWAYS -> true;
 			case ON_CONFIRMATION -> guestHasConfirmed;
-			case HOURS_BEFORE -> !now.isBefore(startsAtInstant().minus(onlineAccess.hoursBefore(), ChronoUnit.HOURS));
+			case HOURS_BEFORE -> startsAtInstant() != null && !now.isBefore(startsAtInstant().minus(onlineAccess.hoursBefore(), ChronoUnit.HOURS));
 		};
 		return visible ? Optional.of(onlineAccess) : Optional.empty();
 	}

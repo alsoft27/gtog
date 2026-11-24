@@ -225,7 +225,7 @@ public class EventController {
 
 	@Operation(summary = "Publica un evento",
 			description = "Transicion DRAFT → PUBLISHED. Precondiciones: venue u onlineAccess segun modalidad, y al "
-					+ "menos dos opciones de respuesta.")
+					+ "menos dos opciones de respuesta en FIXED_DATE. DATE_POLL publica las candidatas y su plazo, sin fecha definitiva.")
 	@ApiResponses({
 			@ApiResponse(responseCode = "200", description = "Evento publicado.",
 					content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
@@ -237,7 +237,7 @@ public class EventController {
 					content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
 							schema = @Schema(implementation = ProblemDetail.class))),
 			@ApiResponse(responseCode = "422", description = "El evento no cumple las precondiciones de publicacion: "
-					+ "falta venue u onlineAccess, o tiene menos de dos opciones de respuesta.",
+					+ "falta venue u onlineAccess, o FIXED_DATE tiene menos de dos opciones de respuesta.",
 					content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
 							schema = @Schema(implementation = ProblemDetail.class))) })
 	@PostMapping("/{id}/publish")

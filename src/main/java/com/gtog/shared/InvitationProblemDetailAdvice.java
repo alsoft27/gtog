@@ -22,7 +22,7 @@ public class InvitationProblemDetailAdvice implements ResponseBodyAdvice<Object>
 	// Solo textos constantes del contrato público; cualquier detalle nuevo recibe uno genérico.
 	private static final Set<String> SAFE_DETAILS = Set.of(
 			"Invitation not found", "Calendar is not available for a cancelled event",
-			"Unable to generate invitation calendar", "Unable to store guest response",
+			"Calendar is not available without a definitive date", "Unable to generate invitation calendar", "Unable to store guest response",
 			"Event is not accepting responses at this time", "Response changes are not allowed",
 			"Response option does not belong to this event", "Comments are not allowed for this event",
 			"Response comment must not exceed 500 characters", "Response email is invalid",

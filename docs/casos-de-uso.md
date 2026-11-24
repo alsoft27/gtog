@@ -152,11 +152,12 @@ GET/PUT `/api/events/{id}/public-invitation` consultan/cambian el interruptor (v
 **Por defecto en fecha definida:** opciones "Asisto" (cuenta como asistencia) y "No asisto"; `allowComment=false`;
 `allowResponseChange=true`.
 
-### Borrador con fecha por definir (pasos 2 y 3)
+### Evento con fecha por definir (pasos 2 a 4)
 
 La secuencia completa anterior corresponde a `FIXED_DATE`, que sigue siendo el tipo por defecto.
 También se puede crear un `DATE_POLL` con sesión y CSRF, consultarlo y editar sus datos generales.
-Publicarlo devuelve por ahora 422 sin escribir: se habilitará en el paso 4. Todavía no se recogen disponibilidades.
+Desde el paso 4 se publica con la misma llamada y devuelve 200 sin generar fechas definitivas ni opciones
+de asistencia. Si se pidió enlace público, nace al publicar. Todavía no se recogen disponibilidades.
 
 Fuente: `DatePollDraftIntegrationTest`. Petición abreviada (el bloque venue válido también es obligatorio):
 
@@ -224,6 +225,36 @@ La revisión invalida lógicamente las disponibilidades anteriores; el flujo que
 en el paso 5. No se borra ningún invitado, token, apertura o cuota ni se crea historial. Elegir fecha llega
 en el paso 7. Si el plazo venció, cambiar candidatas no lo amplía: el anfitrión fija otro plazo obligatorio,
 también en consultas publicadas. Dos editores concurrentes no se pisan: uno recibe 409 y recarga antes de reintentar.
+
+**Difusión de la consulta (paso 4).** Los endpoints de correo y WhatsApp son los mismos que en fecha fija:
+exigen PUBLISHED y mantienen elegibilidad, cuotas, límites y confirmación de envío. Los mensajes indican
+fecha por definir, cada candidata con hora solo si existe, zona y plazo, sin fin de relleno. Incluyen lugar
+presencial o solo plataforma online, nunca la URL de sala. No se notifican cambios automáticamente.
+
+La invitación individual y la vista previa `/api/invitations/join/{joinToken}` muestran el bloque público
+de candidatas y revisión, sin contactos, anfitrión, invitados ajenos ni datos Mongo. La primera apertura
+individual en PUBLISHED fija OPENED de forma atómica; las siguientes no escriben. Ejemplo abreviado:
+
+```http
+GET /api/invitations/guest-token-demo
+
+HTTP/1.1 200 OK
+Cache-Control: no-store
+
+{"guest":{"name":"Ana"},"eventType":"DATE_POLL","status":"PUBLISHED","timeZone":"Europe/Madrid",
+ "datePoll":{"pollRevision":0,"candidateDates":[{"id":"candidate-1","date":"2027-05-10","startTime":"20:00:00"},
+ {"id":"candidate-2","date":"2027-05-11","startTime":null}]},"canRespond":false,"canChangeResponse":false}
+```
+
+No se incluyen instantes ni inicio/fin definitivos. `canRespond` permanece false para consultas hasta el
+paso 5; el PUT de asistencia devuelve 409 sin guardar. El calendario devuelve 409 sin fecha definitiva,
+incluso en FINISHED. DRAFT/desconocido mantienen 404; CANCELLED/FINISHED mantienen GET 200 con su estado,
+sin marcar OPENED ni mostrar sala. HOURS_BEFORE queda oculto sin un inicio definitivo; ALWAYS conserva
+su regla y ON_CONFIRMATION no recibe una confirmación de disponibilidad todavía no implementada.
+
+El alta por enlace conserva cookie, límites y contactos descartados. Usa el plazo inclusive como ventana,
+sin un fin ficticio; tipo, revisión y selección leídos forman parte del filtro atómico. Si cambian antes de
+escribir, POST devuelve 409 JOIN_CLOSED sin insertar. Una apertura concurrente sí permite continuar.
 
 ### Paso 3: contrato del lote y ejemplo UC-2
 
@@ -342,6 +373,10 @@ Editar la misma ficha desde dos pestañas usa última escritura, manteniendo las
 
 ## UC-3 · Respuesta del invitado
 
+Las vistas públicas ya admiten ambos tipos de evento. El recorrido de respuesta y calendario que sigue
+corresponde a FIXED_DATE. En DATE_POLL se muestran candidatas y plazo; canRespond permanece false
+hasta el paso 5, PUT response devuelve 409 y el calendario sin fecha definitiva devuelve 409.
+
 **Actor:** invitado con su enlace. **Sin sesión ni CSRF.** **Resultado:** respuesta registrada.
 
 ### Flujo principal
@@ -390,7 +425,7 @@ Editar la misma ficha desde dos pestañas usa última escritura, manteniendo las
 - **El correo opcional de la respuesta** se guarda sin uso: no se muestra al anfitrión ni se le escribe.
 - Un comentario en blanco se trata como ausente y se guarda como null; solo su contenido se rechaza si
   `allowComment=false`.
-- El calendario no incluye contactos ni token y respeta el filtro de sala. `FINISHED` devuelve 200 sin
+- El calendario de fecha fija no incluye contactos ni token y respeta el filtro de sala. `FINISHED` devuelve 200 sin
   enlace de sala; `CANCELLED`, 409. Hoy no hay transición automática ni endpoint que produzca FINISHED.
 - `CANCELLED` y `FINISHED` no marcan OPENED, aunque el GET de la vista devuelva 200.
 - Un dato corrupto al reconstruir el evento desde Mongo devuelve 500 con detalle fijo; no es un 422 del cliente.
@@ -655,8 +690,8 @@ DownloadInvitationCalendarService, ResponseAcceptancePolicy y sus tests de integ
 | Método y ruta completos | Sesión | CSRF | Éxito | Errores |
 |---|---|---|---|---|
 | GET /api/invitations/{token} | No | No | 200 + InvitationResponse, también CANCELLED/FINISHED; no-store exacto | 404 mismo detalle para DRAFT y token desconocido; 500 datos almacenados inválidos |
-| PUT /api/invitations/{token}/response | No | No | 200 + InvitationResponse actualizada, no-store exacto | 400 cuerpo, 404, 409 estado/plazo/fin/cambio bloqueado, 422 opción/comentario/correo, 500 datos almacenados inválidos |
-| GET /api/invitations/{token}/calendar | No | No | 200 text/calendar, attachment, no-store exacto; también FINISHED | 404 DRAFT/token desconocido, 409 CANCELLED, 500 generación o datos almacenados inválidos |
+| PUT /api/invitations/{token}/response | No | No | Fecha fija: 200 + InvitationResponse actualizada, no-store exacto | 400 cuerpo, 404, 409 tipo/estado/plazo/fin/cambio bloqueado, 422 opción/comentario/correo, 500 datos almacenados inválidos |
+| GET /api/invitations/{token}/calendar | No | No | Fecha fija: 200 text/calendar, attachment, no-store exacto; también FINISHED | 404 DRAFT/token desconocido, 409 CANCELLED o DATE_POLL sin fecha definitiva, 500 generación o datos almacenados inválidos |
 
 ### UC-4: consultas del anfitrión
 

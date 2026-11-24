@@ -111,7 +111,11 @@ un borrador `DATE_POLL`, y editar sus datos generales conservando las candidatas
 diez fechas distintas (máximo configurable), mezclando horas opcionales, y plazo obligatorio. El paso 3
 permite reemplazar candidatas: los cambios reales avanzan la revisión e invalidan la ronda anterior,
 mientras que repetir o reordenar la conserva. Invitados, tokens y estados de invitación no cambian.
-Todavía no se publica ni se reciben disponibilidades: corresponden a los pasos 4 y 5. Los eventos de fecha
+Desde el paso 4 se publica sin fecha definitiva, se muestra en los enlaces públicos y permite convocar
+por correo o WhatsApp. Los mensajes muestran candidatas, horas opcionales, zona y plazo, sin inventar
+inicio ni fin. El alta pública mantiene sus restricciones y usa el plazo como ventana. La disponibilidad
+se incorpora en el paso 5; por ahora canRespond=false y no se acepta una respuesta de asistencia en una
+consulta. Sin fecha definitiva, el calendario devuelve 409. Los eventos de fecha
 definida mantienen el flujo completo; omitir `eventType` conserva `FIXED_DATE`, también en documentos antiguos.
 
 **Estados del evento:** `DRAFT → PUBLISHED`, más `CANCELLED` (solo desde `PUBLISHED`, irreversible).
@@ -227,7 +231,8 @@ de calcular y guardar el hash. El éxito verifica también el correo, borra los 
 del usuario e invalida sus sesiones abiertas, sin iniciar sesión. Un fallo posterior al consumo obliga a
 pedir otro enlace. Ambas operaciones son públicas y requieren CSRF.
 
-**Responder una invitación.**
+**Responder una invitación con fecha definida.** Las consultas muestran sus candidatas; la escritura de
+disponibilidad se incorpora en el paso 5, sin reutilizar la respuesta de asistencia.
 
 1. El invitado abre su enlace sin sesión ni contraseña. Un token desconocido y un evento en borrador dan el
    mismo 404. La primera apertura pasa al invitado a `OPENED`.

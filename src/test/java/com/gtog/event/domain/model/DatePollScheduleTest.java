@@ -90,10 +90,13 @@ class DatePollScheduleTest {
 	@Test void responseOptionsCannotBeInstalledInsteadOfCandidates() {
 		assertThatThrownBy(() -> builder().build().replaceResponseOptions(List.of(), Set.of())).isInstanceOf(EventScheduleConflictException.class);
 	}
-	@Test void aPollCannotBePublishedBeforeThePublicFlowIsImplemented() {
+	@Test void aPollCanBePublishedWithoutDefinitiveDatesOrAttendanceOptions() {
 		Event event = builder().build();
-		assertThatThrownBy(event::publish).isInstanceOf(IncompleteEventForPublishException.class);
-		assertThat(event.getStatus()).isEqualTo(EventStatus.DRAFT);
+		// El paso 4 sustituye el bloqueo temporal del paso 2 por la publicación real de la consulta.
+		event.publish();
+		assertThat(event.getStatus()).isEqualTo(EventStatus.PUBLISHED);
+		assertThat(event.getStartsAt()).isNull(); assertThat(event.getEndsAt()).isNull();
+		assertThat(event.getResponseOptions()).isEmpty();
 	}
 	@Test void rehydrationRejectsDuplicateCandidateIdentities() {
 		assertThatThrownBy(() -> new DatePollSchedule(List.of(new CandidateDate("id", DATE, null), new CandidateDate("id", DATE.plusDays(1), null)), "UTC"))
