@@ -18,6 +18,7 @@ import com.mongodb.MongoWriteException;
 import com.mongodb.MongoCommandException;
 import com.gtog.event.domain.model.GuestResponse;
 import com.gtog.event.domain.model.GuestAvailability;
+import com.gtog.event.domain.model.GuestAvailabilityResponse;
 import com.gtog.event.domain.model.StalePollRevisionException;
 import com.gtog.event.domain.model.GuestResponseStorageException;
 import com.gtog.event.domain.model.ResponseChangeNotAllowedException;
@@ -177,6 +178,19 @@ public class GuestResponseRepositoryAdapter implements GuestResponseRepositoryPo
 			Query query = key(eventId, guestToken).addCriteria(Criteria.where("availability.pollRevision").is(revision));
 			return Optional.ofNullable(mongo.findOne(query, AvailabilityResponseDocument.class))
 					.map(AvailabilityResponseDocument::availability);
+		} catch (DataAccessException failure) {
+			throw new GuestResponseStorageException();
+		}
+	}
+
+	@Override
+	public List<GuestAvailabilityResponse> findAvailabilityByEventIds(Set<String> eventIds) {
+		if (eventIds.isEmpty()) { return List.of(); }
+		try {
+			var query = Query.query(Criteria.where("eventId").in(eventIds).and("availability").ne(null));
+			return mongo.find(query, AvailabilityResponseDocument.class).stream()
+					.map(document -> new GuestAvailabilityResponse(document.eventId(), document.guestToken(), document.availability()))
+					.toList();
 		} catch (DataAccessException failure) {
 			throw new GuestResponseStorageException();
 		}

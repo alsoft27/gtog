@@ -29,13 +29,13 @@ public record EventSummaryResponse(
 		@Schema(description = "Total de invitados actuales del evento", example = "3")
 		int totalGuests,
 
-		@Schema(description = "Invitados que han respondido, incluso con una opción ya inexistente", example = "2")
+		@Schema(description = "Invitados que han respondido: asistencia en fecha fija o disponibilidad en la ronda vigente de una consulta", example = "2")
 		int answered,
 
 		@Schema(description = "Invitados que todavía no han respondido", example = "1")
 		int pending,
 
-		@Schema(description = "Invitados cuya opción actual cuenta como asistencia", example = "1")
+		@Schema(description = "Invitados cuya opción cuenta como asistencia; cero en consultas de disponibilidad", example = "1")
 		int attending,
 		@Schema(description = "Tipo temporal del evento") EventType eventType) {
 

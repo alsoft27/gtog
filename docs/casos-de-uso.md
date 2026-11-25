@@ -469,7 +469,7 @@ no sale en myResponse ni en el resto del cuerpo. FINISHED sigue permitiendo desc
 |---|---|---|
 | Todos sus eventos | `GET /api/events` | Lista con `id`, `title`, `startsAt`, `modality`, `status` y los contadores `totalGuests`, `answered`, `pending` y `attending`. Solo los propios |
 | Un evento completo | `GET /api/events/{id}` | Configuración, opciones, ubicación o acceso en línea sin filtrar, y datos de cancelación |
-| El panel del evento | `GET /api/events/{id}/dashboard` | Totales, contadores por opción en su orden y una fila por invitado |
+| El panel del evento | `GET /api/events/{id}/dashboard` | Totales, una fila por invitado y desglose por opción en fecha fija o por candidata en consultas |
 | Solo los invitados | `GET /api/events/{id}/guests` | Invitados con su contacto, canal, estado y `invitationPath` |
 
 ### El panel
@@ -504,6 +504,10 @@ existe en el evento, y `null` si no ha respondido.
 
 - El panel nunca expone el correo que el invitado dejó al responder.
 - Los contadores parten de los invitados del evento: una respuesta huérfana no cuenta.
+- En `DATE_POLL`, el panel muestra `availability.pollRevision`, las personas por
+  candidata en `byCandidate`, los pendientes en `pendingGuests` y quienes marcaron
+  ninguna en `unavailableGuests`. Una persona puede aparecer en varias candidatas.
+  El listado usa respondidos y pendientes de la misma revisión. `attending` vale cero.
 - Para reenviar a quien no ha respondido, el anfitrión toma las filas con `answered=false` y las pasa como
   `guestIds` al envío de UC-2.
 - `FINISHED` no ocurre nunca. Para mostrar un evento como terminado, la interfaz lo deriva de `endsAt`.

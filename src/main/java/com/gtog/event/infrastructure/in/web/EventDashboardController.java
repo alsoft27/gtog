@@ -26,7 +26,7 @@ public class EventDashboardController {
 	public EventDashboardController(GetEventDashboardUseCase dashboard) { this.dashboard = dashboard; }
 
 	@Operation(summary = "Consulta el panel del anfitrion", description = "Solo el propietario, en cualquier estado. "
-			+ "Contadores derivados de invitados vivos, filas en orden de alta y opciones en su orden. "
+			+ "Contadores derivados de invitados vivos y filas en orden de alta. DATE_POLL desglosa disponibilidad por candidata de la ronda vigente. "
 			+ "Conserva invitationPath como GET /guests; no expone el email de respuesta. No escribe ni cambia version. "
 			+ "Solo el 200 fija Cache-Control: no-store exacto.")
 	@ApiResponses({

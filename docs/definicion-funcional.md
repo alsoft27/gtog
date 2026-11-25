@@ -253,6 +253,10 @@ la disponibilidad con su propia operación por invitación y revisión.
 **Seguir las respuestas.** El panel del evento da los totales (invitados, respondidos, pendientes,
 asistentes), los contadores por opción en su orden y una fila por invitado con contacto, canal, estado de la
 invitación y su respuesta. El correo que el invitado dejó al responder no se expone nunca.
+En una consulta de fechas, el panel presenta el total de personas por candidata,
+quién sigue pendiente y quién contestó que no tiene disponibilidad. Una persona
+puede contar en varias candidatas. El listado refleja respondidos y pendientes de
+la ronda vigente. La consulta no suma asistentes confirmados.
 
 ---
 

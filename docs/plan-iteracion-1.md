@@ -15,8 +15,8 @@ de despliegue público de §7 y la deuda abierta de §6, incluida D-UNVERIFIED-S
 El frontend Angular no se ha empezado.
 Los recorridos y ejemplos del API están en [casos-de-uso.md](casos-de-uso.md), con la verificación de rutas, seguridad y resultados.
 
-`mvn clean verify`: 1.250 tests, 0 fallos, 0 errores y 0 omitidos en el paso 5. Añade 12 casos
-(3 de dominio y 9 con servidor real). El paso 4 añadió 35 casos: 10 de dominio, 5 de compositores
+`mvn clean verify`: 1.254 tests, 0 fallos, 0 errores y 0 omitidos en el paso 6. Añade cuatro
+casos (dos de dominio y dos con servidor real). El paso 5 añadió 12 casos. El paso 4 añadió 35 casos: 10 de dominio, 5 de compositores
 y 20 con servidor real. Adapta solo las dos expectativas temporales de publicación del paso 2;
 los tests de mensajes de fecha fija permanecen intactos. El paso 3 añadió 56 casos sin modificar tests anteriores. El paso 2 añadió 58 casos
 y adaptó el constructor del unitario de creación, conservando sus aserciones. En el paso 1 el listado
@@ -60,6 +60,7 @@ Maven por defecto, springdoc-openapi, iCal4j 4.2.0, libphonenumber 9.0.43, Mailj
 | Candidatas DATE_POLL — paso 3 | PUT /api/events/{id}/candidate-dates con revisión propia, selección que se limpia al cambiar y reintentos idempotentes. Reordenar no invalida. Concurrencia con @Version y conservación de invitados/cuotas. |
 | Publicación DATE_POLL — paso 4 | Publicación sin fecha definitiva, proyección pública de candidatas, OPENED, alta por enlace protegida por revisión/selección y mensajes de correo/WhatsApp compartidos. Calendario sin fecha: 409. |
 | Disponibilidad DATE_POLL — paso 5 | PUT público de disponibilidad múltiple, lista vacía explícita, última respuesta en responses y escritura condicionada por revisión. Lecturas públicas, envíos y confirmación de borrado usan solo la ronda vigente |
+| Seguimiento DATE_POLL — paso 6 | Panel privado por candidata con personas, pendientes y sin disponibilidad. Listado con totales de ronda vigente y lecturas agrupadas por tipo. |
 
 ### Endpoints
 
@@ -147,7 +148,8 @@ temporal del dominio y el discriminador `eventType` en Mongo y en las vistas. Au
 `FIXED_DATE`; rehidratar documentos antiguos no provoca escrituras de migración. El paso 2 incorpora
 borradores `DATE_POLL` con candidatas y plazo obligatorio: alta, consulta y edición de datos generales.
 El paso 4 incorpora publicación, vistas públicas, alta por enlace y mensajes con candidatas.
-El paso 5 registra y muestra la última disponibilidad de la revisión actual. No hay migración ni nuevas dependencias.
+El paso 5 registra y muestra la última disponibilidad de la revisión actual. El paso 6 la resume
+en el panel y el listado. No hay migración ni nuevas dependencias.
 
 Orden de implementación aprobado, con verificación completa antes de cada commit y sin push:
 
@@ -159,8 +161,8 @@ Orden de implementación aprobado, con verificación completa antes de cada comm
 4. **Publicación y difusión (cerrada):** publicar sin fecha definitiva y adaptar vistas públicas, alta por enlace y mensajes.
 5. **Disponibilidad (cerrada):** respuesta múltiple, incluida lista vacía explícita; última versión, revisión vigente,
    plazos y cambios controlados atómicamente. Una revisión nueva permite volver a contestar.
-6. **Seguimiento (siguiente):** totales y personas por candidata, pendientes y no disponibles, sin consultas por evento.
-7. **Fecha definitiva:** elegir o cambiar entre candidatas conservando disponibilidades; mantener la hora
+6. **Seguimiento (cerrado):** totales y personas por candidata, pendientes y no disponibles, sin consultas por evento.
+7. **Fecha definitiva (siguiente):** elegir o cambiar entre candidatas conservando disponibilidades; mantener la hora
    opcional y adaptar calendario y visibilidad sin inventar inicio ni fin.
 8. **Aviso al anfitrión:** correo al vencer el plazo o cuando todos respondan sin enlace público activo,
    una vez por revisión; Clock, reclamación atómica, transporte falso en tests y recorrido manual.
@@ -270,10 +272,23 @@ obsoleta no sobrescribe una más nueva. Como la revisión del evento y su respue
 distintas, una edición concurrente puede dejar persistida una respuesta obsoleta que queda invisible.
 El servicio relee el evento y devuelve 409 si detecta un cambio de ronda durante el PUT. La limpieza
 por borrado del invitado retira respuestas vigentes u obsoletas. Los envíos y la confirmación de borrado
-solo consideran la revisión vigente. El panel de disponibilidad sigue siendo el paso 6.
+solo consideran la revisión vigente.
 
-**Siguiente:** calcular disponibilidad a partir de los invitados actuales y sus respuestas vigentes,
-con totales y personas por candidata, pendientes y no disponibles, y lecturas agrupadas.
+### Seguimiento de disponibilidad — paso 6 completado
+
+La suite completa pasó con 1.254 tests en `execution-logs/date-poll-step-6-verify.log`.
+La integración comprueba el desglose de la ronda vigente, la privacidad y ausencia de
+escrituras del panel, y la lectura agrupada en un listado de ambos tipos.
+
+El panel añade `availability` a `DATE_POLL`. Expone las candidatas en el orden del
+anfitrión, cuántas personas están disponibles y quiénes son. Una selección vacía
+cuenta como respuesta y distingue a quien no puede en ninguna fecha de quien aún
+está pendiente. Se ignoran respuestas de rondas anteriores o de invitados retirados.
+El listado usa los mismos criterios de ronda, con hasta una lectura agrupada por
+tipo de evento. El contrato de fecha fija se conserva.
+
+**Siguiente:** elegir y cambiar la candidata definitiva, conservando respuestas y
+hora opcional, y adaptar calendario y visibilidad de sala con los criterios del paso 7.
 
 ### Aplazado
 

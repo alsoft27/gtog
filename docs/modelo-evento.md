@@ -529,7 +529,9 @@ Documentado también en OpenAPI (`/v3/api-docs`, `/swagger-ui.html`), ver secci�
 
 ---
 
-## Panel del anfitrión y contadores del listado (R9)
+## Panel del anfitrión y contadores del listado
+
+### Eventos de fecha fija (R9)
 
 `EventAttendanceSummary.calculate(event, responses)` es una función pura del dominio: construye un índice
 de respuestas del evento por token y recorre guests[] en orden de alta. Los documentos huérfanos no aportan
@@ -563,6 +565,24 @@ contacto, source, deliveryChannel, invitationStatus e invitationPath como GET /g
 optionKnown. No hay claves token o guestToken; el token aparece solo dentro de invitationPath. El email
 guardado en GuestResponse nunca se incorpora al DTO. La respuesta seleccionada lleva responseOptionId,
 label, comment, answeredAt y updatedAt. No se serializa el dominio ni el documento Mongo.
+
+### Consultas de fechas (paso 6)
+
+El mismo GET de panel devuelve `availability` para `DATE_POLL` con `pollRevision`,
+`byCandidate: [{candidateDateId,date,startTime,count,guests}]`, `pendingGuests` y
+`unavailableGuests`. Las referencias a invitados son solo `{id,name}`. Las candidatas
+conservan el orden del anfitrión, incluidas las que tienen contador cero. Las personas
+conservan el orden de alta y pueden figurar en varias candidatas. Una selección vacía
+cuenta como respondida y se muestra en `unavailableGuests`. Las respuestas huérfanas o
+de otra revisión se ignoran. La tabla general de invitados reutiliza `answered`;
+`response` y `optionKnown` quedan en null y `byOption` queda vacío.
+
+El listado conserva sus campos. Para consultas, `answered` y `pending` reflejan la
+ronda actual y `attending` vale cero. La asistencia de fecha fija conserva su cálculo
+y su panel se serializa sin el bloque `availability`. Si el anfitrión tiene ambos tipos,
+el listado lee respuestas con hasta dos consultas agrupadas sobre `responses`, una por
+tipo mediante `eventId in [...]`. El panel solo lee el tipo de su evento. Se calcula a
+partir de `guests[]` y se filtra por revisión en dominio. Son operaciones de lectura.
 
 El panel está disponible en cualquier estado para el propietario. Solo su 200 fija exactamente
 Cache-Control: no-store; ni el listado ni los errores se cambian. EventNotFoundException conserva su manejador

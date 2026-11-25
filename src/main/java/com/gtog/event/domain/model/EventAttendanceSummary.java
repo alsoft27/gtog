@@ -7,7 +7,7 @@ import java.util.List;
 import java.util.Map;
 
 public record EventAttendanceSummary(Totals totals, List<OptionCount> byOption, List<GuestRow> guests,
-		PublicInvitationSummary publicInvitation) {
+		PublicInvitationSummary publicInvitation, EventAvailabilitySummary availability) {
 	public EventAttendanceSummary {
 		byOption = List.copyOf(byOption);
 		guests = List.copyOf(guests);
@@ -21,7 +21,7 @@ public record EventAttendanceSummary(Totals totals, List<OptionCount> byOption, 
 
 	public EventAttendanceSummary withPublicInvitation(Event event, Instant now, PublicJoinLimits limits) {
 		return new EventAttendanceSummary(totals, byOption, guests, new PublicInvitationSummary(
-				event.isPublicInvitationEnabled(), event.publicJoinedCount(), limits.maxPublicGuests(), event.canJoinPublicInvitation(now, limits)));
+				event.isPublicInvitationEnabled(), event.publicJoinedCount(), limits.maxPublicGuests(), event.canJoinPublicInvitation(now, limits)), availability);
 	}
 
 	public static EventAttendanceSummary calculate(Event event, List<GuestResponse> responses) {
@@ -53,6 +53,6 @@ public record EventAttendanceSummary(Totals totals, List<OptionCount> byOption, 
 		}
 		var byOption = event.getResponseOptions().stream().map(option -> new OptionCount(option.id(), option.label(),
 				option.countsAsAttendance(), counts.getOrDefault(option.id(), 0))).toList();
-		return new EventAttendanceSummary(new Totals(rows.size(), answered, rows.size() - answered, attending), byOption, rows, null);
+		return new EventAttendanceSummary(new Totals(rows.size(), answered, rows.size() - answered, attending), byOption, rows, null, null);
 	}
 }

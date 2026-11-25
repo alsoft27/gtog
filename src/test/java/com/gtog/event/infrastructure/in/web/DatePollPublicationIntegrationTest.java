@@ -385,6 +385,96 @@ class DatePollPublicationIntegrationTest {
 		assertThat(mongo.getCollection("responses").countDocuments(new Document("eventId", id))).isZero();
 	}
 
+	@Test void dashboardCountsCurrentAvailabilityPerCandidateWithoutExposingAdditionalCredentials() throws Exception {
+		String id = create(null);
+		var ana = add(id, "Ana", "ana@example.com", null);
+		var bea = add(id, "Bea", "bea@example.com", null);
+		var carla = add(id, "Carla", "carla@example.com", null);
+		var diana = add(id, "Diana", "diana@example.com", null);
+		publish(id);
+
+		var prior = (DatePollSchedule) events.findById(id).orElseThrow().getSchedule();
+		assertThat(availability(diana, 0, List.of(prior.candidateDates().getFirst().id())).statusCode()).isEqualTo(200);
+		String root = "/api/events/" + id;
+		String replacement = """
+				{"pollRevision":0,"candidateDates":[{"date":"2027-05-20"},{"date":"2027-05-21","startTime":"19:30"},{"date":"2027-05-22"}]}
+				""";
+		assertThat(send("PUT", root + "/candidate-dates", replacement, auth).statusCode()).isEqualTo(200);
+		var poll = (DatePollSchedule) events.findById(id).orElseThrow().getSchedule();
+		String first = poll.candidateDates().getFirst().id();
+		String second = poll.candidateDates().get(1).id();
+		assertThat(availability(ana, 1, List.of(first, second)).statusCode()).isEqualTo(200);
+		assertThat(availability(bea, 1, List.of(second)).statusCode()).isEqualTo(200);
+		assertThat(availability(carla, 1, List.of()).statusCode()).isEqualTo(200);
+		var now = Instant.parse("2027-03-01T10:00:00Z");
+		responseRepository.saveAvailability(id, "orphan-token", new GuestAvailability(1, List.of(first), now, now), false);
+		var before = bson(id);
+		var stored = mongo.getCollection("responses").find(new Document("eventId", id)).into(new java.util.ArrayList<>());
+
+		var response = send("GET", root + "/dashboard", "", auth);
+		assertThat(response.statusCode()).isEqualTo(200);
+		noStore(response);
+		var view = JsonPath.parse(response.body());
+		assertThat(view.<Map<String, Integer>>read("$.totals")).containsExactlyInAnyOrderEntriesOf(
+				Map.of("guests", 4, "answered", 3, "pending", 1, "attending", 0));
+		assertThat(view.<List<?>>read("$.byOption")).isEmpty();
+		assertThat(view.<Integer>read("$.availability.pollRevision")).isEqualTo(1);
+		assertThat(view.<List<Integer>>read("$.availability.byCandidate[*].count")).containsExactly(1, 2, 0);
+		assertThat(view.<List<String>>read("$.availability.byCandidate[*].candidateDateId"))
+				.containsExactlyElementsOf(poll.candidateDates().stream().map(CandidateDate::id).toList());
+		assertThat(view.<List<String>>read("$.availability.byCandidate[0].guests[*].name")).containsExactly("Ana");
+		assertThat(view.<List<String>>read("$.availability.byCandidate[1].guests[*].name")).containsExactly("Ana", "Bea");
+		assertThat(view.<List<String>>read("$.availability.pendingGuests[*].name")).containsExactly("Diana");
+		assertThat(view.<List<String>>read("$.availability.unavailableGuests[*].name")).containsExactly("Carla");
+		assertThat(view.<List<Boolean>>read("$.guests[*].answered")).containsExactly(true, true, true, false);
+		assertThat(view.<Map<String, String>>read("$.availability.byCandidate[1].guests[0]"))
+				.containsExactlyInAnyOrderEntriesOf(Map.of("id", ana.getString("id"), "name", "Ana"));
+		assertThat(view.<Map<String, Object>>read("$.availability.byCandidate[0]")).containsEntry("startTime", null);
+		assertThat(view.<String>read("$.availability.byCandidate[1].startTime")).isEqualTo("19:30:00");
+		assertThat(response.body()).doesNotContain("orphan-token");
+		for (Document guest : List.of(ana, bea, carla, diana)) {
+			assertThat(response.body()).containsOnlyOnce(guestToken(guest));
+		}
+		assertThat(view.<List<String>>read("$.guests[*].invitationPath"))
+				.containsExactlyElementsOf(List.of(ana, bea, carla, diana).stream()
+						.map(guest -> guest.getString("invitationPath")).toList());
+		assertThat(bson(id)).isEqualTo(before);
+		assertThat(mongo.getCollection("responses").find(new Document("eventId", id)).into(new java.util.ArrayList<>()))
+				.containsExactlyElementsOf(stored);
+	}
+
+	@Test void mixedListingLoadsAvailabilitiesInOneBatchAndPreservesFixedDateAttendance() throws Exception {
+		String first = create(null);
+		String second = create(null);
+		var answered = add(first, "Ana", "ana@example.com", null);
+		add(first, "Bea", "bea@example.com", null);
+		add(second, "Carla", "carla@example.com", null);
+		publish(first);
+		publish(second);
+		assertThat(availability(answered, 0, List.of()).statusCode()).isEqualTo(200);
+		var fixed = events.save(com.gtog.event.GuestTestFixtures.event("mixed-fixed", EventStatus.PUBLISHED, null,
+				com.gtog.event.GuestTestFixtures.guest(8)));
+		mongo.getCollection("events").updateOne(new Document("_id", fixed.getId()),
+				new Document("$set", new Document("hostId", "host-id-1")));
+		var fixedGuest = fixed.getGuests().getFirst();
+		responseRepository.insert(com.gtog.event.AttendanceTestFixtures.response(fixed, 0,
+				fixed.getResponseOptions().getFirst().id()));
+		clearInvocations(responseRepository);
+
+		var result = send("GET", "/api/events", "", auth);
+		assertThat(result.statusCode()).isEqualTo(200);
+		List<Map<String, Object>> summaries = JsonPath.parse(result.body()).read("$");
+		assertThat(summaries).hasSize(3);
+		var byId = summaries.stream().collect(java.util.stream.Collectors.toMap(summary -> summary.get("id"), summary -> summary));
+		assertThat(byId.get(first)).containsEntry("totalGuests", 2).containsEntry("answered", 1).containsEntry("pending", 1).containsEntry("attending", 0);
+		assertThat(byId.get(second)).containsEntry("answered", 0).containsEntry("pending", 1).containsEntry("attending", 0);
+		assertThat(byId.get(fixed.getId())).containsEntry("answered", 1).containsEntry("pending", 0).containsEntry("attending", 1);
+		assertThat(result.body()).doesNotContain("byCandidate", guestToken(answered), fixedGuest.getToken());
+		verify(responseRepository).findAvailabilityByEventIds(java.util.Set.of(first, second));
+		verify(responseRepository).findByEventIds(java.util.Set.of(fixed.getId()));
+		verifyNoMoreInteractions(responseRepository);
+	}
+
 	private HttpResponse<String> availability(Document guest, long revision, List<String> ids) throws Exception {
 		return send("PUT", invitation(guest) + "/availability",
 				new Document("pollRevision", revision).append("candidateDateIds", ids).toJson(),
