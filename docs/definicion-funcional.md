@@ -105,9 +105,9 @@ distinguirá de no haber respondido. Cambiar las candidatas invalidará las disp
 se conserva solo la última respuesta. Después de vencer el plazo, los invitados ven, desde su enlace
 personal, los nombres y votos de la ronda vigente y distinguen quién marcó «ninguna» de quién no votó.
 El anfitrión consulta el seguimiento durante la votación y decide qué hacer con el evento al cierre.
-Esta consulta termina con el resultado. El vencimiento del plazo, o todas las respuestas sin enlace público activo,
-solo provocará un aviso por correo al anfitrión; no cerrará anticipadamente las respuestas ni avisará a
-los invitados. El desarrollo se divide en pasos en el plan. Desde el paso 2 se puede crear y consultar
+Esta consulta termina con el resultado. Al vencer el plazo, o si todos los invitados han respondido y no hay enlace público activo,
+GTog avisa por correo únicamente al anfitrión, una vez por ronda. El aviso anticipado mantiene
+la votación abierta hasta el plazo. El desarrollo se divide en pasos en el plan. Desde el paso 2 se puede crear y consultar
 un borrador `DATE_POLL`, y editar sus datos generales conservando las candidatas. Admite entre dos y
 diez fechas distintas (máximo configurable), mezclando horas opcionales, y plazo obligatorio. El paso 3
 permite reemplazar candidatas: los cambios reales avanzan la revisión e invalidan la ronda anterior,

@@ -6,11 +6,15 @@ import java.util.List;
 import java.util.HashSet;
 import java.util.Objects;
 
-public record DatePollSchedule(List<CandidateDate> candidateDates, String timeZone, long pollRevision, String selectedCandidateDateId) implements EventSchedule {
+public record DatePollSchedule(List<CandidateDate> candidateDates, String timeZone, long pollRevision, String selectedCandidateDateId, Long noticeClaimedRevision) implements EventSchedule {
 	public DatePollSchedule(List<CandidateDate> candidateDates, String timeZone) { this(candidateDates, timeZone, 0, null); }
 
+	public DatePollSchedule(List<CandidateDate> candidateDates, String timeZone, long pollRevision, String selectedCandidateDateId) {
+		this(candidateDates, timeZone, pollRevision, selectedCandidateDateId, null);
+	}
+
 	public DatePollSchedule {
-		if (pollRevision < 0) { throw new InvalidPollRevisionException(); }
+		if (pollRevision < 0 || (noticeClaimedRevision != null && (noticeClaimedRevision < 0 || noticeClaimedRevision > pollRevision))) { throw new InvalidPollRevisionException(); }
 		EventSchedule.zone(timeZone);
 		if (candidateDates == null || candidateDates.size() < 2) { throw new InvalidCandidateDateCountException(); }
 		if (candidateDates.stream().anyMatch(candidate -> candidate == null)) { throw new MissingCandidateDateException(); }
@@ -31,7 +35,7 @@ public record DatePollSchedule(List<CandidateDate> candidateDates, String timeZo
 		return new DatePollSchedule(draft.candidateDates().stream().map(CandidateDate::create).toList(), timeZone);
 	}
 	public DatePollSchedule withTimeZone(String zone) {
-		return new DatePollSchedule(candidateDates, zone, pollRevision, selectedCandidateDateId);
+		return new DatePollSchedule(candidateDates, zone, pollRevision, selectedCandidateDateId, noticeClaimedRevision);
 	}
 
 	public DatePollSchedule replaceCandidates(List<CandidateDateEdit> edits, Long expectedRevision, DatePollLimits limits) {
@@ -53,8 +57,10 @@ public record DatePollSchedule(List<CandidateDate> candidateDates, String timeZo
 		if (changed && expectedRevision != pollRevision) { throw new StalePollRevisionException(); }
 		if (!changed && candidateDates.equals(resolved)) { return this; }
 		return new DatePollSchedule(resolved, timeZone, changed ? Math.incrementExact(pollRevision) : pollRevision,
-				changed ? null : selectedCandidateDateId);
+				changed ? null : selectedCandidateDateId, noticeClaimedRevision);
 	}
+
+	public boolean noticeClaimed() { return noticeClaimedRevision != null && noticeClaimedRevision == pollRevision; }
 
 	private CandidateDate resolve(CandidateDateEdit edit) {
 		if (edit == null) { throw new MissingCandidateDateException(); }

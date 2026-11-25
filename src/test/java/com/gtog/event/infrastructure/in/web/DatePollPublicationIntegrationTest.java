@@ -46,6 +46,8 @@ import com.gtog.UserTestFixtures;
 import com.gtog.event.domain.model.EventType;
 import com.gtog.event.domain.model.FixedDateSchedule;
 import com.gtog.event.domain.port.out.EventRepositoryPort;
+import com.gtog.event.domain.port.in.SendPollNoticesUseCase;
+import com.gtog.event.domain.port.out.PollNoticeRepositoryPort;
 import com.gtog.event.domain.port.out.GuestResponseRepositoryPort;
 import com.gtog.event.infrastructure.out.persistence.EventDocument;
 import com.gtog.user.infrastructure.out.persistence.UserDocument;
@@ -70,6 +72,8 @@ class DatePollPublicationIntegrationTest {
 	private final EventRepositoryPort events;
 	private final PasswordEncoder passwords;
 	private final CapturingEmailSenderAdapter mail;
+	private final SendPollNoticesUseCase notices;
+	private final PollNoticeRepositoryPort noticeRepository;
 	private final HttpClient client = HttpClient.newHttpClient();
 	private Map<String, String> auth;
 	@MockitoBean private Clock clock;
@@ -77,8 +81,10 @@ class DatePollPublicationIntegrationTest {
 	@MockitoSpyBean private GuestResponseRepositoryPort responseRepository;
 
 	DatePollPublicationIntegrationTest(@Value("${local.server.port}") int port, MongoTemplate mongo,
-			EventRepositoryPort events, PasswordEncoder passwords, CapturingEmailSenderAdapter mail) {
+			EventRepositoryPort events, PasswordEncoder passwords, CapturingEmailSenderAdapter mail,
+			SendPollNoticesUseCase notices, PollNoticeRepositoryPort noticeRepository) {
 		this.port = port; this.mongo = mongo; this.events = events; this.passwords = passwords; this.mail = mail;
+		this.notices = notices; this.noticeRepository = noticeRepository;
 	}
 
 	@BeforeEach void setUp() throws Exception {
@@ -534,6 +540,114 @@ class DatePollPublicationIntegrationTest {
 
 		var personal = send("GET", invitation(ana), "", Map.of());
 		assertThat(JsonPath.parse(personal.body()).<List<String>>read("$.myAvailability.candidateDateIds")).isEqualTo(ids);
+	}
+
+	@Test void theDeadlineNoticeOnlyEmailsTheHostOfAPublishedPollAndHonorsTheInclusiveBoundary() throws Exception {
+		String id = create(null);
+		var guest = add(id, "Ana", "ana@example.com", null);
+		publish(id);
+		create(null); // Borrador
+		String cancelled = create(null);
+		publish(cancelled);
+		assertThat(send("POST", "/api/events/" + cancelled + "/cancel",
+				new Document("reason", "Cancelación").toJson(), auth).statusCode()).isEqualTo(200);
+		Instant deadline = LocalDateTime.of(2027, 5, 9, 18, 0).atZone(ZoneId.of("Europe/Madrid")).toInstant();
+		when(clock.instant()).thenReturn(deadline);
+		notices.sendDueNotices();
+		assertThat(mail.attempts()).isEmpty();
+		when(clock.instant()).thenReturn(deadline.plusNanos(1));
+		notices.sendDueNotices();
+		notices.sendDueNotices();
+		assertThat(mail.messages()).singleElement().satisfies(message -> {
+			assertThat(message.recipient()).isEqualTo("host@example.com");
+			assertThat(message.body()).contains("Cena", "Ha vencido el plazo")
+					.doesNotContain("ana@example.com", guestToken(guest), "https://");
+		});
+		assertThat(bson(id).get("datePoll", Document.class).getLong("noticeClaimedRevision")).isZero();
+	}
+
+	@Test void theEarlyNoticeRequiresEveryGuestAndNoPublicLinkAndDoesNotCloseVoting() throws Exception {
+		String id = create(null, true);
+		var first = add(id, "Ana", "ana@example.com", null);
+		var second = add(id, "Bea", "bea@example.com", null);
+		publish(id);
+		setNoticePublicLink(id, false);
+		assertThat(availability(first, 0, List.of()).statusCode()).isEqualTo(200);
+		notices.sendDueNotices();
+		assertThat(mail.attempts()).isEmpty();
+		setNoticePublicLink(id, true);
+		assertThat(availability(second, 0, List.of()).statusCode()).isEqualTo(200);
+		notices.sendDueNotices();
+		assertThat(mail.attempts()).isEmpty();
+		setNoticePublicLink(id, false);
+
+		try (var pool = java.util.concurrent.Executors.newFixedThreadPool(2)) {
+			var start = new java.util.concurrent.CyclicBarrier(2);
+			java.util.concurrent.Callable<Void> scan = () -> {
+				start.await(10, java.util.concurrent.TimeUnit.SECONDS);
+				notices.sendDueNotices();
+				return null;
+			};
+			var one = pool.submit(scan);
+			var two = pool.submit(scan);
+			one.get(30, java.util.concurrent.TimeUnit.SECONDS);
+			two.get(30, java.util.concurrent.TimeUnit.SECONDS);
+		}
+		assertThat(mail.messages()).singleElement().satisfies(message ->
+				assertThat(message.body()).contains("Todos los invitados"));
+		assertThat(availability(first, 0, List.of()).statusCode()).isEqualTo(200);
+		var beforeDeadline = send("GET", invitation(first), "", Map.of());
+		assertThat(beforeDeadline.body()).doesNotContain("pollResults");
+		when(clock.instant()).thenReturn(Instant.parse("2027-05-10T10:00:00Z"));
+		notices.sendDueNotices();
+		assertThat(mail.attempts()).hasSize(1);
+	}
+
+	@Test void aNewCandidateRoundCanNotifyAgainButAProviderFailureIsNotRetried(CapturedOutput output) throws Exception {
+		String id = create(null);
+		var guest = add(id, "Ana", "ana@example.com", null);
+		publish(id);
+		setNoticePublicLink(id, false);
+		assertThat(availability(guest, 0, List.of()).statusCode()).isEqualTo(200);
+		mail.enqueueResult(EmailDeliveryResult.failure(EmailSendFailureCode.PROVIDER_UNAVAILABLE));
+		notices.sendDueNotices();
+		notices.sendDueNotices();
+		assertThat(mail.attempts()).hasSize(1);
+		assertThat(mail.messages()).isEmpty();
+		assertThat(output.getAll()).contains("POLL_NOTICE_SEND_FAILED").doesNotContain("host@example.com", guestToken(guest));
+		String replacement = """
+				{"pollRevision":0,"candidateDates":[{"date":"2027-05-20"},{"date":"2027-05-21"}]}
+				""";
+		assertThat(send("PUT", "/api/events/" + id + "/candidate-dates", replacement, auth).statusCode()).isEqualTo(200);
+		assertThat(bson(id).get("datePoll", Document.class).getLong("noticeClaimedRevision")).isZero();
+		notices.sendDueNotices();
+		assertThat(mail.attempts()).hasSize(1);
+		assertThat(availability(guest, 1, List.of()).statusCode()).isEqualTo(200);
+		notices.sendDueNotices();
+		assertThat(mail.messages()).hasSize(1);
+		assertThat(bson(id).get("datePoll", Document.class).getLong("noticeClaimedRevision")).isEqualTo(1);
+	}
+
+	@Test void aStaleSnapshotCannotClaimAfterADifferentGuestJoinsAndLegacyRevisionZeroCanBeClaimed() throws Exception {
+		String id = create(null);
+		publish(id);
+		setNoticePublicLink(id, false);
+		notices.sendDueNotices();
+		assertThat(mail.attempts()).isEmpty();
+		var before = events.findById(id).orElseThrow();
+		var guest = add(id, "Ana", "ana@example.com", null);
+		assertThat(noticeRepository.claim(id, before.getVersion(), 0)).isFalse();
+		mongo.getCollection("events").updateOne(new Document("_id", id),
+				new Document("$unset", new Document("datePoll.pollRevision", "")));
+		assertThat(availability(guest, 0, List.of()).statusCode()).isEqualTo(200);
+		notices.sendDueNotices();
+		assertThat(mail.messages()).hasSize(1);
+		assertThat(bson(id).get("datePoll", Document.class).getLong("noticeClaimedRevision")).isZero();
+	}
+
+	private void setNoticePublicLink(String id, boolean enabled) throws Exception {
+		assertThat(send("PUT", "/api/events/" + id + "/public-invitation", new Document("enabled", enabled).toJson(), auth)
+				.statusCode()).isEqualTo(200);
 	}
 
 	private HttpResponse<String> availability(Document guest, long revision, List<String> ids) throws Exception {

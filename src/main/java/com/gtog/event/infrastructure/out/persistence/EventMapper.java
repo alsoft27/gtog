@@ -98,7 +98,7 @@ public class EventMapper {
 	private DatePollDocument toDatePollDocument(Event event) {
 		if (!(event.getSchedule() instanceof DatePollSchedule poll)) { return null; }
 		return new DatePollDocument(poll.candidateDates().stream().map(candidate -> new DatePollDocument.Candidate(
-				candidate.id(), candidate.date().toString(), candidate.startTime() == null ? null : candidate.startTime().toString())).toList(), poll.pollRevision(), poll.selectedCandidateDateId());
+				candidate.id(), candidate.date().toString(), candidate.startTime() == null ? null : candidate.startTime().toString())).toList(), poll.pollRevision(), poll.selectedCandidateDateId(), poll.noticeClaimedRevision());
 	}
 
 	private DatePollSchedule toDatePollSchedule(EventDocument document) {
@@ -112,7 +112,7 @@ public class EventMapper {
 			if (candidate == null || candidate.date() == null) { throw new MissingCandidateDateException(); }
 			return new CandidateDate(candidate.id(), LocalDate.parse(candidate.date()),
 					candidate.startTime() == null ? null : LocalTime.parse(candidate.startTime()));
-		}).toList(), document.getTimeZone(), poll.pollRevision() == null ? 0 : poll.pollRevision(), poll.selectedCandidateDateId());
+		}).toList(), document.getTimeZone(), poll.pollRevision() == null ? 0 : poll.pollRevision(), poll.selectedCandidateDateId(), poll.noticeClaimedRevision());
 	}
 
 	private PublicInvitation toDomain(PublicInvitationDocument document) {

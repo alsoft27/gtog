@@ -529,6 +529,20 @@ Documentado también en OpenAPI (`/v3/api-docs`, `/swagger-ui.html`), ver secci�
 
 ---
 
+## Aviso al anfitrión de una consulta de fechas
+
+Para una consulta publicada, el plazo inclusivo vencido o todos los invitados actuales
+con voto vigente (al menos uno y sin enlace público activo) habilitan un aviso por correo
+solo para el anfitrión. No cambia el plazo, el estado ni la visibilidad de votos.
+
+`datePoll.noticeClaimedRevision` es una marca interna, ausente en documentos anteriores
+y en las vistas HTTP. El adaptador reclama con filtro por estado, revisión y versión,
+incrementando `version` en la misma escritura. Las escrituras completas conservan la
+marca. Solo una ejecución puede reclamar cada revisión; la siguiente ronda puede reclamar
+de nuevo. Si SMTP falla, se conserva la marca y no se programa otro intento. El caso de
+uso consulta el correo verificado del anfitrión por un puerto y usa el transporte SMTP
+existente. Ver [plan de iteración](plan-iteracion-1.md#aviso-al-anfitrión--paso-8).
+
 ## Panel del anfitrión y contadores del listado
 
 ### Eventos de fecha fija (R9)

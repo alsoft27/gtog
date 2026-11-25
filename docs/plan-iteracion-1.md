@@ -15,8 +15,8 @@ de despliegue público de §7 y la deuda abierta de §6, incluida D-UNVERIFIED-S
 El frontend Angular no se ha empezado.
 Los recorridos y ejemplos del API están en [casos-de-uso.md](casos-de-uso.md), con la verificación de rutas, seguridad y resultados.
 
-`mvn clean verify`: 1.255 tests, 0 fallos, 0 errores y 0 omitidos en el paso 7, que añade un
-caso de integración con servidor real. El paso 6 añadió cuatro casos y el paso 5, doce. El paso 4 añadió 35 casos: 10 de dominio, 5 de compositores
+`mvn clean verify`: 1.261 tests, 0 fallos, 0 errores y 0 omitidos en el paso 8, que añade seis
+casos. El paso 7 añadió un caso de integración, el paso 6 añadió cuatro casos y el paso 5, doce. El paso 4 añadió 35 casos: 10 de dominio, 5 de compositores
 y 20 con servidor real. Adapta solo las dos expectativas temporales de publicación del paso 2;
 los tests de mensajes de fecha fija permanecen intactos. El paso 3 añadió 56 casos sin modificar tests anteriores. El paso 2 añadió 58 casos
 y adaptó el constructor del unitario de creación, conservando sus aserciones. En el paso 1 el listado
@@ -62,6 +62,7 @@ Maven por defecto, springdoc-openapi, iCal4j 4.2.0, libphonenumber 9.0.43, Mailj
 | Disponibilidad DATE_POLL — paso 5 | PUT público de disponibilidad múltiple, lista vacía explícita, última respuesta en responses y escritura condicionada por revisión. Lecturas públicas, envíos y confirmación de borrado usan solo la ronda vigente |
 | Seguimiento DATE_POLL — paso 6 | Panel privado por candidata con personas, pendientes y sin disponibilidad. Listado con totales de ronda vigente y lecturas agrupadas por tipo. |
 | Votos al cierre DATE_POLL — paso 7 | GET de invitación personal con nombres y votos de la ronda vigente después del plazo inclusivo. Vista previa pública sin resultados. |
+| Aviso al anfitrión DATE_POLL — paso 8 | Tarea periódica, aviso al vencer el plazo o al responder todos sin enlace público, reclamación atómica por revisión y correo exclusivo al anfitrión. |
 
 ### Endpoints
 
@@ -115,6 +116,9 @@ Archivos `.http` ejecutables con el cliente HTTP de IntelliJ, contra un servidor
 - `rest-api-verify.http` es la excepción: se ejecuta SIN APP_AUTH_AUTOVERIFYEMAIL, con realRecipient y
   verificationToken del entorno privado. Tras login comprueba /me=emailVerified:false, con un mensaje que
   detecta el bypass; luego verifica y crea en la misma sesión. Pendiente de ejecución manual con correo real.
+- `rest-api-poll-notice.http`: manual con SMTP real, una cuenta anfitriona verificada y valores
+  `realRecipient` y `pollNoticePassword` del entorno privado. Comprueba un aviso en el buzón,
+  anticipado o al vencer el plazo según el enlace público. Preparado, pendiente de ejecución manual.
 
 ---
 
@@ -165,7 +169,7 @@ Orden de implementación aprobado, con verificación completa antes de cada comm
 6. **Seguimiento (cerrado):** totales y personas por candidata, pendientes y no disponibles, sin consultas por evento.
 7. **Votos al cierre (cerrado):** mostrar nombres y votos de la ronda vigente en el enlace personal después
    del plazo inclusivo. El anfitrión decide qué hacer con el evento al ver el resultado.
-8. **Aviso al anfitrión (siguiente):** correo al vencer el plazo o cuando todos respondan sin enlace público activo,
+8. **Aviso al anfitrión (cerrado):** correo al vencer el plazo o cuando todos respondan sin enlace público activo,
    una vez por revisión; Clock, reclamación atómica, transporte falso en tests y recorrido manual.
 
 Reglas acordadas: la disponibilidad no equivale a confirmación de asistencia. Editar candidatas
@@ -303,8 +307,28 @@ escritura. El resultado usa una lectura agrupada y el mismo filtro por revisión
 panel. Expone solamente nombre, `answered` y candidatas marcadas por invitado actual.
 El enlace público de alta no muestra votos. No se envían avisos a invitados.
 
-**Siguiente:** paso 8, aviso por correo únicamente al anfitrión, condicionado por
-el plazo o por todas las respuestas sin enlace público activo, una vez por ronda.
+### Aviso al anfitrión — paso 8
+
+**Implementación verificada.** La suite completa pasó con 1.261 tests en
+`execution-logs/date-poll-step-8-verify.log`. Los ocho pasos quedan cerrados.
+El recorrido con SMTP real está preparado y sigue pendiente de ejecución manual.
+
+Una tarea periódica revisa consultas publicadas con alguna ronda sin reclamar. Usa el
+reloj inyectado y, para un aviso previo al cierre, exige al menos un invitado actual,
+todos con voto vigente y sin enlace público activo. Una lista vacía cuenta como voto.
+Después del plazo inclusivo se puede avisar aunque quede alguien pendiente o siga activo
+el enlace público. El aviso previo no cierra la votación ni muestra los votos antes de tiempo.
+
+Se usa el correo verificado del anfitrión y el transporte existente, sin tocar
+las cuotas de invitaciones ni de autenticación. Mongo reclama la ronda en una escritura
+que compara revisión, estado y versión leídos. Conserva la marca al rehidratar y editar.
+Una revisión nueva puede recibir su propio aviso. Si el proveedor falla o el proceso se
+interrumpe tras reclamar, no se reintenta: puede perderse el aviso, pero no se intenta
+enviarlo dos veces. Los logs no incluyen correos ni tokens.
+
+`app.events.poll-notice-enabled` vale true por defecto y se desactiva en el perfil test.
+`app.events.poll-notice-interval=PT1M` es el retraso inicial y entre exploraciones
+terminadas. No se notifica a los invitados. Hay un recorrido SMTP manual en §1.
 
 ### Aplazado
 

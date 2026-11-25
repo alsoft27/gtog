@@ -1,0 +1,119 @@
+# Paso 8 — Prueba manual contra un backend local con SMTP real. No ejecutar en la suite.
+# Usa una cuenta anfitriona YA verificada en gtog_dev. En http-client.private.env.json
+# selecciona un entorno con realRecipient (su correo) y pollNoticePassword. No imprimas sus valores.
+# Arranca la aplicación con Mailjet, MAIL_FROM verificado y el temporizador de avisos activo
+# (app.events.poll-notice-enabled=true, app.events.poll-notice-interval=PT1M por defecto).
+# false: tras votar llega el aviso de que respondieron todos, aunque el plazo siga abierto.
+# true: repite el recorrido completo para probar la otra vía. No debe llegar nada antes del plazo;
+# después del plazo y un ciclo del temporizador debe llegar el aviso de vencimiento.
+# En ambos casos comprueba en el buzón real que llega un solo aviso de esa consulta y ronda.
+# El POST de registro no forma parte del recorrido. No necesita el bypass local de verificación.
+
+@baseUrl = http://localhost:8080
+@publicInvitationEnabled = false
+
+### 00 — Obtener CSRF y fechas UTC
+# @no-cookie-jar
+< {%
+    const now = Date.now();
+    const deadline = new Date(now + 4 * 60 * 1000);
+    const first = new Date(now + 2 * 24 * 60 * 60 * 1000);
+    const second = new Date(now + 3 * 24 * 60 * 60 * 1000);
+    ["pollNoticeCsrf", "pollNoticeSession", "pollNoticeEvent", "pollNoticeToken", "pollNoticeCandidate"].forEach(name => client.global.clear(name));
+    client.global.set("pollNoticeDeadline", deadline.toISOString().slice(0, 19));
+    client.global.set("pollNoticeFirst", first.toISOString().slice(0, 10));
+    client.global.set("pollNoticeSecond", second.toISOString().slice(0, 10));
+    client.global.set("pollNoticeTitle", "Prueba aviso consulta " + now);
+%}
+GET {{baseUrl}}/actuator/health
+
+> {%
+    const cookie = response.cookiesByName("XSRF-TOKEN")[0];
+    client.assert(response.status === 200 && !!cookie && !!cookie.value, "Falta CSRF");
+    client.global.set("pollNoticeCsrf", cookie.value);
+%}
+
+### 01 — Iniciar sesión como anfitrión verificado
+# @no-cookie-jar
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+Cookie: XSRF-TOKEN={{pollNoticeCsrf}}
+X-XSRF-TOKEN: {{pollNoticeCsrf}}
+
+{ "email": "{{realRecipient}}", "password": "{{pollNoticePassword}}" }
+
+> {%
+    const session = response.cookiesByName("JSESSIONID")[0];
+    client.assert(response.status === 200 && !!session && !!session.value, "Falta la sesión");
+    client.global.set("pollNoticeSession", session.value);
+%}
+
+### 02 — Crear consulta
+# @no-cookie-jar
+POST {{baseUrl}}/api/events
+Content-Type: application/json
+Cookie: XSRF-TOKEN={{pollNoticeCsrf}}; JSESSIONID={{pollNoticeSession}}
+X-XSRF-TOKEN: {{pollNoticeCsrf}}
+
+{
+  "title": "{{pollNoticeTitle}}",
+  "eventType": "DATE_POLL",
+  "timeZone": "UTC",
+  "modality": "IN_PERSON",
+  "responseDeadline": "{{pollNoticeDeadline}}",
+  "publicInvitationEnabled": {{publicInvitationEnabled}},
+  "datePoll": { "candidateDates": [{ "date": "{{pollNoticeFirst}}" }, { "date": "{{pollNoticeSecond}}" }] },
+  "venue": { "placeName": "Sala", "address": "Calle de prueba 1", "latitude": 0, "longitude": 0, "placeId": "manual-poll-notice" }
+}
+
+> {%
+    client.assert(response.status === 201, "Debe crear la consulta; si devuelve 403, comprueba que la cuenta esté verificada");
+    client.global.set("pollNoticeEvent", response.body.id);
+    client.global.set("pollNoticeCandidate", response.body.datePoll.candidateDates[0].id);
+%}
+
+### 03 — Añadir invitado ficticio (no se le envía correo)
+# @no-cookie-jar
+POST {{baseUrl}}/api/events/{{pollNoticeEvent}}/guests
+Content-Type: application/json
+Cookie: XSRF-TOKEN={{pollNoticeCsrf}}; JSESSIONID={{pollNoticeSession}}
+X-XSRF-TOKEN: {{pollNoticeCsrf}}
+
+{ "name": "Invitada de prueba", "email": "poll-notice-guest@example.com" }
+
+> {%
+    client.assert(response.status === 201 && response.body.invitationPath.startsWith("/r/"), "Falta el enlace personal");
+    client.global.set("pollNoticeToken", response.body.invitationPath.substring(3));
+%}
+
+### 04 — Publicar
+# @no-cookie-jar
+POST {{baseUrl}}/api/events/{{pollNoticeEvent}}/publish
+Cookie: XSRF-TOKEN={{pollNoticeCsrf}}; JSESSIONID={{pollNoticeSession}}
+X-XSRF-TOKEN: {{pollNoticeCsrf}}
+
+> {%
+    client.assert(response.status === 200 && response.body.status === "PUBLISHED", "Debe publicarse la consulta");
+%}
+
+### 05 — Votar desde el enlace personal
+# @no-cookie-jar
+PUT {{baseUrl}}/api/invitations/{{pollNoticeToken}}/availability
+Content-Type: application/json
+
+{ "pollRevision": 0, "candidateDateIds": ["{{pollNoticeCandidate}}"] }
+
+> {%
+    client.assert(response.status === 200 && response.body.myAvailability.pollRevision === 0, "Debe registrar el voto");
+    client.assert(!("pollResults" in response.body), "El voto no muestra los resultados");
+%}
+
+### 06 — Tras el plazo, verificar que se ven los resultados en la invitación
+# @no-cookie-jar
+GET {{baseUrl}}/api/invitations/{{pollNoticeToken}}
+
+> {%
+    client.assert(response.status === 200 && response.body.canRespond === false, "Ejecuta este paso tras el vencimiento");
+    const results = response.body.pollResults;
+    client.assert(!!results && results.votes.length === 1 && results.votes[0].answered, "Falta el resultado de la ronda");
+%}
