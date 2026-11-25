@@ -1,6 +1,6 @@
 # gtog — Plan, decisiones y deuda técnica
 
-Estado a 24 de noviembre de 2026. Es el documento para retomar el proyecto: dónde estamos, qué queda, qué se
+Estado a 25 de noviembre de 2026. Es el documento para retomar el proyecto: dónde estamos, qué queda, qué se
 decidió y por qué, qué está pendiente de decidir y qué deuda hay. Qué hace la aplicación está en
 `definicion-funcional.md`; el contrato técnico de cada agregado, en `modelo-evento.md`, `modelo-invitado.md` y
 `modelo-usuario.md`. Las instrucciones para el agente están en `AGENTS.md`.
@@ -15,8 +15,8 @@ de despliegue público de §7 y la deuda abierta de §6, incluida D-UNVERIFIED-S
 El frontend Angular no se ha empezado.
 Los recorridos y ejemplos del API están en [casos-de-uso.md](casos-de-uso.md), con la verificación de rutas, seguridad y resultados.
 
-`mvn clean verify`: 1.238 tests, 0 fallos, 0 errores y 0 omitidos en la última ejecución completa,
-limpia y aislada (paso 4, publicación y difusión). Añade 35 casos: 10 de dominio, 5 de compositores
+`mvn clean verify`: 1.250 tests, 0 fallos, 0 errores y 0 omitidos en el paso 5. Añade 12 casos
+(3 de dominio y 9 con servidor real). El paso 4 añadió 35 casos: 10 de dominio, 5 de compositores
 y 20 con servidor real. Adapta solo las dos expectativas temporales de publicación del paso 2;
 los tests de mensajes de fecha fija permanecen intactos. El paso 3 añadió 56 casos sin modificar tests anteriores. El paso 2 añadió 58 casos
 y adaptó el constructor del unitario de creación, conservando sus aserciones. En el paso 1 el listado
@@ -57,8 +57,9 @@ Maven por defecto, springdoc-openapi, iCal4j 4.2.0, libphonenumber 9.0.43, Mailj
 | Invitados — enlace público | RF-2.19: intención en borrador, token al publicar, interruptor revocable, alta inmediata con contacto opcional y cookie de fricción. Topes atómicos 25/500, descarte silencioso de contactos, origen en panel y exclusión del correo; WhatsApp permitido |
 | Tipos temporales — paso 1 | `EventSchedule` y `FixedDateSchedule`; `eventType=FIXED_DATE` en persistencia y vistas, también para documentos antiguos sin discriminador. Base de compatibilidad de la ampliación, en `024d09a` |
 | Borradores DATE_POLL — paso 2 | Alta, detalle, listado y edición de datos generales; candidatas con id, fecha y hora opcional, sin fin, y plazo obligatorio. Máximo configurable 10; sin opciones de asistencia ni fechas de relleno |
-| Candidatas DATE_POLL — paso 3 | PUT /api/events/{id}/candidate-dates con revisión propia, selección que se limpia al cambiar y reintentos idempotentes. Reordenar no invalida. Concurrencia con @Version y conservación de invitados/cuotas. Lectura/escritura de disponibilidades por revisión pendiente del paso 5 |
-| Publicación DATE_POLL — paso 4 | Publicación sin fecha definitiva, proyección pública de candidatas, OPENED, alta por enlace protegida por revisión/selección y mensajes de correo/WhatsApp compartidos. Calendario sin fecha: 409. Disponibilidad pendiente del paso 5 |
+| Candidatas DATE_POLL — paso 3 | PUT /api/events/{id}/candidate-dates con revisión propia, selección que se limpia al cambiar y reintentos idempotentes. Reordenar no invalida. Concurrencia con @Version y conservación de invitados/cuotas. |
+| Publicación DATE_POLL — paso 4 | Publicación sin fecha definitiva, proyección pública de candidatas, OPENED, alta por enlace protegida por revisión/selección y mensajes de correo/WhatsApp compartidos. Calendario sin fecha: 409. |
+| Disponibilidad DATE_POLL — paso 5 | PUT público de disponibilidad múltiple, lista vacía explícita, última respuesta en responses y escritura condicionada por revisión. Lecturas públicas, envíos y confirmación de borrado usan solo la ronda vigente |
 
 ### Endpoints
 
@@ -87,7 +88,8 @@ POST   /api/events/{id}/invitations/whatsapp-sent
 
 GET    /api/invitations/{token}    PUT    /api/invitations/{token}/response
 GET    /api/invitations/join/{joinToken}   POST /api/invitations/join/{joinToken}
-GET    /api/invitations/{token}/calendar        (los tres públicos, sin sesión ni CSRF)
+PUT    /api/invitations/{token}/availability
+GET    /api/invitations/{token}/calendar        (rutas de invitación públicas, sin sesión ni CSRF)
 ```
 
 Además: `/actuator/health`, `/v3/api-docs` y `/swagger-ui.html`.
@@ -145,7 +147,7 @@ temporal del dominio y el discriminador `eventType` en Mongo y en las vistas. Au
 `FIXED_DATE`; rehidratar documentos antiguos no provoca escrituras de migración. El paso 2 incorpora
 borradores `DATE_POLL` con candidatas y plazo obligatorio: alta, consulta y edición de datos generales.
 El paso 4 incorpora publicación, vistas públicas, alta por enlace y mensajes con candidatas.
-Todavía no se reciben disponibilidades (paso 5). No hay migración ni nuevas dependencias.
+El paso 5 registra y muestra la última disponibilidad de la revisión actual. No hay migración ni nuevas dependencias.
 
 Orden de implementación aprobado, con verificación completa antes de cada commit y sin push:
 
@@ -155,9 +157,9 @@ Orden de implementación aprobado, con verificación completa antes de cada comm
 3. **Cambios de candidatas (cerrada):** revisión propia e invalidación lógica al cambiar fechas;
    repetir una configuración o reordenarla no invalida. Se mantienen invitados, tokens, aperturas y cuotas.
 4. **Publicación y difusión (cerrada):** publicar sin fecha definitiva y adaptar vistas públicas, alta por enlace y mensajes.
-5. **Disponibilidad (siguiente):** respuesta múltiple, incluida lista vacía explícita; última versión, revisión vigente,
+5. **Disponibilidad (cerrada):** respuesta múltiple, incluida lista vacía explícita; última versión, revisión vigente,
    plazos y cambios controlados atómicamente. Una revisión nueva permite volver a contestar.
-6. **Seguimiento:** totales y personas por candidata, pendientes y no disponibles, sin consultas por evento.
+6. **Seguimiento (siguiente):** totales y personas por candidata, pendientes y no disponibles, sin consultas por evento.
 7. **Fecha definitiva:** elegir o cambiar entre candidatas conservando disponibilidades; mantener la hora
    opcional y adaptar calendario y visibilidad sin inventar inicio ni fin.
 8. **Aviso al anfitrión:** correo al vencer el plazo o cuando todos respondan sin enlace público activo,
@@ -170,6 +172,108 @@ El aviso va únicamente al anfitrión por correo y no cierra las respuestas anti
 ven la elección en la aplicación o se enteran por sus propios medios. Un aviso automático a invitados
 queda para una funcionalidad futura. Las protecciones del enlace público, privacidad, límites y cuotas
 existentes siguen aplicándose.
+
+### Punto de reanudación anterior, tras el paso 4 — 25 de noviembre de 2026
+
+El plan anterior es el orden aprobado de ocho pasos; no se sustituye ni se amplía. Al contrastar el
+código, los commits y los registros de Maven, **los pasos 1 a 4 están cerrados y el siguiente es el 5**.
+Aunque la petición de continuidad sitúa el trabajo en la implementación del paso 4, este ya terminó
+en `0bd61ee`. No queda una implementación parcial de ese paso ni se ha empezado el 5.
+
+Estado de Git al hacer esta comprobación: rama `main`, HEAD `0bd61ee`, árbol limpio. Esta actualización
+del seguimiento queda sin commit por petición del usuario. No se modifica código ni se ejecuta Maven
+de nuevo: las cifras siguientes proceden de las ejecuciones completas ya realizadas sobre cada commit.
+
+| Paso | Estado real y evidencia | Cambios y pruebas realizadas |
+|---|---|---|
+| 1. Compatibilidad temporal | Completado — `024d09a`; 1.089 tests en verde | `EventType`, `EventSchedule` y `FixedDateSchedule`; discriminador ausente leído como FIXED_DATE sin migrar ni escribir al consultar. Tipo expuesto en DTOs propios. `FixedDateScheduleTest` y `FixedDateCompatibilityIntegrationTest`: validación temporal, zona/cambios horarios y recorrido de documentos antiguos. |
+| 2. Borradores de consulta | Completado — `1de2721`; 1.147 tests en verde | `CandidateDate` y `DatePollSchedule`, creación y edición de borradores sin inicio/fin, plazo obligatorio, de 2 a 10 candidatas por defecto (`app.events.max-candidate-dates`). Fecha y hora opcional persistidas sin valores ficticios. `DatePollScheduleTest`, `DatePollConfigTest` y `DatePollDraftIntegrationTest`: reglas, configuración, contratos HTTP y BSON. |
+| 3. Cambios de candidatas | Completado — `03b9b10`; 1.203 tests en verde | PUT de candidatas con `pollRevision`, distinta de `version`; cambios reales avanzan ronda y limpian selección, reordenar conserva ambas e idéntico no escribe. Guardado con bloqueo optimista. `CandidateDatesTest` y `CandidateDatesIntegrationTest`: revisiones obsoletas/futuras, idempotencia, concurrencia real y conservación de invitados, tokens, aperturas y cuotas. |
+| 4. Publicación y difusión | Completado — `0bd61ee`; 1.238 tests en verde | Publicación sin fecha definitiva; proyección pública de candidatas, OPENED, alta pública con filtro de revisión/selección y mensajes de correo/WhatsApp con formato compartido. `DatePollPublicationTest`, `DatePollInvitationComposerTest` y `DatePollPublicationIntegrationTest`: privacidad de cuerpos/logs, salas ocultas, calendario 409, plazo inclusivo, carreras de configuración y apertura concurrente. |
+| 5. Disponibilidad | Pendiente; siguiente paso | No existe todavía endpoint ni modelo de disponibilidad múltiple. |
+| 6. Seguimiento | Pendiente; depende del 5 | El panel/listado de asistencia actual no calcula disponibilidad por candidata. |
+| 7. Fecha definitiva | Pendiente; depende de candidatas y disponibilidad | El campo `selectedCandidateDateId` está preparado, pero no hay operación para seleccionar/cambiar la fecha ni calendario adaptado a esa elección. |
+| 8. Aviso al anfitrión | Pendiente; depende de revisión, disponibilidad y seguimiento | No está implementada la detección del cierre ni el envío del aviso por ronda. |
+
+Las cuatro ejecuciones terminaron con cero fallos, errores y omitidos. Sus registros locales, ignorados
+por Git, son `execution-logs/date-poll-step-1-final-verify.log`,
+`execution-logs/date-poll-step-2-final-verify.log`,
+`execution-logs/date-poll-step-3-final-verify.log` y `execution-logs/date-poll-step-4-verify.log`.
+Son evidencia histórica; no hay que repetir los pasos ni sus pruebas de reproducción para retomarlos.
+Las decisiones detalladas de los pasos 2, 3 y 4 están en §3 y los contratos en los modelos existentes.
+
+**Límite exacto de lo implementado.** `InvitationViewFactory` descarta respuestas de asistencia para
+DATE_POLL y devuelve `canRespond=false`, `canChangeResponse=false` y sin `myResponse`.
+El PUT de asistencia no sirve para disponibilidad y rechaza consultas; el calendario de DATE_POLL
+da 409 incluso en FINISHED. El alta pública sí admite invitados dentro del plazo mediante
+`ResponseAcceptancePolicy`. El filtro Mongo protege tipo, revisión y selección leídos, además de las
+condiciones existentes, sin comparar la versión del evento por una apertura de otro invitado.
+La invalidación del paso 3 es por revisión: todavía no hay respuestas de disponibilidad que invalidar
+ni filtros de lectura/escritura de esas respuestas. La selección preparada no es una funcionalidad cerrada.
+
+**Siguiente acción concreta, al reanudar el desarrollo:** comenzar el paso 5, no rehacer el 4.
+Leer `definicion-funcional.md`, `modelo-evento.md` y `modelo-invitado.md`; revisar los puertos/adaptadores
+de `responses`, `ResponseAcceptancePolicy` y las vistas públicas. Introducir la disponibilidad como
+concepto propio, sin convertir las candidatas en `ResponseOption`, y su operación pública de respuesta
+múltiple (PUT `/api/invitations/{token}/availability`, todavía no existente). Mantener la colección
+`responses` y el índice único `(eventId, guestToken)`; concretar el bloque de disponibilidad y su escritura
+atómica con revisión antes de incorporarlos. No se empieza esa implementación en esta actualización.
+
+**Dependencias y decisiones que debe respetar el trabajo restante:**
+
+- Paso 5: una respuesta con lista vacía significa «ninguna fecha», distinta de no responder; solo se
+  conserva la última versión. La escritura debe impedir que una respuesta de una ronda antigua pise
+  la vigente. Una ronda nueva permite responder de nuevo aunque `allowResponseChange=false`.
+  Reutilizar el Clock y la política temporal; el plazo es obligatorio e inclusivo, sin fin ficticio.
+- Al incorporar disponibilidad, revisar también los consumidores de respuestas: proyección pública,
+  elegibilidad para correo/WhatsApp y confirmación/cascada del borrado. Una respuesta de una revisión
+  antigua no debe seguir contando como respuesta vigente. Conservar el funcionamiento de FIXED_DATE.
+- Paso 6: partir de invitados actuales, ignorar respuestas huérfanas o de rondas antiguas; una persona
+  puede contar en varias candidatas. Usar lecturas agrupadas, sin una consulta de respuestas por evento.
+- Paso 7: el anfitrión puede elegir y cambiar la candidata definitiva sin borrar disponibilidades.
+  Cambiar las candidatas sí invalida todas y quita la selección. Conservar la hora opcional y nunca
+  inventar inicio ni fin. Estar disponible no equivale por sí solo a una confirmación de asistencia.
+- Paso 8: correo únicamente al anfitrión, al vencer el plazo o si todos respondieron y no hay enlace
+  público activo; una vez por revisión. Solo avisar: no cerrar antes ni notificar automáticamente a
+  invitados. Clock inyectado, reclamación atómica y transporte falso en tests.
+- Mantener las protecciones del enlace público, las cuotas y la exclusión del correo de PUBLIC_LINK,
+  los DTOs explícitos, el filtrado de secretos de sala y el saneamiento de errores sin tokens/logs.
+- En los pasos pendientes, cubrir dominio sin Spring, servidor real y concurrencia con hilos cuando
+  proceda; probar revisión obsoleta, respuesta vacía, límites exactos del Clock y compatibilidad fija.
+  Ejecutar Maven en primer plano, una ejecución a la vez, con suite completa verde antes de cada commit.
+
+**Detalles pendientes de concretar, no hechos implementados:** forma exacta del bloque/DTO de
+disponibilidad y de su condición atómica (paso 5); representación del calendario cuando la candidata
+elegida no tiene hora ni fin y aplicación de visibilidad de sala a esa disponibilidad (paso 7);
+mecanismo de detección/reclamación del aviso y tratamiento de sus fallos de envío (paso 8).
+Concretarlos en su paso sin alterar las decisiones anteriores ni asignar valores temporales ficticios.
+
+`AGENTS.md` ya referencia la definición funcional, este plan, los casos de uso y los tres modelos;
+también remite a §2 para esta ampliación. Todas esas rutas existen. No requiere otra copia del plan
+ni cambios de referencias para continuar; su tamaño comprobado es 27.698 bytes, inferior a 28 KB.
+
+### Disponibilidad por ronda — paso 5 completado
+
+La suite completa pasó con 1.250 tests, sin fallos, errores ni omitidos. La ejecución está registrada
+en `execution-logs/date-poll-step-5-verify.log`. Las pruebas cubren selección múltiple y vacía,
+plazo inclusivo, cambios simultáneos, una escritura tardía de otra ronda y elegibilidad para
+envíos y borrado. Dos pruebas del paso 4 actualizan el indicador que antes era provisional.
+
+El PUT público `/api/invitations/{token}/availability` recibe `pollRevision` y `candidateDateIds`.
+Una lista vacía indica que ninguna fecha sirve. GET y PUT muestran `myAvailability` solo cuando la
+respuesta corresponde a la revisión vigente. Reutilizan la política temporal y los indicadores de la
+invitación. La asistencia de fecha fija conserva su contrato.
+
+Mongo guarda el bloque `availability` en `responses` con el índice único existente. La actualización
+atómica admite una revisión superior a la almacenada y, si se permiten cambios, la misma. Una ronda
+obsoleta no sobrescribe una más nueva. Como la revisión del evento y su respuesta viven en colecciones
+distintas, una edición concurrente puede dejar persistida una respuesta obsoleta que queda invisible.
+El servicio relee el evento y devuelve 409 si detecta un cambio de ronda durante el PUT. La limpieza
+por borrado del invitado retira respuestas vigentes u obsoletas. Los envíos y la confirmación de borrado
+solo consideran la revisión vigente. El panel de disponibilidad sigue siendo el paso 6.
+
+**Siguiente:** calcular disponibilidad a partir de los invitados actuales y sus respuestas vigentes,
+con totales y personas por candidata, pendientes y no disponibles, y lecturas agrupadas.
 
 ### Aplazado
 
@@ -209,7 +313,7 @@ existentes siguen aplicándose.
   de asistencia devuelve 409 sin escribir. El calendario sin fecha definitiva devuelve 409 saneado,
   también en FINISHED; el calendario de fecha fija conserva su comportamiento.
 - ALWAYS conserva su regla. HOURS_BEFORE se oculta sin un inicio definitivo; ON_CONFIRMATION sigue
-  sin confirmación de disponibilidad hasta implementar ese flujo. La vista previa solo muestra plataforma.
+  sin tratar la disponibilidad como confirmación de asistencia. La vista previa solo muestra plataforma.
 - El alta pública usa el plazo obligatorio, inclusive, sin fin ficticio. Su filtro añade tipo, revisión y
   selección a zona/plazo/fin y a los topes y contactos. Una carrera de configuración devuelve JOIN_CLOSED;
   una apertura concurrente no bloquea porque no se compara version. Revisión ausente equivale a cero.
@@ -235,8 +339,7 @@ existentes siguen aplicándose.
 - Se usa guardado completo con @Version. El 409 concurrente es seguro y el cliente reintenta tras
   recargar. Invitados, tokens, aperturas y cuotas se conservan. Editar datos generales o el plazo no
   reinicia la ronda ni la selección; los campos nuevos se conservan en el mapper.
-- La invalidez de disponibilidades se define por revisión. No se añaden ni borran respuestas aquí:
-  el flujo de lectura/escritura de disponibilidad y sus filtros de revisión se incorpora en el paso 5.
+- La invalidez de disponibilidades se define por revisión. Cambiar candidatas no reescribe respuestas; el paso 5 aplica la revisión al escribir y consultar disponibilidades.
   `selectedCandidateDateId` queda preparado y se limpia al cambiar candidatas; elegirlo llega en el 7.
 - Cambiar candidatas no prorroga el plazo. El anfitrión puede fijar un nuevo plazo obligatorio también
   en PUBLISHED cuando se trata de una consulta, sin depender de un inicio definitivo inexistente.

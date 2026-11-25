@@ -5,5 +5,7 @@ public interface GuestResponseCleanupPort {
 
 	boolean hasResponse(String eventId, String guestToken);
 
+	boolean hasAvailability(String eventId, String guestToken, long revision);
+
 	void deleteResponse(String eventId, String guestToken);
 }

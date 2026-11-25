@@ -402,19 +402,38 @@ La ausencia de transición actual a FINISHED no invalida los enlaces: la lectura
 `/api/invitations`, evitando que ProblemDetail revele la credencial en la URI del error. Desconocido y borrador
 producen el mismo cuerpo. Éxito y 404 llevan exactamente `Cache-Control: no-store`.
 
+### Disponibilidad de invitado en una consulta
+
+`PUT /api/invitations/{token}/availability` usa la credencial de la invitación, sin sesión ni CSRF.
+Cuerpo: `{"pollRevision":0,"candidateDateIds":["candidate-1","candidate-2"]}`. La lista es
+obligatoria, puede ser vacía para indicar «ninguna», y solo contiene ids distintos de candidatas
+vigentes. Devuelve 200 con la invitación y `myAvailability` (revisión, candidatas,
+`answeredAt` y `updatedAt`). Un invitado sin respuesta vigente no recibe ese bloque.
+
+Se reutiliza la política de respuestas: PUBLISHED y plazo inclusivo, con Clock inyectado.
+La primera respuesta de cada ronda siempre puede entrar en plazo. Cambiarla exige
+`allowResponseChange`. Tipo incorrecto, ronda distinta, plazo vencido, estado cerrado o
+cambio prohibido dan 409. Desconocido y DRAFT dan el mismo 404. Entrada de negocio inválida
+da 422 y JSON ilegible, 400. Éxitos y errores mantienen no-store y los errores se sanean.
+
+El bloque `availability` comparte la colección `responses` y el índice único
+`(eventId, guestToken)`. Un upsert condicionado permite reemplazar una revisión menor,
+o actualizar la misma si se permiten cambios. La primera fecha de respuesta se conserva
+dentro de una revisión. Las lecturas públicas, envíos y confirmación de borrado usan la
+revisión vigente. El borrado en cascada limpia el documento aunque sea de otra ronda.
+La lectura de la ronda y la escritura viven en colecciones distintas: si la ronda cambia
+entre ambas, el PUT devuelve 409 tras releer y cualquier escritura de la ronda anterior
+queda invisible, sin poder sobrescribir una respuesta de la nueva.
+
 ### Contrato InvitationResponse
 
 - `guest`: exclusivamente `name`, sin id ni contactos.
 - `title`, `description`, `status`, `modality`, `startsAt`, `endsAt`, `timeZone`, `startsAtInstant` y `endsAtInstant`.
-- `eventType`: `FIXED_DATE` en los flujos públicos disponibles, también al consultar eventos anteriores sin discriminador.
-  DATE_POLL ya se publica y muestra sus candidatas; su flujo de disponibilidad se incorpora en el paso 5.
-  Desde el paso 3, la consulta lleva `pollRevision`: cambiar las candidatas invalida la ronda anterior,
-  sin modificar invitados, tokens, estados de invitación ni cuotas. La lectura/escritura de disponibilidades
-  por revisión se implementa en el paso 5; todavía no hay ese endpoint ni un historial de respuestas.
-- `datePoll`, solo en consultas: candidatas públicas con id, fecha y hora opcional, revisión y selección
-  si existe. Usa DTO propio público, sin anfitrión, contactos, persistencia ni otros invitados.
-  Inicio/fin definitivos e instantes UTC se omiten. En este paso canRespond/canChangeResponse son false,
-  myResponse se omite y el PUT de asistencia devuelve 409 sin guardar; la disponibilidad llega en el paso 5.
+- `eventType`: `FIXED_DATE` también para eventos antiguos sin discriminador, o `DATE_POLL`.
+- `datePoll`, solo en consultas: candidatas con id, fecha y hora opcional, revisión y selección
+  si existe. Se omiten las fechas definitivas y sus instantes mientras no existan. En consultas se
+  omite `myResponse`; `myAvailability` aparece solo si existe disponibilidad en la revisión vigente.
+  El PUT de asistencia sigue devolviendo 409 para consultas.
 - `venue` completo si es presencial; opciones de respuesta únicamente con `id` y `label`.
 - `allowComment`, `allowResponseChange`, `responseDeadline`; datos de cancelación solo si corresponde.
 - `onlineAccessInfo`: `platform`, `linkVisibility` y `hoursBefore`, sin secretos.

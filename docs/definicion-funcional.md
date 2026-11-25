@@ -100,7 +100,7 @@ de mensaje editable, aplicación móvil.
 
 **Ampliación aprobada, en desarrollo: eventos con fecha por definir.** El anfitrión propondrá fechas
 candidatas con fecha obligatoria y hora opcional, sin hora de fin, y un plazo obligatorio para contestar.
-El invitado podrá indicar disponibilidad en una, varias o ninguna; una respuesta sin disponibilidad se
+El invitado puede indicar disponibilidad en una, varias o ninguna; una respuesta sin disponibilidad se
 distinguirá de no haber respondido. Cambiar las candidatas invalidará las disponibilidades anteriores;
 se conserva solo la última respuesta. Elegir o cambiar la candidata definitiva sin alterar las candidatas
 conservará las disponibilidades y la hora opcional, sin inventar horarios ni convertir disponibilidad en
@@ -114,8 +114,8 @@ mientras que repetir o reordenar la conserva. Invitados, tokens y estados de inv
 Desde el paso 4 se publica sin fecha definitiva, se muestra en los enlaces públicos y permite convocar
 por correo o WhatsApp. Los mensajes muestran candidatas, horas opcionales, zona y plazo, sin inventar
 inicio ni fin. El alta pública mantiene sus restricciones y usa el plazo como ventana. La disponibilidad
-se incorpora en el paso 5; por ahora canRespond=false y no se acepta una respuesta de asistencia en una
-consulta. Sin fecha definitiva, el calendario devuelve 409. Los eventos de fecha
+se registra por invitación y revisión, con un plazo inclusivo. Las consultas no aceptan una respuesta
+de asistencia. Sin fecha definitiva, el calendario devuelve 409. Los eventos de fecha
 definida mantienen el flujo completo; omitir `eventType` conserva `FIXED_DATE`, también en documentos antiguos.
 
 **Estados del evento:** `DRAFT → PUBLISHED`, más `CANCELLED` (solo desde `PUBLISHED`, irreversible).
@@ -231,8 +231,8 @@ de calcular y guardar el hash. El éxito verifica también el correo, borra los 
 del usuario e invalida sus sesiones abiertas, sin iniciar sesión. Un fallo posterior al consumo obliga a
 pedir otro enlace. Ambas operaciones son públicas y requieren CSRF.
 
-**Responder una invitación con fecha definida.** Las consultas muestran sus candidatas; la escritura de
-disponibilidad se incorpora en el paso 5, sin reutilizar la respuesta de asistencia.
+**Responder una invitación con fecha definida.** Las consultas muestran sus candidatas y registran
+la disponibilidad con su propia operación por invitación y revisión.
 
 1. El invitado abre su enlace sin sesión ni contraseña. Un token desconocido y un evento en borrador dan el
    mismo 404. La primera apertura pasa al invitado a `OPENED`.

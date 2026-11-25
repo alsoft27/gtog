@@ -1,8 +1,6 @@
 package com.gtog.event.application;
 
 import java.util.List;
-import java.util.Set;
-import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 import com.gtog.event.domain.model.*;
 import com.gtog.event.domain.port.in.GenerateWhatsAppLinksCommand;
@@ -25,7 +23,7 @@ public class GenerateWhatsAppLinksService implements GenerateWhatsAppLinksUseCas
 		if (!event.getHostId().equals(command.hostId())) { throw new EventNotFoundException(command.eventId()); }
 		policy.ensurePublished(event);
 		var guests = InvitationBatchSelection.select(event, command.guestIds(), policy.maxLinksPerRequest());
-		var answered = responses.findByEventIds(Set.of(event.getId())).stream().map(GuestResponse::guestToken).collect(Collectors.toSet());
+		var answered = InvitationAnswers.tokens(responses, event);
 		return guests.stream().map(guest -> {
 			var reason = policy.skipReason(guest, answered.contains(guest.getToken()));
 			if (reason != null) { return WhatsAppLinkResult.skipped(guest.getId(), reason); }

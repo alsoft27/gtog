@@ -4,7 +4,6 @@ import java.time.Clock;
 import java.util.ArrayList;
 import java.util.Set;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -40,8 +39,7 @@ public class SendInvitationsService implements SendInvitationsUseCase {
 		Event event = ownedEvent(command.hostId(), command.eventId());
 		policy.ensureSendingAllowed(event);
 		var selected = InvitationBatchSelection.select(event, command.guestIds(), policy.maxBatch());
-		Set<String> answered = responses.findByEventIds(Set.of(event.getId())).stream()
-				.map(GuestResponse::guestToken).collect(Collectors.toSet());
+		Set<String> answered = InvitationAnswers.tokens(responses, event);
 		var results = new ArrayList<GuestEmailSendResult>();
 		EmailSendSkipReason stopped = null;
 		int providerFailures = 0;
@@ -61,7 +59,7 @@ public class SendInvitationsService implements SendInvitationsUseCase {
 				policy.ensureSendingAllowed(current);
 				Guest currentGuest = current.getGuest(guest.getId());
 				if (!java.util.Objects.equals(currentGuest.getEmail(), guest.getEmail())) { throw new EventConcurrentModificationException(); }
-				if (responses.find(event.getId(), guest.getToken()).isPresent()) {
+				if (InvitationAnswers.hasAnswer(responses, current, guest)) {
 					reservations.compensate(reservation);
 					results.add(GuestEmailSendResult.skipped(guest.getId(), EmailSendSkipReason.ALREADY_ANSWERED));
 					continue;

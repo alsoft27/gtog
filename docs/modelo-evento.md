@@ -18,7 +18,7 @@ embebidas en el evento. El muro social y Telegram siguen pendientes.
 `EventType` distingue `FIXED_DATE` y `DATE_POLL`. Omitirlo al crear mantiene `FIXED_DATE`.
 Desde el paso 2 se pueden crear, consultar y editar datos generales de borradores `DATE_POLL`.
 Desde el paso 4 se pueden publicar sin fecha definitiva, consultar desde los enlaces públicos y enviar
-invitaciones por correo o WhatsApp. La respuesta de disponibilidad se incorpora en el paso 5.
+invitaciones por correo o WhatsApp. La disponibilidad se registra por separado de la asistencia.
 
 `EventSchedule` es el contrato temporal del dominio. `FixedDateSchedule` encapsula inicio, fin y zona;
 `DatePollSchedule`, las candidatas y la zona, sin inicio ni fin definitivos. Creación y edición comparten
@@ -106,8 +106,7 @@ Devuelve 200 con EventResponse. El cuerpo representa la lista completa:
   la ausencia del campo en documentos anteriores también significa cero, sin migración al leer.
 - Una modificación de fecha u hora, alta o baja incrementa la revisión **una sola vez** y elimina
   `selectedCandidateDateId`. Intercambiar fechas entre ids también cambia su significado y avanza la ronda.
-  Las disponibilidades de otra revisión quedan lógicamente invalidadas. Este paso no implementa aún
-  su lectura/escritura: el paso 5 aplicará esa revisión al registrar y consultar disponibilidades.
+  Las disponibilidades de otra revisión quedan lógicamente invalidadas y no se muestran al invitado.
 - Repetir una configuración con o sin ids no incrementa la revisión ni escribe. Reordenar conserva
   revisión y selección, pero guarda el orden y aumenta `version`. Cambiar la revisión del documento
   por otra operación del evento no equivale a cambiar la ronda de disponibilidad.
@@ -140,11 +139,11 @@ Una revisión negativa o una selección desconocida en Mongo es corrupción alma
   es propia (`DatePollView` / `PublicDatePollResponse`), construida campo a campo, sin documentos Mongo,
   anfitrión, otros invitados ni contactos. Los campos definitivos locales y UTC se omiten mientras no existen.
 - La invitación muestra únicamente el nombre del invitado actual y conserva OPENED atómico. No lee
-  documentos de asistencia como si fueran disponibilidades. En este paso `myResponse` se omite y
-  `canRespond` / `canChangeResponse` son false para consultas: el PUT de asistencia devuelve 409,
-  sin escribir. El flujo propio de disponibilidad se habilita en el paso 5.
+  documentos de asistencia como si fueran disponibilidades. En consultas, el PUT de asistencia
+  devuelve 409. El PUT de disponibilidad y los indicadores de la vista usan la política de
+  aceptación común y la respuesta de la revisión vigente.
 - La sala conserva su filtrado de dominio: ALWAYS puede mostrarse en PUBLISHED; ON_CONFIRMATION no
-  recibe una confirmación de disponibilidad pendiente de implementar; HOURS_BEFORE permanece oculto
+  interpreta la disponibilidad como confirmación; HOURS_BEFORE permanece oculto
   mientras no exista un inicio definitivo. CANCELLED/FINISHED nunca revelan el acceso. La vista previa
   del enlace de alta solo muestra plataforma, aunque la regla sea ALWAYS.
 - El calendario de una consulta sin fecha definitiva devuelve 409 ProblemDetail, instancia constante
@@ -251,7 +250,7 @@ fijo. El saneamiento público de ProblemDetail se describe en el plan, §3 Segur
 ### Máquina de estados
 
 El flujo siguiente está disponible para ambos tipos. La publicación de consultas no exige fechas definitivas;
-sus respuestas de disponibilidad se incorporan en el paso 5.
+sus disponibilidades se guardan con la revisión de la consulta.
 
 ```
 DRAFT ──publish()──► PUBLISHED ──cancel(reason, now)──► CANCELLED

@@ -9,6 +9,7 @@ import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.mongodb.core.FindAndModifyOptions;
 import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.aggregation.AggregationUpdate;
 import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.data.mongodb.core.query.Update;
@@ -16,6 +17,8 @@ import org.springframework.stereotype.Component;
 import com.mongodb.MongoWriteException;
 import com.mongodb.MongoCommandException;
 import com.gtog.event.domain.model.GuestResponse;
+import com.gtog.event.domain.model.GuestAvailability;
+import com.gtog.event.domain.model.StalePollRevisionException;
 import com.gtog.event.domain.model.GuestResponseStorageException;
 import com.gtog.event.domain.model.ResponseChangeNotAllowedException;
 import com.gtog.event.domain.port.out.GuestResponseRepositoryPort;
@@ -85,7 +88,7 @@ public class GuestResponseRepositoryAdapter implements GuestResponseRepositoryPo
 
 	@Override
 	public Optional<GuestResponse> find(String eventId, String guestToken) {
-		try { return Optional.ofNullable(mongo.findOne(key(eventId, guestToken), GuestResponseDocument.class)).map(this::toDomain); }
+		try { return Optional.ofNullable(mongo.findOne(key(eventId, guestToken).addCriteria(Criteria.where("availability").exists(false)), GuestResponseDocument.class)).map(this::toDomain); }
 		catch (DataAccessException failure) { throw new GuestResponseStorageException(); }
 	}
 
@@ -97,7 +100,7 @@ public class GuestResponseRepositoryAdapter implements GuestResponseRepositoryPo
 	public List<GuestResponse> findByEventIds(Set<String> eventIds) {
 		if (eventIds.isEmpty()) { return List.of(); }
 		try {
-			return mongo.find(Query.query(Criteria.where("eventId").in(eventIds)), GuestResponseDocument.class)
+			return mongo.find(Query.query(Criteria.where("eventId").in(eventIds).and("availability").exists(false)), GuestResponseDocument.class)
 					.stream().map(this::toDomain).toList();
 		} catch (DataAccessException failure) { throw new GuestResponseStorageException(); }
 	}
@@ -120,6 +123,78 @@ public class GuestResponseRepositoryAdapter implements GuestResponseRepositoryPo
 	public void deleteResponse(String eventId, String guestToken) {
 		try { mongo.remove(key(eventId, guestToken), GuestResponseDocument.class); }
 		catch (DataAccessException failure) { throw new GuestResponseStorageException(); }
+	}
+
+	@Override
+	public GuestAvailability saveAvailability(String eventId, String guestToken, GuestAvailability availability, boolean allowChange) {
+		try {
+			return updateAvailability(eventId, guestToken, availability, allowChange, true);
+		} catch (DuplicateKeyException duplicate) {
+			try {
+				var stored = updateAvailability(eventId, guestToken, availability, allowChange, false);
+				if (stored != null) { return stored; }
+				var current = mongo.findOne(key(eventId, guestToken), AvailabilityResponseDocument.class);
+				if (current == null) { throw new GuestResponseStorageException(); }
+				if (current.availability() != null && current.availability().pollRevision() > availability.pollRevision()) {
+					throw new StalePollRevisionException();
+				}
+				if (!allowChange && current.availability() != null
+						&& current.availability().pollRevision() == availability.pollRevision()) {
+					throw new ResponseChangeNotAllowedException();
+				}
+				throw new GuestResponseStorageException();
+			} catch (DataAccessException failure) {
+				throw new GuestResponseStorageException();
+			}
+		} catch (DataAccessException failure) {
+			throw new GuestResponseStorageException();
+		}
+	}
+
+	private GuestAvailability updateAvailability(String eventId, String token, GuestAvailability availability,
+			boolean allowChange, boolean upsert) {
+		long revision = availability.pollRevision();
+		var previousRevision = Criteria.where("availability.pollRevision");
+		var comparison = allowChange ? previousRevision.lte(revision) : previousRevision.lt(revision);
+		Query query = key(eventId, token).addCriteria(new Criteria().orOperator(
+				Criteria.where("availability").exists(false), comparison));
+		var now = java.util.Date.from(availability.updatedAt());
+		var sameRound = new Document("$eq", List.of("$availability.pollRevision", revision));
+		var block = new Document("pollRevision", revision)
+				.append("candidateDateIds", new Document("$literal", availability.candidateDateIds()))
+				.append("answeredAt", new Document("$cond", List.of(sameRound, "$availability.answeredAt", now)))
+				.append("updatedAt", now);
+		var update = AggregationUpdate.from(List.of(context -> new Document("$set", new Document("availability", block)),
+				context -> new Document("$unset", List.of("responseOptionId", "comment", "email", "answeredAt", "updatedAt"))));
+		var result = mongo.findAndModify(query, update, FindAndModifyOptions.options().upsert(upsert).returnNew(true),
+				AvailabilityResponseDocument.class);
+		return result == null ? null : result.availability();
+	}
+
+	@Override
+	public Optional<GuestAvailability> findAvailability(String eventId, String guestToken, long revision) {
+		try {
+			Query query = key(eventId, guestToken).addCriteria(Criteria.where("availability.pollRevision").is(revision));
+			return Optional.ofNullable(mongo.findOne(query, AvailabilityResponseDocument.class))
+					.map(AvailabilityResponseDocument::availability);
+		} catch (DataAccessException failure) {
+			throw new GuestResponseStorageException();
+		}
+	}
+
+	@Override
+	public Set<String> findAvailabilityTokens(String eventId, long revision) {
+		try {
+			var query = Query.query(Criteria.where("eventId").is(eventId).and("availability.pollRevision").is(revision));
+			return Set.copyOf(mongo.findDistinct(query, "guestToken", AvailabilityResponseDocument.class, String.class));
+		} catch (DataAccessException failure) {
+			throw new GuestResponseStorageException();
+		}
+	}
+
+	@Override
+	public boolean hasAvailability(String eventId, String guestToken, long revision) {
+		return findAvailability(eventId, guestToken, revision).isPresent();
 	}
 
 	// D-DUP-KEY: codigo y keyPattern estructurados; nunca buscar palabras en el mensaje E11000.

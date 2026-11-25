@@ -5,6 +5,7 @@ import java.util.List;
 import org.springframework.stereotype.Service;
 
 import com.gtog.event.domain.model.Event;
+import com.gtog.event.domain.model.DatePollSchedule;
 import com.gtog.event.domain.model.EventNotFoundException;
 import com.gtog.event.domain.model.Guest;
 import com.gtog.event.domain.model.GuestResponseDeletionConfirmationRequiredException;
@@ -63,7 +64,10 @@ public class GuestService implements AddGuestUseCase, UpdateGuestUseCase, Delete
 	public void delete(DeleteGuestCommand command) {
 		Event event = ownedEvent(command.hostId(), command.eventId());
 		Guest guest = event.removeGuest(command.guestId());
-		if (responses.hasResponse(event.getId(), guest.getToken()) && !command.confirmDeleteResponse()) {
+		boolean answered = event.getSchedule() instanceof DatePollSchedule poll
+				? responses.hasAvailability(event.getId(), guest.getToken(), poll.pollRevision())
+				: responses.hasResponse(event.getId(), guest.getToken());
+		if (answered && !command.confirmDeleteResponse()) {
 			throw new GuestResponseDeletionConfirmationRequiredException();
 		}
 		guests.removeGuest(event.getId(), command.hostId(), event.getVersion(), guest.getId());

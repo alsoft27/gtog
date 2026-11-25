@@ -40,6 +40,6 @@ class DatePollInvitationComposerTest {
 		var view = InvitationViewFactory.create(event, guest, Instant.parse("2027-03-01T10:00:00Z"),
 				new GuestResponse(event.getId(), guest.getToken(), "old-option", "private-comment", "private-email@example.com", Instant.EPOCH, Instant.EPOCH));
 		assertThat(view.datePoll().candidateDates()).hasSize(3);
-		assertThat(view.myResponse()).isNull(); assertThat(view.canRespond()).isFalse(); assertThat(view.canChangeResponse()).isFalse();
+		assertThat(view.myResponse()).isNull(); assertThat(view.myAvailability()).isNull(); assertThat(view.canRespond()).isTrue(); assertThat(view.canChangeResponse()).isFalse();
 	}
 }

@@ -26,6 +26,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.gtog.event.domain.port.in.GetInvitationUseCase;
+import com.gtog.event.domain.port.in.RecordAvailabilityUseCase;
 
 @RestController
 @RequestMapping("/api/invitations")
@@ -35,12 +36,14 @@ public class InvitationController {
 	private final GetInvitationUseCase getInvitation;
 	private final RecordGuestResponseUseCase recordResponse;
 	private final DownloadInvitationCalendarUseCase downloadCalendar;
+	private final RecordAvailabilityUseCase recordAvailability;
 
 	public InvitationController(GetInvitationUseCase getInvitation, RecordGuestResponseUseCase recordResponse,
-			DownloadInvitationCalendarUseCase downloadCalendar) {
+			DownloadInvitationCalendarUseCase downloadCalendar, RecordAvailabilityUseCase recordAvailability) {
 		this.getInvitation = getInvitation;
 		this.recordResponse = recordResponse;
 		this.downloadCalendar = downloadCalendar;
+		this.recordAvailability = recordAvailability;
 	}
 
 	@Operation(summary = "Consulta una invitacion", description = "Sin sesion ni CSRF. Publicado, cancelado y finalizado "
@@ -70,6 +73,19 @@ public class InvitationController {
 	public ResponseEntity<InvitationResponse> respond(@PathVariable String token, @RequestBody RecordGuestResponseRequest request) {
 		return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(InvitationResponse.from(
 				recordResponse.recordResponse(new RecordGuestResponseCommand(token, request.responseOptionId(), request.comment(), request.email()))));
+	}
+
+	@Operation(summary = "Registra disponibilidad para la ronda actual", description = "Público, sin sesión ni CSRF. Solo DATE_POLL publicado dentro del plazo. Una lista vacía indica ninguna candidata.")
+	@ApiResponses({
+		@ApiResponse(responseCode = "200", description = "Invitación con la disponibilidad registrada"),
+		@ApiResponse(responseCode = "400", description = "JSON inválido"),
+		@ApiResponse(responseCode = "404", description = "Invitación no disponible"),
+		@ApiResponse(responseCode = "409", description = "Tipo, estado, plazo, ronda o cambio no permitido"),
+		@ApiResponse(responseCode = "422", description = "Revisión o candidatas inválidas") })
+	@PutMapping("/{token}/availability")
+	public ResponseEntity<InvitationResponse> availability(@PathVariable String token, @RequestBody RecordAvailabilityRequest request) {
+		return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(InvitationResponse.from(
+				recordAvailability.recordAvailability(token, request.pollRevision(), request.candidateDateIds())));
 	}
 
 	@Operation(summary = "Descarga el calendario del evento", description = "Publico, sin sesion ni CSRF. Archivo iCalendar "

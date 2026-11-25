@@ -221,9 +221,8 @@ Una revisión antigua que referencia una candidata eliminada también da 409; co
 desconocido da 422, igual que ids duplicados, fechas ausentes o una lista fuera de límites. Un tipo fijo o estado cerrado
 da 409; otro anfitrión, 404. Cuerpo ilegible, 400, antes de propiedad y validación de negocio.
 
-La revisión invalida lógicamente las disponibilidades anteriores; el flujo que las escribe/lee se incorpora
-en el paso 5. No se borra ningún invitado, token, apertura o cuota ni se crea historial. Elegir fecha llega
-en el paso 7. Si el plazo venció, cambiar candidatas no lo amplía: el anfitrión fija otro plazo obligatorio,
+La revisión invalida lógicamente las disponibilidades anteriores. No se borra ningún invitado, token, apertura
+o cuota ni se crea historial. Elegir fecha llega en el paso 7. Si el plazo venció, cambiar candidatas no lo amplía: el anfitrión fija otro plazo obligatorio,
 también en consultas publicadas. Dos editores concurrentes no se pisan: uno recibe 409 y recarga antes de reintentar.
 
 **Difusión de la consulta (paso 4).** Los endpoints de correo y WhatsApp son los mismos que en fecha fija:
@@ -243,14 +242,13 @@ Cache-Control: no-store
 
 {"guest":{"name":"Ana"},"eventType":"DATE_POLL","status":"PUBLISHED","timeZone":"Europe/Madrid",
  "datePoll":{"pollRevision":0,"candidateDates":[{"id":"candidate-1","date":"2027-05-10","startTime":"20:00:00"},
- {"id":"candidate-2","date":"2027-05-11","startTime":null}]},"canRespond":false,"canChangeResponse":false}
+ {"id":"candidate-2","date":"2027-05-11","startTime":null}]},"canRespond":true,"canChangeResponse":false}
 ```
 
-No se incluyen instantes ni inicio/fin definitivos. `canRespond` permanece false para consultas hasta el
-paso 5; el PUT de asistencia devuelve 409 sin guardar. El calendario devuelve 409 sin fecha definitiva,
-incluso en FINISHED. DRAFT/desconocido mantienen 404; CANCELLED/FINISHED mantienen GET 200 con su estado,
+No se incluyen instantes ni inicio/fin definitivos. En consultas se usa el PUT de disponibilidad; el PUT de asistencia
+devuelve 409. El calendario devuelve 409 sin fecha definitiva, incluso en FINISHED. DRAFT/desconocido mantienen 404; CANCELLED/FINISHED mantienen GET 200 con su estado,
 sin marcar OPENED ni mostrar sala. HOURS_BEFORE queda oculto sin un inicio definitivo; ALWAYS conserva
-su regla y ON_CONFIRMATION no recibe una confirmación de disponibilidad todavía no implementada.
+su regla y ON_CONFIRMATION no se activa por una respuesta de disponibilidad.
 
 El alta por enlace conserva cookie, límites y contactos descartados. Usa el plazo inclusive como ventana,
 sin un fin ficticio; tipo, revisión y selección leídos forman parte del filtro atómico. Si cambian antes de
@@ -374,8 +372,11 @@ Editar la misma ficha desde dos pestañas usa última escritura, manteniendo las
 ## UC-3 · Respuesta del invitado
 
 Las vistas públicas ya admiten ambos tipos de evento. El recorrido de respuesta y calendario que sigue
-corresponde a FIXED_DATE. En DATE_POLL se muestran candidatas y plazo; canRespond permanece false
-hasta el paso 5, PUT response devuelve 409 y el calendario sin fecha definitiva devuelve 409.
+corresponde a FIXED_DATE. En DATE_POLL, `PUT /api/invitations/{token}/availability` recibe
+`{"pollRevision":0,"candidateDateIds":[]}` (lista vacía significa «ninguna») y devuelve 200
+con la invitación y el bloque `myAvailability`. Ronda obsoleta, plazo vencido o cambio
+no permitido devuelven 409. Candidatas inválidas devuelven 422. El PUT de asistencia y el
+calendario sin fecha definitiva devuelven 409 para la consulta.
 
 **Actor:** invitado con su enlace. **Sin sesión ni CSRF.** **Resultado:** respuesta registrada.
 
@@ -617,7 +618,7 @@ Se emite además la cookie descrita, sin sesión ni CSRF. El recorrido manual co
 | `GET /api/events/{id}/guests` | 4 |
 | `POST /api/events/{id}/guests/batch` | 2 |
 | `POST /api/events/{id}/invitations/send`, `whatsapp-links`, `whatsapp-sent` | 2 |
-| `GET /api/invitations/{token}`, `PUT …/response`, `GET …/calendar` | 3 |
+| `GET /api/invitations/{token}`, `PUT …/response`, `PUT …/availability`, `GET …/calendar` | 3 |
 | `GET /api/events`, `GET /api/events/{id}`, `GET /api/events/{id}/dashboard` | 4 |
 | `GET` y `PUT /api/events/{id}/public-invitation` | 5 (anfitrión) |
 | `GET` y `POST /api/invitations/join/{joinToken}` | 5 (público) |
@@ -691,6 +692,7 @@ DownloadInvitationCalendarService, ResponseAcceptancePolicy y sus tests de integ
 |---|---|---|---|---|
 | GET /api/invitations/{token} | No | No | 200 + InvitationResponse, también CANCELLED/FINISHED; no-store exacto | 404 mismo detalle para DRAFT y token desconocido; 500 datos almacenados inválidos |
 | PUT /api/invitations/{token}/response | No | No | Fecha fija: 200 + InvitationResponse actualizada, no-store exacto | 400 cuerpo, 404, 409 tipo/estado/plazo/fin/cambio bloqueado, 422 opción/comentario/correo, 500 datos almacenados inválidos |
+| PUT /api/invitations/{token}/availability | No | No | Consulta: 200 + InvitationResponse con myAvailability, no-store exacto | 400 cuerpo, 404, 409 tipo/estado/plazo/revisión/cambio bloqueado, 422 revisión o candidatas inválidas, 500 almacenamiento |
 | GET /api/invitations/{token}/calendar | No | No | Fecha fija: 200 text/calendar, attachment, no-store exacto; también FINISHED | 404 DRAFT/token desconocido, 409 CANCELLED o DATE_POLL sin fecha definitiva, 500 generación o datos almacenados inválidos |
 
 ### UC-4: consultas del anfitrión

@@ -46,6 +46,7 @@ import com.gtog.UserTestFixtures;
 import com.gtog.event.domain.model.EventType;
 import com.gtog.event.domain.model.FixedDateSchedule;
 import com.gtog.event.domain.port.out.EventRepositoryPort;
+import com.gtog.event.domain.port.out.GuestResponseRepositoryPort;
 import com.gtog.event.infrastructure.out.persistence.EventDocument;
 import com.gtog.user.infrastructure.out.persistence.UserDocument;
 import com.jayway.jsonpath.JsonPath;
@@ -73,6 +74,7 @@ class DatePollPublicationIntegrationTest {
 	private Map<String, String> auth;
 	@MockitoBean private Clock clock;
 	@MockitoSpyBean private PublicInvitationRepositoryPort joinRepository;
+	@MockitoSpyBean private GuestResponseRepositoryPort responseRepository;
 
 	DatePollPublicationIntegrationTest(@Value("${local.server.port}") int port, MongoTemplate mongo,
 			EventRepositoryPort events, PasswordEncoder passwords, CapturingEmailSenderAdapter mail) {
@@ -120,7 +122,7 @@ class DatePollPublicationIntegrationTest {
 		assertThat(json.read("$.datePoll.candidateDates[1].startTime", String.class)).isNull();
 		assertThat(json.read("$.datePoll.pollRevision", Long.class)).isZero();
 		assertThat(json.read("$.responseOptions", List.class)).isEmpty();
-		assertThat(json.read("$.canRespond", Boolean.class)).isFalse();
+		assertThat(json.read("$.canRespond", Boolean.class)).isTrue();
 		assertThat(json.read("$.canChangeResponse", Boolean.class)).isFalse();
 		assertThat(response.body()).doesNotContain(guestToken(first), guestToken(other), "host-id-1", "one@example.com", "two@example.com", "+34612345678", "+34612345679", "NombreInvitadoDos",
 				"countsAsAttendance", "\"hostId\"", "\"guests\"", "\"version\"", "\"startsAt\"", "\"endsAt\"", "\"startsAtInstant\"", "\"endsAtInstant\"", "\"myResponse\"");
@@ -266,8 +268,135 @@ class DatePollPublicationIntegrationTest {
 		assertThat(send("POST", join(token), "{\"name\":\"Invitada\"}", Map.of("Content-Type", "application/json")).statusCode()).isEqualTo(201);
 		assertThat(bson(id).get("datePoll", Document.class)).doesNotContainKey("pollRevision");
 	}
+	@Test void availabilityStoresMultipleDatesAndThenExplicitNoneWithoutCreatingAnotherDocument(CapturedOutput output) throws Exception {
+		String id = create(null, true);
+		var guest = add(id, "Ana", "ana@example.com", null);
+		publish(id);
+		var firstView = JsonPath.parse(send("GET", invitation(guest), "", Map.of()).body());
+		String first = firstView.read("$.datePoll.candidateDates[0].id");
+		String second = firstView.read("$.datePoll.candidateDates[1].id");
+		var initial = availability(guest, 0, List.of(second, first));
+		assertThat(initial.statusCode()).isEqualTo(200);
+		noStore(initial);
+		assertThat(JsonPath.parse(initial.body()).<List<String>>read("$.myAvailability.candidateDateIds")).containsExactly(first, second);
+		assertThat(initial.body()).doesNotContain(guestToken(guest), "ana@example.com");
+		var now = Instant.parse("2027-03-01T10:05:00Z");
+		when(clock.instant()).thenReturn(now);
+		var none = availability(guest, 0, List.of());
+		assertThat(none.statusCode()).isEqualTo(200);
+		var get = JsonPath.parse(send("GET", invitation(guest), "", Map.of()).body());
+		assertThat(get.<List<String>>read("$.myAvailability.candidateDateIds")).isEmpty();
+		assertThat(get.<String>read("$.myAvailability.answeredAt")).isEqualTo("2027-03-01T10:00:00Z");
+		assertThat(get.<String>read("$.myAvailability.updatedAt")).isEqualTo(now.toString());
+		assertThat(mongo.getCollection("responses").countDocuments(new Document("eventId", id))).isEqualTo(1);
+		assertThat(output.getAll()).doesNotContain(guestToken(guest));
+	}
+
+	@Test void aNewRoundAllowsAnAnswerEvenWhenChangesAreForbidden() throws Exception {
+		String id = create(null, false);
+		var guest = add(id, "Ana", "ana@example.com", null);
+		publish(id);
+		assertThat(availability(guest, 0, List.of()).statusCode()).isEqualTo(200);
+		problem(availability(guest, 0, List.of()), guestToken(guest));
+		String replacement = """
+				{"pollRevision":0,"candidateDates":[{"date":"2027-05-20"},{"date":"2027-05-21"}]}
+				""";
+		assertThat(send("PUT", "/api/events/" + id + "/candidate-dates", replacement, auth).statusCode()).isEqualTo(200);
+		var get = JsonPath.parse(send("GET", invitation(guest), "", Map.of()).body());
+		assertThat(get.<Boolean>read("$.canRespond")).isTrue();
+		assertThat(get.<Map<String, Object>>read("$")).doesNotContainKey("myAvailability");
+		assertThat(availability(guest, 1, List.of()).statusCode()).isEqualTo(200);
+		problem(availability(guest, 0, List.of()), guestToken(guest));
+		assertThat(mongo.getCollection("responses").countDocuments(new Document("eventId", id))).isEqualTo(1);
+	}
+
+	@ParameterizedTest @ValueSource(booleans = {false, true})
+	void simultaneousAvailabilityWritesRespectTheChangePolicy(boolean allowChanges) throws Exception {
+		String id = create(null, allowChanges);
+		var guest = add(id, "Ana", "ana@example.com", null);
+		publish(id);
+		try (var executor = java.util.concurrent.Executors.newFixedThreadPool(2)) {
+			var start = new java.util.concurrent.CyclicBarrier(2);
+			java.util.concurrent.Callable<Integer> submit = () -> {
+				start.await(15, java.util.concurrent.TimeUnit.SECONDS);
+				return availability(guest, 0, List.of()).statusCode();
+			};
+			var first = executor.submit(submit);
+			var second = executor.submit(submit);
+			assertThat(List.of(first.get(30, java.util.concurrent.TimeUnit.SECONDS),
+					second.get(30, java.util.concurrent.TimeUnit.SECONDS)))
+					.containsExactlyInAnyOrder(200, allowChanges ? 200 : 409);
+		}
+		assertThat(mongo.getCollection("responses").countDocuments(new Document("eventId", id))).isEqualTo(1);
+	}
+
+	@ParameterizedTest @ValueSource(longs = {-1, 0, 1})
+	void availabilityUsesTheInclusiveDeadline(long offset) throws Exception {
+		String id = create(null);
+		var guest = add(id, "Ana", "ana@example.com", null);
+		publish(id);
+		Instant deadline = LocalDateTime.of(2027, 5, 9, 18, 0).atZone(ZoneId.of("Europe/Madrid")).toInstant();
+		when(clock.instant()).thenReturn(deadline.plusNanos(offset));
+		var response = availability(guest, 0, List.of());
+		assertThat(response.statusCode()).isEqualTo(offset <= 0 ? 200 : 409);
+		noStore(response);
+	}
+
+	@Test void anInFlightOlderRoundCannotOverwriteTheNewRound(CapturedOutput output) throws Exception {
+		String id = create(null, true);
+		var guest = add(id, "Ana", "ana@example.com", null);
+		publish(id);
+		String token = guestToken(guest);
+		doAnswer(invocation -> {
+			String replacement = """
+					{"pollRevision":0,"candidateDates":[{"date":"2027-05-20"},{"date":"2027-05-21"}]}
+					""";
+			assertThat(send("PUT", "/api/events/" + id + "/candidate-dates", replacement, auth).statusCode()).isEqualTo(200);
+			assertThat(availability(guest, 1, List.of()).statusCode()).isEqualTo(200);
+			return invocation.callRealMethod();
+		}).when(responseRepository).saveAvailability(eq(id), eq(token), argThat(value -> value.pollRevision() == 0), eq(true));
+
+		problem(availability(guest, 0, List.of()), token);
+		var response = mongo.getCollection("responses").find(new Document("eventId", id)).first();
+		assertThat(response.get("availability", Document.class).getLong("pollRevision")).isEqualTo(1);
+		assertThat(output.getAll()).doesNotContain(token);
+	}
+
+	@Test void invitationBatchesAndDeletionOnlyRecognizeAnswersFromTheCurrentRound() throws Exception {
+		String id = create(null);
+		var guest = add(id, "Ana", "ana@example.com", "+34612345678");
+		publish(id);
+		assertThat(availability(guest, 0, List.of()).statusCode()).isEqualTo(200);
+		String root = "/api/events/" + id;
+		var links = send("POST", root + "/invitations/whatsapp-links", "", auth);
+		assertThat(JsonPath.parse(links.body()).<String>read("$.results[0].reason")).isEqualTo("ALREADY_ANSWERED");
+		var email = send("POST", root + "/invitations/send", "", auth);
+		assertThat(JsonPath.parse(email.body()).<String>read("$.results[0].reason")).isEqualTo("ALREADY_ANSWERED");
+		assertThat(mail.attempts()).isEmpty();
+		String guestPath = root + "/guests/" + guest.getString("id");
+		assertThat(send("DELETE", guestPath, "", auth).statusCode()).isEqualTo(409);
+		String replacement = """
+				{"pollRevision":0,"candidateDates":[{"date":"2027-05-20"},{"date":"2027-05-21"}]}
+				""";
+		assertThat(send("PUT", root + "/candidate-dates", replacement, auth).statusCode()).isEqualTo(200);
+		links = send("POST", root + "/invitations/whatsapp-links", "", auth);
+		assertThat(JsonPath.parse(links.body()).<String>read("$.results[0].status")).isEqualTo("READY");
+		assertThat(send("DELETE", guestPath, "", auth).statusCode()).isEqualTo(204);
+		assertThat(mongo.getCollection("responses").countDocuments(new Document("eventId", id))).isZero();
+	}
+
+	private HttpResponse<String> availability(Document guest, long revision, List<String> ids) throws Exception {
+		return send("PUT", invitation(guest) + "/availability",
+				new Document("pollRevision", revision).append("candidateDateIds", ids).toJson(),
+				Map.of("Content-Type", "application/json"));
+	}
+
 	private String create(LinkVisibility visibility) throws Exception {
-		String request = REQUEST;
+		return create(visibility, false);
+	}
+
+	private String create(LinkVisibility visibility, boolean allowChanges) throws Exception {
+		String request = JsonPath.parse(REQUEST).put("$", "allowResponseChange", allowChanges).jsonString();
 		if (visibility != null) {
 			var access = new java.util.HashMap<String, Object>(); access.put("platform", "Zoom"); access.put("url", com.gtog.event.InvitationTestFixtures.URL);
 			access.put("password", com.gtog.event.InvitationTestFixtures.PASSWORD); access.put("roomId", com.gtog.event.InvitationTestFixtures.ROOM);
