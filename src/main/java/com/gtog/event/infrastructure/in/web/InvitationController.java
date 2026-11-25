@@ -48,9 +48,9 @@ public class InvitationController {
 
 	@Operation(summary = "Consulta una invitacion", description = "Sin sesion ni CSRF. Publicado, cancelado y finalizado "
 			+ "devuelven 200. Borrador y token desconocido devuelven el mismo 404. Solo un evento publicado "
-			+ "puede mostrar acceso online o registrar la primera apertura. DATE_POLL muestra candidatas y revisión sin fechas definitivas. Cache-Control: no-store.")
+			+ "puede mostrar acceso online o registrar la primera apertura. DATE_POLL muestra candidatas y revisión. Tras vencer el plazo, el GET personal incluye los votos de la ronda vigente. Cache-Control: no-store.")
 	@ApiResponses({
-			@ApiResponse(responseCode = "200", description = "Vista publica sin datos de contacto ni tokens"),
+			@ApiResponse(responseCode = "200", description = "Vista de invitación sin contactos ni tokens"),
 			@ApiResponse(responseCode = "404", description = "Invitacion no disponible",
 					content = @Content(schema = @Schema(implementation = ProblemDetail.class))) })
 	@GetMapping("/{token}")

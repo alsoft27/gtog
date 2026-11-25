@@ -115,7 +115,7 @@ Devuelve 200 con EventResponse. El cuerpo representa la lista completa:
   Repetir el mismo cambio ya aplicado con su revisión anterior es idempotente y no regenera ids.
   Una revisión futura siempre da 409.
 - `selectedCandidateDateId` es nullable y, si existe, debe referenciar una candidata. Se persiste y
-  conserva en cambios generales y reordenaciones; la operación de elegir fecha llegará en el paso 7.
+  conserva en cambios generales y reordenaciones; el campo queda reservado y esta ampliación no ofrece una operación de selección.
 - El reemplazo usa el puerto EventRepositoryPort y un guardado completo con @Version, como las demás
   ediciones de configuración del agregado. Dos editores concurrentes no pueden pisarse: uno gana y
   el otro recibe 409. Una petición idéntica no llama a save(). No toca invitados, tokens, aperturas,
@@ -137,7 +137,7 @@ Una revisión negativa o una selección desconocida en Mongo es corrupción alma
 - La invitación individual y la vista previa del enlace de alta añaden un bloque público
   `datePoll: {candidateDates:[{id,date,startTime}],pollRevision,selectedCandidateDateId?}`. La proyección
   es propia (`DatePollView` / `PublicDatePollResponse`), construida campo a campo, sin documentos Mongo,
-  anfitrión, otros invitados ni contactos. Los campos definitivos locales y UTC se omiten mientras no existen.
+  anfitrión ni contactos. La vista previa solo muestra candidatas. Los campos definitivos locales y UTC se omiten mientras no existen.
 - La invitación muestra únicamente el nombre del invitado actual y conserva OPENED atómico. No lee
   documentos de asistencia como si fueran disponibilidades. En consultas, el PUT de asistencia
   devuelve 409. El PUT de disponibilidad y los indicadores de la vista usan la política de
@@ -583,6 +583,12 @@ y su panel se serializa sin el bloque `availability`. Si el anfitrión tiene amb
 el listado lee respuestas con hasta dos consultas agrupadas sobre `responses`, una por
 tipo mediante `eventId in [...]`. El panel solo lee el tipo de su evento. Se calcula a
 partir de `guests[]` y se filtra por revisión en dominio. Son operaciones de lectura.
+
+El resultado para invitados se publica únicamente en el GET de invitación personal y después de
+vencer el plazo inclusivo. La app recupera las disponibilidades del evento en una sola lectura
+agrupada y reutiliza el filtro de revisión del panel. El resultado recorre invitados actuales y
+proyecta nombre, si votó y candidatas marcadas. Cambiar candidatas invalida la ronda anterior;
+si se amplía el plazo, el resultado deja de mostrarse hasta el nuevo vencimiento.
 
 El panel está disponible en cualquier estado para el propietario. Solo su 200 fija exactamente
 Cache-Control: no-store; ni el listado ni los errores se cambian. EventNotFoundException conserva su manejador

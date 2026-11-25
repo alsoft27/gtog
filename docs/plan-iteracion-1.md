@@ -15,8 +15,8 @@ de despliegue público de §7 y la deuda abierta de §6, incluida D-UNVERIFIED-S
 El frontend Angular no se ha empezado.
 Los recorridos y ejemplos del API están en [casos-de-uso.md](casos-de-uso.md), con la verificación de rutas, seguridad y resultados.
 
-`mvn clean verify`: 1.254 tests, 0 fallos, 0 errores y 0 omitidos en el paso 6. Añade cuatro
-casos (dos de dominio y dos con servidor real). El paso 5 añadió 12 casos. El paso 4 añadió 35 casos: 10 de dominio, 5 de compositores
+`mvn clean verify`: 1.255 tests, 0 fallos, 0 errores y 0 omitidos en el paso 7, que añade un
+caso de integración con servidor real. El paso 6 añadió cuatro casos y el paso 5, doce. El paso 4 añadió 35 casos: 10 de dominio, 5 de compositores
 y 20 con servidor real. Adapta solo las dos expectativas temporales de publicación del paso 2;
 los tests de mensajes de fecha fija permanecen intactos. El paso 3 añadió 56 casos sin modificar tests anteriores. El paso 2 añadió 58 casos
 y adaptó el constructor del unitario de creación, conservando sus aserciones. En el paso 1 el listado
@@ -61,6 +61,7 @@ Maven por defecto, springdoc-openapi, iCal4j 4.2.0, libphonenumber 9.0.43, Mailj
 | Publicación DATE_POLL — paso 4 | Publicación sin fecha definitiva, proyección pública de candidatas, OPENED, alta por enlace protegida por revisión/selección y mensajes de correo/WhatsApp compartidos. Calendario sin fecha: 409. |
 | Disponibilidad DATE_POLL — paso 5 | PUT público de disponibilidad múltiple, lista vacía explícita, última respuesta en responses y escritura condicionada por revisión. Lecturas públicas, envíos y confirmación de borrado usan solo la ronda vigente |
 | Seguimiento DATE_POLL — paso 6 | Panel privado por candidata con personas, pendientes y sin disponibilidad. Listado con totales de ronda vigente y lecturas agrupadas por tipo. |
+| Votos al cierre DATE_POLL — paso 7 | GET de invitación personal con nombres y votos de la ronda vigente después del plazo inclusivo. Vista previa pública sin resultados. |
 
 ### Endpoints
 
@@ -162,13 +163,13 @@ Orden de implementación aprobado, con verificación completa antes de cada comm
 5. **Disponibilidad (cerrada):** respuesta múltiple, incluida lista vacía explícita; última versión, revisión vigente,
    plazos y cambios controlados atómicamente. Una revisión nueva permite volver a contestar.
 6. **Seguimiento (cerrado):** totales y personas por candidata, pendientes y no disponibles, sin consultas por evento.
-7. **Fecha definitiva (siguiente):** elegir o cambiar entre candidatas conservando disponibilidades; mantener la hora
-   opcional y adaptar calendario y visibilidad sin inventar inicio ni fin.
-8. **Aviso al anfitrión:** correo al vencer el plazo o cuando todos respondan sin enlace público activo,
+7. **Votos al cierre (cerrado):** mostrar nombres y votos de la ronda vigente en el enlace personal después
+   del plazo inclusivo. El anfitrión decide qué hacer con el evento al ver el resultado.
+8. **Aviso al anfitrión (siguiente):** correo al vencer el plazo o cuando todos respondan sin enlace público activo,
    una vez por revisión; Clock, reclamación atómica, transporte falso en tests y recorrido manual.
 
-Reglas acordadas: la selección de fecha no equivale a confirmación de asistencia. Editar candidatas
-invalida respuestas y quita la selección definitiva; si venció el plazo, el anfitrión debe cambiarlo.
+Reglas acordadas: la disponibilidad no equivale a confirmación de asistencia. Editar candidatas
+invalida respuestas; si venció el plazo, el anfitrión debe cambiarlo para reabrir la consulta.
 Los invitados no proponen fechas. Solo se guarda su última respuesta, sin histórico de versiones.
 El aviso va únicamente al anfitrión por correo y no cierra las respuestas anticipadamente; los invitados
 ven la elección en la aplicación o se enteran por sus propios medios. Un aviso automático a invitados
@@ -177,8 +178,9 @@ existentes siguen aplicándose.
 
 ### Punto de reanudación anterior, tras el paso 4 — 25 de noviembre de 2026
 
-El plan anterior es el orden aprobado de ocho pasos; no se sustituye ni se amplía. Al contrastar el
-código, los commits y los registros de Maven, **los pasos 1 a 4 están cerrados y el siguiente es el 5**.
+Este apartado conserva el estado verificado al cerrar el paso 4. El paso 7 se redefinió después;
+ver «Votos al cierre» para el alcance vigente. En este punto **los pasos 1 a 4 estaban cerrados
+y el siguiente era el 5**.
 Aunque la petición de continuidad sitúa el trabajo en la implementación del paso 4, este ya terminó
 en `0bd61ee`. No queda una implementación parcial de ese paso ni se ha empezado el 5.
 
@@ -194,7 +196,7 @@ de nuevo: las cifras siguientes proceden de las ejecuciones completas ya realiza
 | 4. Publicación y difusión | Completado — `0bd61ee`; 1.238 tests en verde | Publicación sin fecha definitiva; proyección pública de candidatas, OPENED, alta pública con filtro de revisión/selección y mensajes de correo/WhatsApp con formato compartido. `DatePollPublicationTest`, `DatePollInvitationComposerTest` y `DatePollPublicationIntegrationTest`: privacidad de cuerpos/logs, salas ocultas, calendario 409, plazo inclusivo, carreras de configuración y apertura concurrente. |
 | 5. Disponibilidad | Pendiente; siguiente paso | No existe todavía endpoint ni modelo de disponibilidad múltiple. |
 | 6. Seguimiento | Pendiente; depende del 5 | El panel/listado de asistencia actual no calcula disponibilidad por candidata. |
-| 7. Fecha definitiva | Pendiente; depende de candidatas y disponibilidad | El campo `selectedCandidateDateId` está preparado, pero no hay operación para seleccionar/cambiar la fecha ni calendario adaptado a esa elección. |
+| 7. Votos al cierre | Pendiente en ese momento | La elección de fecha prevista entonces quedó sustituida por la consulta de votos tras el plazo. |
 | 8. Aviso al anfitrión | Pendiente; depende de revisión, disponibilidad y seguimiento | No está implementada la detección del cierre ni el envío del aviso por ronda. |
 
 Las cuatro ejecuciones terminaron con cero fallos, errores y omitidos. Sus registros locales, ignorados
@@ -232,9 +234,8 @@ atómica con revisión antes de incorporarlos. No se empieza esa implementación
   antigua no debe seguir contando como respuesta vigente. Conservar el funcionamiento de FIXED_DATE.
 - Paso 6: partir de invitados actuales, ignorar respuestas huérfanas o de rondas antiguas; una persona
   puede contar en varias candidatas. Usar lecturas agrupadas, sin una consulta de respuestas por evento.
-- Paso 7: el anfitrión puede elegir y cambiar la candidata definitiva sin borrar disponibilidades.
-  Cambiar las candidatas sí invalida todas y quita la selección. Conservar la hora opcional y nunca
-  inventar inicio ni fin. Estar disponible no equivale por sí solo a una confirmación de asistencia.
+- Paso 7: la versión vigente del plan muestra votos al cierre. La decisión de qué hacer con el
+  evento pertenece al anfitrión. La disponibilidad no equivale a confirmación de asistencia.
 - Paso 8: correo únicamente al anfitrión, al vencer el plazo o si todos respondieron y no hay enlace
   público activo; una vez por revisión. Solo avisar: no cerrar antes ni notificar automáticamente a
   invitados. Clock inyectado, reclamación atómica y transporte falso en tests.
@@ -245,9 +246,7 @@ atómica con revisión antes de incorporarlos. No se empieza esa implementación
   Ejecutar Maven en primer plano, una ejecución a la vez, con suite completa verde antes de cada commit.
 
 **Detalles pendientes de concretar, no hechos implementados:** forma exacta del bloque/DTO de
-disponibilidad y de su condición atómica (paso 5); representación del calendario cuando la candidata
-elegida no tiene hora ni fin y aplicación de visibilidad de sala a esa disponibilidad (paso 7);
-mecanismo de detección/reclamación del aviso y tratamiento de sus fallos de envío (paso 8).
+disponibilidad y de su condición atómica (resueltos en el paso 5); mecanismo de detección/reclamación del aviso y tratamiento de sus fallos de envío (paso 8).
 Concretarlos en su paso sin alterar las decisiones anteriores ni asignar valores temporales ficticios.
 
 `AGENTS.md` ya referencia la definición funcional, este plan, los casos de uso y los tres modelos;
@@ -287,8 +286,25 @@ está pendiente. Se ignoran respuestas de rondas anteriores o de invitados retir
 El listado usa los mismos criterios de ronda, con hasta una lectura agrupada por
 tipo de evento. El contrato de fecha fija se conserva.
 
-**Siguiente:** elegir y cambiar la candidata definitiva, conservando respuestas y
-hora opcional, y adaptar calendario y visibilidad de sala con los criterios del paso 7.
+### Votos al cierre — paso 7 completado
+
+La suite completa pasó con 1.255 tests en `execution-logs/date-poll-step-7-verify.log`.
+La prueba con servidor real comprueba el límite inclusivo, la revisión vigente, la privacidad
+y la ausencia de resultados en la vista previa pública.
+
+El paso 7 se reorientó por decisión del usuario. GTog recoge disponibilidades y
+muestra el resultado, y el anfitrión decide qué hacer con el evento. En esta ampliación
+no hay selección de fecha definitiva, adaptación del calendario ni cambios de acceso
+a la sala. Se conserva el campo de selección preparado por pasos anteriores.
+
+El GET personal muestra `pollResults` solo cuando el Clock supera el plazo en la zona
+del evento. A la hora exacta del plazo todavía se puede votar, según las reglas de
+escritura. El resultado usa una lectura agrupada y el mismo filtro por revisión del
+panel. Expone solamente nombre, `answered` y candidatas marcadas por invitado actual.
+El enlace público de alta no muestra votos. No se envían avisos a invitados.
+
+**Siguiente:** paso 8, aviso por correo únicamente al anfitrión, condicionado por
+el plazo o por todas las respuestas sin enlace público activo, una vez por ronda.
 
 ### Aplazado
 
@@ -355,7 +371,7 @@ hora opcional, y adaptar calendario y visibilidad de sala con los criterios del 
   recargar. Invitados, tokens, aperturas y cuotas se conservan. Editar datos generales o el plazo no
   reinicia la ronda ni la selección; los campos nuevos se conservan en el mapper.
 - La invalidez de disponibilidades se define por revisión. Cambiar candidatas no reescribe respuestas; el paso 5 aplica la revisión al escribir y consultar disponibilidades.
-  `selectedCandidateDateId` queda preparado y se limpia al cambiar candidatas; elegirlo llega en el 7.
+  `selectedCandidateDateId` queda preparado y se limpia al cambiar candidatas; queda reservado sin operación de selección.
 - Cambiar candidatas no prorroga el plazo. El anfitrión puede fijar un nuevo plazo obligatorio también
   en PUBLISHED cuando se trata de una consulta, sin depender de un inicio definitivo inexistente.
 

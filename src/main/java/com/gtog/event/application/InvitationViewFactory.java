@@ -10,6 +10,7 @@ import com.gtog.event.domain.model.GuestAvailability;
 import com.gtog.event.domain.model.GuestResponse;
 import com.gtog.event.domain.model.InvitationView;
 import com.gtog.event.domain.model.OnlineAccess;
+import com.gtog.event.domain.model.PollResults;
 
 public final class InvitationViewFactory {
 	private InvitationViewFactory() {}
@@ -19,6 +20,11 @@ public final class InvitationViewFactory {
 	}
 
 	public static InvitationView create(Event event, Guest guest, Instant now, GuestResponse response, GuestAvailability availability) {
+		return create(event, guest, now, response, availability, null);
+	}
+
+	public static InvitationView create(Event event, Guest guest, Instant now, GuestResponse response,
+			GuestAvailability availability, PollResults pollResults) {
 		OnlineAccess access = event.getOnlineAccess();
 		boolean cancelled = event.getStatus() == EventStatus.CANCELLED;
 		if (event.getEventType() == EventType.DATE_POLL) { response = null; }
@@ -35,7 +41,7 @@ public final class InvitationViewFactory {
 				response == null ? null : new InvitationView.MyResponse(response.responseOptionId(), response.comment(), response.answeredAt(), response.updatedAt()),
 				hasResponse && canRespond, canRespond, event.getEventType(), DatePollView.from(event.getSchedule()),
 				availability == null ? null : new InvitationView.MyAvailability(availability.pollRevision(),
-						availability.candidateDateIds(), availability.answeredAt(), availability.updatedAt()));
+						availability.candidateDateIds(), availability.answeredAt(), availability.updatedAt()), pollResults);
 	}
 
 	private static boolean guestHasConfirmed(Event event, GuestResponse response) {

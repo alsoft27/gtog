@@ -2,6 +2,7 @@ package com.gtog.event.application;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.Set;
 
 import org.springframework.stereotype.Service;
 
@@ -9,6 +10,8 @@ import com.gtog.event.domain.model.Event;
 import com.gtog.event.domain.model.DatePollSchedule;
 import com.gtog.event.domain.model.EventStatus;
 import com.gtog.event.domain.model.Guest;
+import com.gtog.event.domain.model.GuestAvailabilityResponse;
+import com.gtog.event.domain.model.PollResults;
 import com.gtog.event.domain.model.InvitationNotFoundException;
 import com.gtog.event.domain.model.InvitationStatus;
 import com.gtog.event.domain.model.InvitationView;
@@ -45,6 +48,11 @@ public class GetInvitationService implements GetInvitationUseCase {
 			guest = invitedGuest(event, token);
 		}
 		if (event.getSchedule() instanceof DatePollSchedule poll) {
+			if (event.pollResultsVisible(now)) {
+				var round = GuestAvailabilityResponse.currentByToken(event, poll,
+						responses.findAvailabilityByEventIds(Set.of(event.getId())));
+				return InvitationViewFactory.create(event, guest, now, null, round.get(token), PollResults.from(event, poll, round));
+			}
 			var availability = responses.findAvailability(event.getId(), token, poll.pollRevision()).orElse(null);
 			return InvitationViewFactory.create(event, guest, now, null, availability);
 		}

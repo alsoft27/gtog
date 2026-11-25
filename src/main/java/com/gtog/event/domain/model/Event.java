@@ -236,7 +236,15 @@ public class Event {
 
 	public boolean acceptsResponses(Instant now) {
 		return status == EventStatus.PUBLISHED && !schedule.hasEnded(now)
-				&& (responseDeadline == null || !now.isAfter(responseDeadline.atZone(ZoneId.of(getTimeZone())).toInstant()));
+				&& !responseDeadlinePassed(now);
+	}
+
+	public boolean pollResultsVisible(Instant now) {
+		return getEventType() == EventType.DATE_POLL && status != EventStatus.DRAFT && responseDeadlinePassed(now);
+	}
+
+	private boolean responseDeadlinePassed(Instant now) {
+		return responseDeadline != null && now.isAfter(responseDeadline.atZone(ZoneId.of(getTimeZone())).toInstant());
 	}
 
 	public void requireAcceptingResponses(Instant now) {

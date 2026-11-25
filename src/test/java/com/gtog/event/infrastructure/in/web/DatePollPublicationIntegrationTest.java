@@ -475,6 +475,67 @@ class DatePollPublicationIntegrationTest {
 		verifyNoMoreInteractions(responseRepository);
 	}
 
+	@Test void onlyPersonalLinksSeeCurrentVotesOnceTheInclusiveDeadlineHasPassed(CapturedOutput output) throws Exception {
+		String id = create(null);
+		var ana = add(id, "Ana", "ana@example.com", "+34612345678");
+		var bea = add(id, "Bea", "bea@example.com", "+34612345679");
+		var carla = add(id, "Carla", "carla@example.com", null);
+		publish(id);
+
+		assertThat(availability(carla, 0, List.of()).statusCode()).isEqualTo(200);
+		String replacement = """
+				{"pollRevision":0,"candidateDates":[{"date":"2027-05-20"},{"date":"2027-05-21"}]}
+				""";
+		assertThat(send("PUT", "/api/events/" + id + "/candidate-dates", replacement, auth).statusCode()).isEqualTo(200);
+		var poll = (DatePollSchedule) events.findById(id).orElseThrow().getSchedule();
+		var ids = poll.candidateDates().stream().map(CandidateDate::id).toList();
+		assertThat(availability(ana, 1, ids).statusCode()).isEqualTo(200);
+		var none = availability(bea, 1, List.of());
+		assertThat(none.statusCode()).isEqualTo(200);
+		assertThat(none.body()).doesNotContain("pollResults", "Ana", "Carla");
+		var instant = Instant.parse("2027-03-01T10:00:00Z");
+		responseRepository.saveAvailability(id, "orphan-token", new GuestAvailability(1, ids, instant, instant), false);
+		clearInvocations(responseRepository);
+
+		Instant deadline = LocalDateTime.of(2027, 5, 9, 18, 0).atZone(ZoneId.of("Europe/Madrid")).toInstant();
+		for (long nanos : List.of(-1L, 0L)) {
+			when(clock.instant()).thenReturn(deadline.plusNanos(nanos));
+			var open = send("GET", invitation(carla), "", Map.of());
+			assertThat(open.statusCode()).isEqualTo(200);
+			assertThat(open.body()).doesNotContain("pollResults", "Ana", "Bea");
+			assertThat(JsonPath.parse(open.body()).<Boolean>read("$.canRespond")).isTrue();
+		}
+		verify(responseRepository, never()).findAvailabilityByEventIds(anySet());
+		clearInvocations(responseRepository);
+
+		when(clock.instant()).thenReturn(deadline.plusNanos(1));
+		String joinToken = joinToken(id);
+		var preview = send("GET", join(joinToken), "", Map.of());
+		assertThat(preview.statusCode()).isEqualTo(200);
+		assertThat(preview.body()).doesNotContain("pollResults", "Ana", "Bea", "Carla");
+		assertThat(send("GET", "/api/invitations/unknown", "", Map.of()).statusCode()).isEqualTo(404);
+		var closed = send("GET", invitation(carla), "", Map.of());
+		assertThat(closed.statusCode()).isEqualTo(200);
+		noStore(closed);
+		var view = JsonPath.parse(closed.body());
+		assertThat(view.<Boolean>read("$.canRespond")).isFalse();
+		assertThat(view.<Integer>read("$.pollResults.pollRevision")).isEqualTo(1);
+		assertThat(view.<List<Map<String, Object>>>read("$.pollResults.votes")).containsExactly(
+				Map.of("name", "Ana", "answered", true, "candidateDateIds", ids),
+				Map.of("name", "Bea", "answered", true, "candidateDateIds", List.of()),
+				Map.of("name", "Carla", "answered", false, "candidateDateIds", List.of()));
+		assertThat(view.<Map<String, Object>>read("$")).doesNotContainKey("myAvailability");
+		assertThat(closed.body()).doesNotContain(joinToken, guestToken(ana), guestToken(bea), guestToken(carla),
+				"ana@example.com", "bea@example.com", "carla@example.com", "+34612345678", "+34612345679",
+				ana.getString("id"), bea.getString("id"), carla.getString("id"), "host-id-1", "orphan-token");
+		assertThat(output.getAll()).doesNotContain(joinToken, guestToken(ana), guestToken(bea), guestToken(carla));
+		verify(responseRepository).findAvailabilityByEventIds(java.util.Set.of(id));
+		verifyNoMoreInteractions(responseRepository);
+
+		var personal = send("GET", invitation(ana), "", Map.of());
+		assertThat(JsonPath.parse(personal.body()).<List<String>>read("$.myAvailability.candidateDateIds")).isEqualTo(ids);
+	}
+
 	private HttpResponse<String> availability(Document guest, long revision, List<String> ids) throws Exception {
 		return send("PUT", invitation(guest) + "/availability",
 				new Document("pollRevision", revision).append("candidateDateIds", ids).toJson(),

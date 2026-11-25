@@ -246,6 +246,8 @@ y la URL ya filtrada; UID basado en el evento, nunca en el token; DTSTAMP obteni
 - El enlace público del evento es una credencial como el token del invitado; nunca lo registres. Nace al publicar, no en borrador. Ver [modelo-evento.md](docs/modelo-evento.md#enlace-público-de-alta).
 - Nunca devuelvas el enlace de un invitado existente al dar de alta por enlace público. Los invitados `PUBLIC_LINK` no reciben correo de gtog, tampoco después de editar su contacto. Sus nombres son texto no confiable: nunca HTML y neutralizar prefijos `=`, `+`, `-`, `@` en futuras exportaciones CSV. Ver [modelo-invitado.md](docs/modelo-invitado.md#alta-por-enlace-público).
 
+- En DATE_POLL, muestra nombres y votos de la ronda vigente solo en el GET de invitación personal después del plazo inclusivo. No expongas id de invitado, contactos ni tokens en los resultados.
+
 **CSRF en login y registro: deliberado.** Tanto `POST /api/auth/login` como `POST /api/auth/register` requieren un token CSRF válido, enviado en `X-XSRF-TOKEN`. No los excluyas de la protección: excluir el login permitiría que un atacante autenticase a la víctima en la cuenta del atacante (login-CSRF). Ver `docs/plan-iteracion-1.md`, sección Decisiones tomadas, para la justificación.
 
 El login manual rota el id de sesión y la registra en SessionRegistry con la estrategia compartida, pero

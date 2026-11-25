@@ -222,7 +222,7 @@ desconocido da 422, igual que ids duplicados, fechas ausentes o una lista fuera 
 da 409; otro anfitrión, 404. Cuerpo ilegible, 400, antes de propiedad y validación de negocio.
 
 La revisión invalida lógicamente las disponibilidades anteriores. No se borra ningún invitado, token, apertura
-o cuota ni se crea historial. Elegir fecha llega en el paso 7. Si el plazo venció, cambiar candidatas no lo amplía: el anfitrión fija otro plazo obligatorio,
+o cuota ni se crea historial. Si el plazo venció, cambiar candidatas no lo amplía: el anfitrión fija otro plazo obligatorio,
 también en consultas publicadas. Dos editores concurrentes no se pisan: uno recibe 409 y recarga antes de reintentar.
 
 **Difusión de la consulta (paso 4).** Los endpoints de correo y WhatsApp son los mismos que en fecha fija:
@@ -376,7 +376,20 @@ corresponde a FIXED_DATE. En DATE_POLL, `PUT /api/invitations/{token}/availabili
 `{"pollRevision":0,"candidateDateIds":[]}` (lista vacía significa «ninguna») y devuelve 200
 con la invitación y el bloque `myAvailability`. Ronda obsoleta, plazo vencido o cambio
 no permitido devuelven 409. Candidatas inválidas devuelven 422. El PUT de asistencia y el
-calendario sin fecha definitiva devuelven 409 para la consulta.
+calendario devuelven 409 para la consulta. Tras vencer el plazo inclusivo, el GET del
+enlace personal añade `pollResults`. Por ejemplo, un voto por una fecha, un voto
+explícito por ninguna y un invitado pendiente se representan así:
+
+```json
+{"pollResults":{"pollRevision":1,"votes":[
+  {"name":"Ana","answered":true,"candidateDateIds":["candidate-1"]},
+  {"name":"Bea","answered":true,"candidateDateIds":[]},
+  {"name":"Carla","answered":false,"candidateDateIds":[]}
+]}}
+```
+
+Solo se muestran nombres y votos de invitados actuales en la ronda vigente. La vista
+previa del enlace público omite el resultado.
 
 **Actor:** invitado con su enlace. **Sin sesión ni CSRF.** **Resultado:** respuesta registrada.
 
@@ -697,7 +710,7 @@ DownloadInvitationCalendarService, ResponseAcceptancePolicy y sus tests de integ
 | GET /api/invitations/{token} | No | No | 200 + InvitationResponse, también CANCELLED/FINISHED; no-store exacto | 404 mismo detalle para DRAFT y token desconocido; 500 datos almacenados inválidos |
 | PUT /api/invitations/{token}/response | No | No | Fecha fija: 200 + InvitationResponse actualizada, no-store exacto | 400 cuerpo, 404, 409 tipo/estado/plazo/fin/cambio bloqueado, 422 opción/comentario/correo, 500 datos almacenados inválidos |
 | PUT /api/invitations/{token}/availability | No | No | Consulta: 200 + InvitationResponse con myAvailability, no-store exacto | 400 cuerpo, 404, 409 tipo/estado/plazo/revisión/cambio bloqueado, 422 revisión o candidatas inválidas, 500 almacenamiento |
-| GET /api/invitations/{token}/calendar | No | No | Fecha fija: 200 text/calendar, attachment, no-store exacto; también FINISHED | 404 DRAFT/token desconocido, 409 CANCELLED o DATE_POLL sin fecha definitiva, 500 generación o datos almacenados inválidos |
+| GET /api/invitations/{token}/calendar | No | No | Fecha fija: 200 text/calendar, attachment, no-store exacto; también FINISHED | 404 DRAFT/token desconocido, 409 CANCELLED o DATE_POLL, 500 generación o datos almacenados inválidos |
 
 ### UC-4: consultas del anfitrión
 

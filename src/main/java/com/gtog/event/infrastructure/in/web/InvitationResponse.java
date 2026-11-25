@@ -23,7 +23,11 @@ public record InvitationResponse(GuestName guest, String title, String descripti
 		@Schema(description = "Bloque omitido completamente mientras el acceso no sea visible") OnlineAccessDetails onlineAccess, MyResponse myResponse,
 		@Schema(description = "Permite modificar una respuesta existente; false si todavía no ha respondido.") boolean canChangeResponse,
 		@Schema(description = "Fecha fija: PUBLISHED, plazo inclusive, antes del fin y cambios habilitados si respondió. En DATE_POLL se aplica a la disponibilidad de la ronda vigente.") boolean canRespond,
-		@Schema(description = "Tipo temporal del evento") EventType eventType, PublicDatePollResponse datePoll, MyAvailability myAvailability) {
+		@Schema(description = "Tipo temporal del evento") EventType eventType, PublicDatePollResponse datePoll, MyAvailability myAvailability,
+		@Schema(description = "Votos de la ronda vigente, solo en el GET personal después del plazo") PollResults pollResults) {
+
+	public record PollResults(long pollRevision, List<Vote> votes) {}
+	public record Vote(String name, boolean answered, List<String> candidateDateIds) {}
 
 	public record MyAvailability(long pollRevision, List<String> candidateDateIds, Instant answeredAt, Instant updatedAt) {}
 
@@ -40,6 +44,7 @@ public record InvitationResponse(GuestName guest, String title, String descripti
 		var info = view.onlineAccessInfo();
 		var access = view.onlineAccess();
 		var availability = view.myAvailability();
+		var results = view.pollResults();
 		return new InvitationResponse(new GuestName(view.guestName()), view.title(), view.description(), view.status(),
 				view.modality(), view.startsAt(), view.endsAt(), view.timeZone(), view.startsAtInstant(), view.endsAtInstant(),
 				venue == null ? null : new VenueDetails(venue.placeName(), venue.address(), venue.latitude(), venue.longitude(), venue.placeId(), venue.directions()),
@@ -50,6 +55,8 @@ public record InvitationResponse(GuestName guest, String title, String descripti
 				view.myResponse() == null ? null : new MyResponse(view.myResponse().responseOptionId(), view.myResponse().comment(), view.myResponse().answeredAt(), view.myResponse().updatedAt()),
 				view.canChangeResponse(), view.canRespond(), view.eventType(), PublicDatePollResponse.from(view.datePoll()),
 				availability == null ? null : new MyAvailability(availability.pollRevision(), availability.candidateDateIds(),
-						availability.answeredAt(), availability.updatedAt()));
+						availability.answeredAt(), availability.updatedAt()),
+				results == null ? null : new PollResults(results.pollRevision(), results.votes().stream()
+						.map(vote -> new Vote(vote.name(), vote.answered(), vote.candidateDateIds())).toList()));
 	}
 }

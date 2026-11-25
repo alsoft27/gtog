@@ -102,9 +102,10 @@ de mensaje editable, aplicación móvil.
 candidatas con fecha obligatoria y hora opcional, sin hora de fin, y un plazo obligatorio para contestar.
 El invitado puede indicar disponibilidad en una, varias o ninguna; una respuesta sin disponibilidad se
 distinguirá de no haber respondido. Cambiar las candidatas invalidará las disponibilidades anteriores;
-se conserva solo la última respuesta. Elegir o cambiar la candidata definitiva sin alterar las candidatas
-conservará las disponibilidades y la hora opcional, sin inventar horarios ni convertir disponibilidad en
-confirmación de asistencia. El vencimiento del plazo, o todas las respuestas sin enlace público activo,
+se conserva solo la última respuesta. Después de vencer el plazo, los invitados ven, desde su enlace
+personal, los nombres y votos de la ronda vigente y distinguen quién marcó «ninguna» de quién no votó.
+El anfitrión consulta el seguimiento durante la votación y decide qué hacer con el evento al cierre.
+Esta consulta termina con el resultado. El vencimiento del plazo, o todas las respuestas sin enlace público activo,
 solo provocará un aviso por correo al anfitrión; no cerrará anticipadamente las respuestas ni avisará a
 los invitados. El desarrollo se divide en pasos en el plan. Desde el paso 2 se puede crear y consultar
 un borrador `DATE_POLL`, y editar sus datos generales conservando las candidatas. Admite entre dos y
@@ -115,7 +116,7 @@ Desde el paso 4 se publica sin fecha definitiva, se muestra en los enlaces públ
 por correo o WhatsApp. Los mensajes muestran candidatas, horas opcionales, zona y plazo, sin inventar
 inicio ni fin. El alta pública mantiene sus restricciones y usa el plazo como ventana. La disponibilidad
 se registra por invitación y revisión, con un plazo inclusivo. Las consultas no aceptan una respuesta
-de asistencia. Sin fecha definitiva, el calendario devuelve 409. Los eventos de fecha
+de asistencia. El calendario de una consulta devuelve 409. Los eventos de fecha
 definida mantienen el flujo completo; omitir `eventType` conserva `FIXED_DATE`, también en documentos antiguos.
 
 **Estados del evento:** `DRAFT → PUBLISHED`, más `CANCELLED` (solo desde `PUBLISHED`, irreversible).

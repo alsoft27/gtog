@@ -425,6 +425,17 @@ La lectura de la ronda y la escritura viven en colecciones distintas: si la rond
 entre ambas, el PUT devuelve 409 tras releer y cualquier escritura de la ronda anterior
 queda invisible, sin poder sobrescribir una respuesta de la nueva.
 
+### Votos de la consulta al cierre
+
+El GET de invitación personal de un `DATE_POLL` omite `pollResults` mientras el plazo
+siga abierto, incluido el instante exacto del vencimiento. Después, devuelve
+`pollResults: {pollRevision, votes:[{name, answered, candidateDateIds}]}`. Las filas
+siguen el orden de los invitados actuales. Una lista vacía con `answered=true` significa
+«ninguna candidata». Con `answered=false` significa que no hay voto vigente.
+Los votos huérfanos o de otra revisión quedan fuera. La vista previa del enlace público
+y el PUT de disponibilidad no incluyen el bloque. El resultado lleva no-store exacto y
+no incluye contactos, identificadores de invitados, tokens ni marcas de tiempo de sus votos.
+
 ### Contrato InvitationResponse
 
 - `guest`: exclusivamente `name`, sin id ni contactos.
@@ -587,7 +598,7 @@ y `Cache-Control: no-store` exacto. No marca OPENED ni escribe el evento.
 
 La tabla de 200 con archivo corresponde a FIXED_DATE. Una consulta DATE_POLL sin fecha definitiva
 devuelve 409, también en FINISHED, sin invocar iCal4j. Mantiene no-store exacto, instance constante y
-ausencia del token en el cuerpo. La selección y adaptación del calendario se completan en el paso 7.
+ausencia del token en el cuerpo. El paso 7 añade la consulta de votos al cierre.
 
 `DownloadInvitationCalendarService` carga la respuesta propia y reutiliza `InvitationViewFactory` para el
 filtro del JSON. Solo pasa al puerto de renderizado una proyección `InvitationCalendarData`: id del evento,
