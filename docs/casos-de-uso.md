@@ -2,7 +2,7 @@
 
 Los cinco casos de uso principales y la secuencia de llamadas que los realiza. Es el puente entre
 `definicion-funcional.md` (qué hace la aplicación) y los modelos (el contrato técnico de cada agregado). El
-contrato exacto de campos está en `/v3/api-docs` y en cada modelo.
+contrato HTTP versionado está en [OpenAPI](openapi.json). Los modelos detallan las reglas de negocio.
 
 Revisión contra controladores, SecurityConfig, dominio y tests del repositorio. La matriz final recoge el
 contrato observado para cada método y ruta. Los ejemplos son extractos con valores ficticios, no respuestas completas.
@@ -31,8 +31,7 @@ contrato observado para cada método y ruta. Los ejemplos son extractos con valo
   seguridad y advice MVC, detalle fijo e instancia constante, sin token ni ruta pedida; el saneamiento
   central de invitaciones cubre cualquier handler MVC que devuelva ProblemDetail. Solo los errores de
   dominio del anfitrión admiten detalle variable e instancia derivada de su ruta.
-- **Caché.** Invitación pública, lote y panel 200 fijan `no-store` exacto. El alta individual y el listado de
-  invitados conservan la cabecera por defecto de Spring Security; no se exige igualdad exacta para ellos.
+- **Caché.** Invitaciones públicas, lote y panel 200 fijan `no-store` exacto. El alta individual y el listado de invitados conservan la cabecera de Spring Security. El contrato OpenAPI identifica los demás casos de valor exacto.
 
 | Código | Significado |
 |---|---|
@@ -43,9 +42,6 @@ contrato observado para cada método y ruta. Los ejemplos son extractos con valo
 | 405, 406, 415 | Método, `Accept` o `Content-Type` no admitidos |
 | 409 | Conflicto de estado: no se puede hacer eso en el estado actual, o duplicado |
 | 422 | Una regla de negocio rechaza el contenido |
-
-Las respuestas que llevan credenciales (`/me`, el panel, los enlaces de invitación, la vista pública) llevan
-`Cache-Control: no-store`.
 
 ---
 
@@ -152,12 +148,12 @@ GET/PUT `/api/events/{id}/public-invitation` consultan/cambian el interruptor (v
 **Por defecto en fecha definida:** opciones "Asisto" (cuenta como asistencia) y "No asisto"; `allowComment=false`;
 `allowResponseChange=true`.
 
-### Evento con fecha por definir (pasos 2 a 4)
+### Evento con fecha por definir
 
 La secuencia completa anterior corresponde a `FIXED_DATE`, que sigue siendo el tipo por defecto.
 También se puede crear un `DATE_POLL` con sesión y CSRF, consultarlo y editar sus datos generales.
 Desde el paso 4 se publica con la misma llamada y devuelve 200 sin generar fechas definitivas ni opciones
-de asistencia. Si se pidió enlace público, nace al publicar. Todavía no se recogen disponibilidades.
+de asistencia. Si se pidió enlace público, nace al publicar. Los invitados votan por su enlace personal y, tras el plazo inclusivo, ese enlace muestra los votos de la ronda vigente (UC-3).
 
 Fuente: `DatePollDraftIntegrationTest`. Petición abreviada (el bloque venue válido también es obligatorio):
 
@@ -231,7 +227,7 @@ fecha por definir, cada candidata con hora solo si existe, zona y plazo, sin fin
 presencial o solo plataforma online, nunca la URL de sala. No se notifican cambios automáticamente.
 
 La invitación individual y la vista previa `/api/invitations/join/{joinToken}` muestran el bloque público
-de candidatas y revisión, sin contactos, anfitrión, invitados ajenos ni datos Mongo. La primera apertura
+de candidatas y revisión, sin contactos, anfitrión ni datos Mongo. Solo el enlace personal muestra nombres y votos de otros invitados después del plazo. La primera apertura
 individual en PUBLISHED fija OPENED de forma atómica; las siguientes no escriben. Ejemplo abreviado:
 
 ```http
@@ -405,8 +401,8 @@ previa del enlace público omite el resultado.
 
 ### Qué devuelve la vista pública
 
-- Solo el nombre del invitado. Nunca el anfitrión, contactos, otros invitados, tokens ni qué opciones cuentan
-  como asistencia.
+- El propio invitado figura solo por su nombre. En consultas, `pollResults` añade nombres y votos de la
+  ronda vigente después del plazo. La vista nunca expone anfitrión, contactos, tokens ni qué opciones cuentan como asistencia.
 - Título, estado, modalidad, fechas locales, zona horaria e instantes UTC, y el lugar si es presencial.
 - Opciones de respuesta (id y etiqueta), `allowComment`, `allowResponseChange` y el plazo.
 - `canRespond`, calculado en el servidor, que dice si el formulario debe mostrarse; `canChangeResponse`, que
@@ -707,7 +703,7 @@ DownloadInvitationCalendarService, ResponseAcceptancePolicy y sus tests de integ
 
 | Método y ruta completos | Sesión | CSRF | Éxito | Errores |
 |---|---|---|---|---|
-| GET /api/invitations/{token} | No | No | 200 + InvitationResponse, también CANCELLED/FINISHED; no-store exacto | 404 mismo detalle para DRAFT y token desconocido; 500 datos almacenados inválidos |
+| GET /api/invitations/{token} | No | No | 200 + InvitationResponse, también CANCELLED/FINISHED; pollResults en DATE_POLL tras el plazo, no-store exacto | 404 mismo detalle para DRAFT y token desconocido; 500 datos almacenados inválidos |
 | PUT /api/invitations/{token}/response | No | No | Fecha fija: 200 + InvitationResponse actualizada, no-store exacto | 400 cuerpo, 404, 409 tipo/estado/plazo/fin/cambio bloqueado, 422 opción/comentario/correo, 500 datos almacenados inválidos |
 | PUT /api/invitations/{token}/availability | No | No | Consulta: 200 + InvitationResponse con myAvailability, no-store exacto | 400 cuerpo, 404, 409 tipo/estado/plazo/revisión/cambio bloqueado, 422 revisión o candidatas inválidas, 500 almacenamiento |
 | GET /api/invitations/{token}/calendar | No | No | Fecha fija: 200 text/calendar, attachment, no-store exacto; también FINISHED | 404 DRAFT/token desconocido, 409 CANCELLED o DATE_POLL, 500 generación o datos almacenados inválidos |

@@ -95,6 +95,7 @@ PUT    /api/invitations/{token}/availability
 GET    /api/invitations/{token}/calendar        (rutas de invitación públicas, sin sesión ni CSRF)
 ```
 
+El [contrato OpenAPI versionado](openapi.json) recoge esquemas, seguridad y errores de estas rutas.
 Además: `/actuator/health`, `/v3/api-docs` y `/swagger-ui.html`.
 
 ### Recorridos manuales
@@ -146,7 +147,7 @@ Estas comprobaciones son manuales; los tests automáticos no confirman por sí s
 
 ## 2. Lo que queda
 
-### Eventos con fecha por definir — ampliación aprobada
+### Eventos con fecha por definir — implementación cerrada
 
 Se incorpora sin alterar los eventos existentes. El paso 1 introdujo `EventType`, la configuración
 temporal del dominio y el discriminador `eventType` en Mongo y en las vistas. Ausente equivale a
@@ -154,7 +155,8 @@ temporal del dominio y el discriminador `eventType` en Mongo y en las vistas. Au
 borradores `DATE_POLL` con candidatas y plazo obligatorio: alta, consulta y edición de datos generales.
 El paso 4 incorpora publicación, vistas públicas, alta por enlace y mensajes con candidatas.
 El paso 5 registra y muestra la última disponibilidad de la revisión actual. El paso 6 la resume
-en el panel y el listado. No hay migración ni nuevas dependencias.
+en el panel y el listado. El paso 7 muestra votos a los invitados tras el plazo y el paso 8 avisa
+al anfitrión. No hay migración ni nuevas dependencias.
 
 Orden de implementación aprobado, con verificación completa antes de cada commit y sin push:
 
@@ -188,9 +190,8 @@ y el siguiente era el 5**.
 Aunque la petición de continuidad sitúa el trabajo en la implementación del paso 4, este ya terminó
 en `0bd61ee`. No queda una implementación parcial de ese paso ni se ha empezado el 5.
 
-Estado de Git al hacer esta comprobación: rama `main`, HEAD `0bd61ee`, árbol limpio. Esta actualización
-del seguimiento queda sin commit por petición del usuario. No se modifica código ni se ejecuta Maven
-de nuevo: las cifras siguientes proceden de las ejecuciones completas ya realizadas sobre cada commit.
+En aquella comprobación, `main` estaba en `0bd61ee` y el árbol estaba limpio. Las cifras
+siguientes corresponden a las ejecuciones completas realizadas hasta ese punto.
 
 | Paso | Estado real y evidencia | Cambios y pruebas realizadas |
 |---|---|---|
@@ -210,7 +211,7 @@ por Git, son `execution-logs/date-poll-step-1-final-verify.log`,
 Son evidencia histórica; no hay que repetir los pasos ni sus pruebas de reproducción para retomarlos.
 Las decisiones detalladas de los pasos 2, 3 y 4 están en §3 y los contratos en los modelos existentes.
 
-**Límite exacto de lo implementado.** `InvitationViewFactory` descarta respuestas de asistencia para
+**Límite al cerrar el paso 4.** `InvitationViewFactory` descarta respuestas de asistencia para
 DATE_POLL y devuelve `canRespond=false`, `canChangeResponse=false` y sin `myResponse`.
 El PUT de asistencia no sirve para disponibilidad y rechaza consultas; el calendario de DATE_POLL
 da 409 incluso en FINISHED. El alta pública sí admite invitados dentro del plazo mediante
@@ -219,13 +220,13 @@ condiciones existentes, sin comparar la versión del evento por una apertura de 
 La invalidación del paso 3 es por revisión: todavía no hay respuestas de disponibilidad que invalidar
 ni filtros de lectura/escritura de esas respuestas. La selección preparada no es una funcionalidad cerrada.
 
-**Siguiente acción concreta, al reanudar el desarrollo:** comenzar el paso 5, no rehacer el 4.
+**Acción que seguía al cerrar el paso 4:** comenzar el paso 5, no rehacer el 4.
 Leer `definicion-funcional.md`, `modelo-evento.md` y `modelo-invitado.md`; revisar los puertos/adaptadores
 de `responses`, `ResponseAcceptancePolicy` y las vistas públicas. Introducir la disponibilidad como
 concepto propio, sin convertir las candidatas en `ResponseOption`, y su operación pública de respuesta
 múltiple (PUT `/api/invitations/{token}/availability`, todavía no existente). Mantener la colección
 `responses` y el índice único `(eventId, guestToken)`; concretar el bloque de disponibilidad y su escritura
-atómica con revisión antes de incorporarlos. No se empieza esa implementación en esta actualización.
+atómica con revisión antes de incorporarlos. Los pasos 5 a 8 se describen más abajo.
 
 **Dependencias y decisiones que debe respetar el trabajo restante:**
 
@@ -245,13 +246,11 @@ atómica con revisión antes de incorporarlos. No se empieza esa implementación
   invitados. Clock inyectado, reclamación atómica y transporte falso en tests.
 - Mantener las protecciones del enlace público, las cuotas y la exclusión del correo de PUBLIC_LINK,
   los DTOs explícitos, el filtrado de secretos de sala y el saneamiento de errores sin tokens/logs.
-- En los pasos pendientes, cubrir dominio sin Spring, servidor real y concurrencia con hilos cuando
+- Para los pasos que entonces quedaban, se acordó cubrir dominio sin Spring, servidor real y concurrencia con hilos cuando
   proceda; probar revisión obsoleta, respuesta vacía, límites exactos del Clock y compatibilidad fija.
   Ejecutar Maven en primer plano, una ejecución a la vez, con suite completa verde antes de cada commit.
 
-**Detalles pendientes de concretar, no hechos implementados:** forma exacta del bloque/DTO de
-disponibilidad y de su condición atómica (resueltos en el paso 5); mecanismo de detección/reclamación del aviso y tratamiento de sus fallos de envío (paso 8).
-Concretarlos en su paso sin alterar las decisiones anteriores ni asignar valores temporales ficticios.
+Los apartados siguientes documentan cómo se concretaron el almacenamiento por revisión y la reclamación del aviso.
 
 `AGENTS.md` ya referencia la definición funcional, este plan, los casos de uso y los tres modelos;
 también remite a §2 para esta ampliación. Todas esas rutas existen. No requiere otra copia del plan
@@ -602,7 +601,9 @@ token de la ruta y no una cookie que el navegador envíe solo. La cookie `XSRF-T
 `POST /api/auth/verify-email`, `POST /api/auth/forgot-password`, `POST /api/auth/reset-password` y
 `/actuator/health`. Swagger y OpenAPI también lo son (D-SWAGGER-PUBLIC). El matcher real de Actuator permite
 `/actuator/**`, no solo health: cualquier otro endpoint que se exponga bajo esa ruta tampoco exigirá sesión.
-Todo lo demás exige sesión. Las escrituras públicas siguen sujetas a CSRF salvo `/api/invitations/**`.
+El resto de los controladores exige sesión. `POST /api/auth/logout` lo atiende un filtro antes
+de la autorización y responde 204 con CSRF válido incluso sin sesión previa.
+Las escrituras públicas siguen sujetas a CSRF salvo `/api/invitations/**`.
 
 **El enlace de la sala se filtra en el servidor.** Si viajara en la respuesta confiando en que Angular no lo
 pinte, sería legible desde las herramientas del navegador. Solo se devuelve con el evento publicado y
@@ -783,7 +784,8 @@ salud de Mongo), D-7 (opciones en eventos publicados, R8), D-CONFIRMED-LINK (R8)
 - La página del invitado se diseña primero para móvil y se sirve con `Referrer-Policy: no-referrer`.
 - `canRespond` y `canChangeResponse` vienen calculados: no reimplementar el plazo, el fin del evento ni el
   estado.
-- El invitado no ve nunca qué opciones cuentan como asistencia.
+- El invitado no ve qué opciones cuentan como asistencia. En DATE_POLL, mostrar `pollResults` solo
+  cuando el servidor lo devuelva. Una selección vacía con `answered=true` significa «ninguna».
 - Mostrar `SENT` como "enviada" o "marcada como enviada", nunca como entregada. En el panel, un invitado puede
   ser `OPENED` con canal `WHATSAPP`.
 - WhatsApp: abrir los enlaces de uno en uno tras un gesto del usuario, porque los navegadores bloquean varias

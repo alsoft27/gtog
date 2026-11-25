@@ -2,10 +2,11 @@
 
 Qué hace la aplicación y qué requisitos cumple. El estado de la implementación, las decisiones y la deuda
 están en `plan-iteracion-1.md`; el contrato técnico de cada agregado, en `modelo-evento.md`,
-`modelo-invitado.md` y `modelo-usuario.md`.
+`modelo-invitado.md` y `modelo-usuario.md`. Los esquemas HTTP están en [OpenAPI](openapi.json).
 
 **Estado:** el backend del MVP (iteración 1) está implementado de R1 a R12, incluida la verificación de correo
-y la recuperación de contraseña. El frontend Angular no se ha empezado; los bloqueadores de despliegue
+y la recuperación de contraseña. También está cerrada la consulta de fechas por definir.
+El frontend Angular no se ha empezado; los bloqueadores de despliegue
 público siguen en el plan.
 
 ---
@@ -98,11 +99,11 @@ seguimiento.
 acompañantes, campos adicionales, check-in, cuentas de empresa, recordatorios automáticos, Telegram, plantilla
 de mensaje editable, aplicación móvil.
 
-**Ampliación aprobada, en desarrollo: eventos con fecha por definir.** El anfitrión propondrá fechas
+**Ampliación implementada: eventos con fecha por definir.** El anfitrión propone fechas
 candidatas con fecha obligatoria y hora opcional, sin hora de fin, y un plazo obligatorio para contestar.
-El invitado puede indicar disponibilidad en una, varias o ninguna; una respuesta sin disponibilidad se
-distinguirá de no haber respondido. Cambiar las candidatas invalidará las disponibilidades anteriores;
-se conserva solo la última respuesta. Después de vencer el plazo, los invitados ven, desde su enlace
+El invitado puede indicar disponibilidad en una, varias o ninguna. Una lista vacía se distingue de no
+haber respondido. Cambiar las candidatas invalida las disponibilidades anteriores.
+Se conserva solo la última respuesta. Después de vencer el plazo, los invitados ven, desde su enlace
 personal, los nombres y votos de la ronda vigente y distinguen quién marcó «ninguna» de quién no votó.
 El anfitrión consulta el seguimiento durante la votación y decide qué hacer con el evento al cierre.
 Esta consulta termina con el resultado. Al vencer el plazo, o si todos los invitados han respondido y no hay enlace público activo,
@@ -277,7 +278,7 @@ Capacidades previstas y no construidas, sin numeración de requisitos porque no 
 
 - **Muro social.** Espacio privado por evento con fotos, comentarios y reacciones; moderación y límites de
   almacenamiento. El acceso depende de estar invitado (el token), no de haber respondido ni confirmado. La
-  confirmación solo gobierna la visibilidad del enlace de la sala.
+  confirmación gobierna la visibilidad de la sala en fecha fija. En consultas se registra disponibilidad.
 - **Aplicación móvil.** Importación desde la agenda del teléfono, cámara directa al muro, notificaciones push,
   check-in por código QR y consulta sin conexión.
 - **Más modalidades y datos del evento.** Modalidad híbrida (exige que la respuesta indique el canal de

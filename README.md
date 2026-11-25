@@ -1,7 +1,8 @@
 # gtog
 
 Backend de **gtog**, una aplicación de organización de eventos. El anfitrión crea un evento, invita por correo,
-WhatsApp o Telegram, y cada invitado responde desde un enlace único, sin crear cuenta.
+WhatsApp, y cada invitado responde desde un enlace único, sin crear cuenta. También se pueden
+publicar consultas para votar fechas candidatas.
 
 Este repositorio es solo el backend. La especificación funcional completa vive en
 [`docs/definicion-funcional.md`](docs/definicion-funcional.md).
@@ -54,8 +55,8 @@ Este repositorio es solo el backend. La especificación funcional completa vive 
    ```
 
 Desde R12, `POST /api/events` devuelve **403 con `code=EMAIL_NOT_VERIFIED`** si el correo del anfitrión no
-está verificado. Los recorridos `.http` registran anfitriones `@example.com`, que no tienen buzón: sin el
-bypass local, ese será el resultado del primer `POST /api/events` de cada recorrido.
+está verificado. Los recorridos `rest-api.http`, `rest-api-join.http`, `rest-api-mail.http` y `rest-api-whatsapp.http`
+registran anfitriones `@example.com`. Sin el bypass local, fallará su primer `POST /api/events`.
 
 Para ejecutarlos en desarrollo local, añade **`APP_AUTH_AUTOVERIFYEMAIL=true`** a la configuración de
 ejecución de la aplicación en el IDE. Equivale a `app.auth.auto-verify-email=true`: verifica la cuenta al
@@ -68,10 +69,17 @@ La aplicación se niega a arrancar con el bypass activo si `app.public-base-url`
 `127.0.0.1`. Para probar la verificación real, arranca sin esa variable y usa `rest-api-verify.http` con
 `{{realRecipient}}` del entorno privado del cliente HTTP. Ese recorrido comprueba tras el login que
 `/api/auth/me` sigue mostrando `emailVerified=false` antes de verificar. No se ejecuta automáticamente.
+Para comprobar el aviso de una consulta por SMTP real, usa `rest-api-poll-notice.http` con una
+cuenta anfitriona ya verificada.
+
+El [contrato OpenAPI versionado](docs/openapi.json) se puede importar en un cliente OpenAPI.
+Usa `http://localhost:8080` como URL base en local. Si cambia el API, parte de `/v3/api-docs` y
+contrasta la exportación con `SecurityConfig`, los DTOs y los tests. Springdoc omite el logout
+y puede agrupar DTOs anidados homónimos. Conserva esos ajustes al actualizar el contrato.
 
 Con la aplicación arrancada:
 
-- Documentación OpenAPI (JSON): `http://localhost:8080/v3/api-docs`
+- OpenAPI generado por la aplicación (JSON): `http://localhost:8080/v3/api-docs`
 - Swagger UI: `http://localhost:8080/swagger-ui.html`
 - Salud de la aplicación: `http://localhost:8080/actuator/health` (incluye un indicador propio que hace
   `ping` contra la base de datos real de la app, no contra el indicador genérico de Mongo)
@@ -93,9 +101,9 @@ com.gtog
 │   ├── application/       implementación de los casos de uso
 │   └── infrastructure/
 │       ├── in/web/        controladores REST y DTOs
+│       ├── in/scheduling/  aviso al anfitrión de una consulta
 │       └── out/persistence/  documentos de Mongo y adaptadores
-├── user/                  registro y autenticación por sesión (R5)
-├── invitation/            envío de invitaciones (pendiente)
+├── user/                  cuentas, autenticación y cuotas de correo
 └── shared/                excepciones, configuración transversal (índices, salud, OpenAPI)
 ```
 
@@ -110,6 +118,7 @@ distintas del modelo de dominio, traducidas por mappers.
 |---|---|
 | [`docs/definicion-funcional.md`](docs/definicion-funcional.md) | Contexto funcional, alcance y requisitos del MVP y visión posterior |
 | [`docs/plan-iteracion-1.md`](docs/plan-iteracion-1.md) | Estado del plan: qué está cerrado, deuda técnica abierta, rebanadas pendientes |
+| [`docs/openapi.json`](docs/openapi.json) | Contrato OpenAPI 3.1 versionado del API funcional. Incluye la seguridad y el logout de los filtros |
 | [`docs/casos-de-uso.md`](docs/casos-de-uso.md) | Recorridos del API, ejemplos y contraste de métodos, seguridad y respuestas |
 | [`docs/modelo-evento.md`](docs/modelo-evento.md) | Modelo de datos del evento: campos, reglas de negocio, excepciones, endpoints |
 | [`docs/modelo-invitado.md`](docs/modelo-invitado.md) | Invitados, respuestas, consulta pública y envío de invitaciones |

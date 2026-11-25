@@ -4,7 +4,7 @@ Estado del modelo tras R1–R11: creación de eventos, consulta/listado (R1), op
 ubicación/acceso en línea (R3), editar/publicar/cancelar (R4), seguridad/ownership (R5), invitados (R6),
 consulta pública (R7), plazo editable, registro de respuesta, enlace por confirmación, opciones publicadas,
 cascada y calendario (R8), panel y contadores en el listado (R9), reservas atómicas y envío de correo (R10),
-y generación de enlaces y confirmación manual de WhatsApp (R11), además del enlace público de alta (RF-2.19).
+y generación de enlaces y confirmación manual de WhatsApp (R11), además del enlace público de alta (RF-2.19) y la consulta de fechas por definir.
 La vista pública incluye `canRespond`,
 calculado con la misma política que el PUT de respuesta. Las respuestas viven en `responses`, nunca
 embebidas en el evento. El muro social y Telegram siguen pendientes.
@@ -13,7 +13,7 @@ embebidas en el evento. El muro social y Telegram siguen pendientes.
 
 ## `Event` (agregado raíz)
 
-### Tipos temporales — pasos 1 a 4 de la ampliación
+### Tipos temporales
 
 `EventType` distingue `FIXED_DATE` y `DATE_POLL`. Omitirlo al crear mantiene `FIXED_DATE`.
 Desde el paso 2 se pueden crear, consultar y editar datos generales de borradores `DATE_POLL`.
@@ -175,10 +175,10 @@ persistido sin generar identidad ni aplicar defaults nuevos; valida la integrida
 | `description` | `String` | Descripción libre. Opcional. |
 | `eventType` | `EventType` (derivado de `schedule`) | `FIXED_DATE` o `DATE_POLL`. Ausente en documentos antiguos: `FIXED_DATE`. |
 | `schedule` | `EventSchedule` | `FixedDateSchedule` o `DatePollSchedule`. |
-| `startsAt` / `endsAt` | `LocalDateTime` (nullable) | En `FIXED_DATE`, inicio y fin locales; el fin debe ser posterior al inicio en UTC. En consultas sin selección, null, sin relleno. |
+| `startsAt` / `endsAt` | `LocalDateTime` (nullable) | En `FIXED_DATE`, inicio y fin locales; el fin debe ser posterior al inicio en UTC. En `DATE_POLL`, null. |
 | `timeZone` | `String` | Zona horaria IANA (`region/ciudad`, p. ej. `Europe/Madrid`). Se valida con `ZoneId.of(...)`; si no existe, `InvalidTimeZoneException`. |
 | `modality` | `Modality` | `IN_PERSON` o `ONLINE`. Un evento nunca es las dos cosas (modalidad híbrida fuera de alcance). |
-| `status` | `EventStatus` | `DRAFT`, `PUBLISHED`, `CANCELLED`. Ver máquina de estados más abajo. `FINISHED` no está implementado (D-FINISHED). |
+| `status` | `EventStatus` | `DRAFT`, `PUBLISHED`, `CANCELLED`, `FINISHED`. La transición a `FINISHED` sigue pendiente (D-FINISHED). |
 | `cancelledAt` | `Instant` (nullable) | Instante de cancelación. `null` si el evento no está cancelado. |
 | `cancellationReason` | `String` (nullable) | Motivo de cancelación, opcional. |
 | `responseOptions` | `List<ResponseOption>` | En `FIXED_DATE`, entre 2 y 5 embebidas; vacío en `DATE_POLL`. |
@@ -512,7 +512,7 @@ Los cuatro endpoints de invitados también son autenticados; las escrituras requ
 | `GET` | `/api/events/{id}/guests` | `200` + lista de `GuestInvitationResponse`, `404` |
 
 `EventResponse` continúa sin invitados ni tokens. El enlace individual solo se expone como `invitationPath`
-en el alta y el listado de invitados, para RF-2.16. El DTO web `GuestResponse` describe contactos editados;
+en el alta individual y por lote, el listado de invitados y el panel privado, para RF-2.16. El DTO web `GuestResponse` describe contactos editados;
 no es una respuesta de asistencia ni un documento de `responses`.
 
 El calendario público `GET /api/invitations/{token}/calendar` devuelve 200 con archivo `.ics`, UTF-8, attachment
@@ -524,8 +524,7 @@ zona, venue, URL ya filtrada y el instante del Clock para DTSTAMP. `InvitationCa
 iCal4j fuera del dominio y la aplicación. No se envían invitados, contactos, token, respuesta propia,
 contraseña, sala ni instrucciones al renderizador. Ver `modelo-invitado.md` para formato y configuración.
 
-Documentado también en OpenAPI (`/v3/api-docs`, `/swagger-ui.html`), ver sección "Documentación de API" en
-`AGENTS.md`.
+Esquemas y cabeceras en el [contrato OpenAPI versionado](openapi.json).
 
 ---
 

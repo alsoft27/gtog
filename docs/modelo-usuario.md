@@ -74,8 +74,9 @@ en el login — ambos comparten la misma instancia (`@Bean PasswordEncoder` en `
 (`Instant`, nullable, ausente leído como null), más `emailVerified` (`Boolean`, ausente leído como false),
 `authEmailSends` (`Integer`, ausente leído como 0), `authEmailWindowStartedAt` y `lastAuthEmailAt`
 (`Instant`, nullable). Los dos grupos de cuotas son independientes. `UserMapper` conserva todos los campos;
-`Password.fromHash(...)` rehidrata el objeto de valor al leer de Mongo. El alta inserta; verificar solo hace
-$set de emailVerified, sin save del documento existente y sin tocar cuotas.
+`Password.fromHash(...)` rehidrata el objeto de valor al leer de Mongo. El alta inserta. Verificar hace `$set` de `emailVerified`,
+sin guardar el documento completo ni tocar cuotas. El aviso de consulta lee solo el correo verificado
+del anfitrión mediante `PollNoticeRecipientAdapter`. No modifica la cuenta ni consume sus cuotas.
 
 Índice creado en el arranque (`MongoIndexInitializer`):
 
@@ -145,9 +146,8 @@ controladores pueden leer el id del anfitrión sin una segunda consulta a la bas
 | `ForgotPasswordUseCase` | `ForgotPasswordService` | Valida formato; encola búsqueda, cuota, emisión y envío. |
 | `ResetPasswordUseCase` | `ResetPasswordService` | Valida contraseña, consume, hashea, actualiza y revoca tokens y sesiones. |
 
-Login y logout se gestionan directamente en `AuthController` vía `AuthenticationManager` y la configuración
-de logout de `SecurityConfig`, sin caso de uso de dominio separado: no hay lógica de negocio en ellos más allá
-de la autenticación de Spring Security.
+El login se gestiona en `AuthController` vía `AuthenticationManager`. El logout lo atiende
+`LogoutFilter` con la configuración de `SecurityConfig`. Ninguno necesita un caso de uso de dominio separado.
 
 ---
 
@@ -157,7 +157,7 @@ de la autenticación de Spring Security.
 |---|---|---|---|
 | `POST` | `/api/auth/register` | `RegisterUserRequest` (`name`, `email`, `rawPassword`, `timeZone`) | `201` + `Location: /api/users/{id}` + `AuthUserResponse` (`id`, `name`, `email`, `timeZone`, `emailVerified`), `409` (email duplicado), `422` (regla de dominio) |
 | `POST` | `/api/auth/login` | `LoginRequest` (`email`, `password`) | `200` + `AuthUserResponse`, `401` (credenciales incorrectas) |
-| `POST` | `/api/auth/logout` | — | `204` |
+| `POST` | `/api/auth/logout` | — | `204` con CSRF válido, incluso sin sesión previa |
 | `POST` | `/api/auth/verify-email` | `{token}` | Público con CSRF: 200 sin cuerpo; token inválido/caducado/usado → mismo 400 |
 | `POST` | `/api/auth/resend-verification` | — | Sesión y CSRF: 204 uniforme, también verificado, limitado o envío fallido |
 | `GET` | `/api/auth/me` | — | Sesión: AuthUserResponse vigente, incluido emailVerified leído de la base; no-store exacto |
@@ -165,7 +165,8 @@ de la autenticación de Spring Security.
 | `POST` | `/api/auth/reset-password` | `{token, newPassword}` | Público con CSRF: 200 sin cuerpo; token inválido/caducado/usado → mismo 400; contraseña corta → 422 |
 
 Todos los endpoints de `/api/events/**` requieren sesión activa → 401 si no la hay.
-`/api/invitations/**` es público (resuelto por token de invitado).
+`/api/invitations/**` es público y usa la credencial de la ruta: token personal o de alta.
+El [contrato OpenAPI versionado](openapi.json) detalla esquemas, errores y cabeceras.
 
 Login también devuelve emailVerified. Los nuevos endpoints y /me usan Cache-Control: no-store exacto.
 Un GET anónimo de /me devuelve 401 y emite XSRF-TOKEN: enviarlo como cookie y X-XSRF-TOKEN permite alcanzar

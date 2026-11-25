@@ -87,7 +87,8 @@ deriva el token de ids, contactos u otros datos personales. El borrado del invit
 no se añade en R6 un endpoint de rotación.
 
 **RF-2.16:** el anfitrión necesita recuperar el enlace después de recargar la pantalla. Por eso el alta y el
-listado devuelven `GuestInvitationResponse`, con `invitationPath: /r/{token}`. El frontend completa esa ruta
+listado devuelven `GuestInvitationResponse`, con `invitationPath: /r/{token}`. El panel privado
+incluye el enlace en su propia fila de invitado. El frontend completa esa ruta
 con su origen para copiar el enlace. El frontend usa esa ruta para su página y consulta `GET /api/invitations/{token}`, ya implementado en R7.
 
 No se expone un campo `token` independiente. El `PUT` devuelve `GuestResponse` sin token ni enlace;
@@ -276,7 +277,7 @@ emailSendCount menor que el máximo (o ausente), y lastEmailSentAt nulo/ausente 
 Incrementa contador y version y fija el instante en la misma escritura. El documento anterior proporciona
 el comprobante de compensación; no se lee-modifica-guarda. Un rechazo por límite o intervalo no escribe.
 Los comprobantes usan precisión de milisegundos, igual que Mongo. Cambiar el correo normalizado reinicia
-ambos campos dentro de la edición atómica de R6 y su control de versión; cambiar solo nombre/teléfono no.
+ambos campos dentro de la edición atómica. Se compara el correo guardado en Mongo en esa misma\nescritura parcial, que incrementa `version` sin exigir una versión anterior. Cambiar solo nombre o teléfono\nconserva la reserva.
 
 Orden aprobado: elegibilidad → reserva del invitado → reserva del anfitrión → SMTP. Un fallo de cuota del
 anfitrión compensa al invitado y detiene el lote con DAILY_LIMIT. Si falla SMTP se compensa primero al
@@ -596,7 +597,7 @@ y `Cache-Control: no-store` exacto. No marca OPENED ni escribe el evento.
 | CANCELLED | 409 con ProblemDetail, instancia constante y no-store exacto; no se descarga un archivo |
 | FINISHED | 200; sin enlace online, porque visibleOnlineAccess exige PUBLISHED |
 
-La tabla de 200 con archivo corresponde a FIXED_DATE. Una consulta DATE_POLL sin fecha definitiva
+La tabla de 200 con archivo corresponde a FIXED_DATE. Una consulta DATE_POLL
 devuelve 409, también en FINISHED, sin invocar iCal4j. Mantiene no-store exacto, instance constante y
 ausencia del token en el cuerpo. El paso 7 añade la consulta de votos al cierre.
 

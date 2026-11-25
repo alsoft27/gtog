@@ -2,7 +2,7 @@
 
 Antes de implementar, lee docs/definicion-funcional.md y el modelo del agregado que toques.
 
-Backend de **gtog**, una aplicación de organización de eventos. El anfitrión crea un evento, invita por correo, WhatsApp o Telegram, y cada invitado responde desde un enlace único **sin crear cuenta**.
+Backend de **gtog**, una aplicación de organización de eventos. El anfitrión crea un evento, invita por correo o WhatsApp, y cada invitado responde desde un enlace único **sin crear cuenta**.
 
 Si algo de este archivo contradice la especificación, gana la especificación y avísame del conflicto.
 
@@ -15,6 +15,7 @@ Si algo de este archivo contradice la especificación, gana la especificación y
 - Consulta los documentos del proyecto:
     - `docs/definicion-funcional.md`: contexto funcional, alcance y requisitos.
     - `docs/plan-iteracion-1.md`: estado, decisiones, deuda y desarrollo pendiente.
+    - `docs/openapi.json`: contrato HTTP. Actualízalo con cada cambio de API.
     - `docs/casos-de-uso.md`: recorridos del API, ejemplos y verificación de métodos, seguridad y resultados.
     - `docs/modelo-evento.md`: contrato técnico del agregado de evento.
     - `docs/modelo-invitado.md`: contrato técnico del invitado dentro de event.
@@ -136,8 +137,8 @@ com.gtog
 │   ├── application/            implementación de los casos de uso
 │   └── infrastructure/
 │       ├── in/web/             controladores + DTOs de request y response
+│       ├── in/scheduling/      avisos de consultas
 │       └── out/persistence/    documentos de Mongo, adaptadores y mappers
-├── invitation/                 envío de correo, enlaces profundos de WhatsApp y Telegram
 ├── user/
 └── shared/                     excepciones, ProblemDetail, configuración transversal
 ```
